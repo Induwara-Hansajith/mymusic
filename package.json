@@ -38,12 +38,13 @@
       ],
       "icon": "build/icon.ico",
       "legalTrademarks": "My Music",
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "asInvoker",
+      "cscLink": "build/cert.pfx",
+      "cscKeyPassword": "MyMusicBuild2026!"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "My Music",
