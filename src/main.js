@@ -363,18 +363,22 @@ app.whenReady().then(() => {
   // CORS bypass on audio streams for Web Audio BiquadFilterNodes (EQ)
   try {
     session.defaultSession.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
-      if (!details) {
-        callback({});
-        return;
+      try {
+        if (!details) {
+          callback({});
+          return;
+        }
+        const responseHeaders = Object.assign({}, details.responseHeaders);
+        const url = details.url || '';
+        if (typeof url === 'string' && (url.includes('googlevideo.com') || url.includes('youtube.com'))) {
+          responseHeaders['access-control-allow-origin'] = ['*'];
+          responseHeaders['access-control-allow-headers'] = ['*'];
+          responseHeaders['access-control-allow-methods'] = ['GET, HEAD, OPTIONS'];
+        }
+        callback({ responseHeaders });
+      } catch (err) {
+        callback({ responseHeaders: (details && details.responseHeaders) || {} });
       }
-      const responseHeaders = Object.assign({}, details.responseHeaders);
-      const url = details.url || '';
-      if (typeof url === 'string' && (url.includes('googlevideo.com') || url.includes('youtube.com'))) {
-        responseHeaders['access-control-allow-origin'] = ['*'];
-        responseHeaders['access-control-allow-headers'] = ['*'];
-        responseHeaders['access-control-allow-methods'] = ['GET, HEAD, OPTIONS'];
-      }
-      callback({ responseHeaders });
     });
   } catch (e) {
     log('Failed to configure CORS interceptor:', e.message);

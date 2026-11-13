@@ -1927,8 +1927,11 @@ function doSearch(q) {
   if (S.search.q !== q) {
     S.search = { q, filter: S.search.filter || 'songs', results: {}, tok: S.search.tok };
   }
-  go('search', { q });
-  loadSearch(S.search.filter || 'songs');
+  if (S.view !== 'search' || S.params.q !== q) {
+    go('search', { q });
+  } else {
+    loadSearch(S.search.filter || 'songs');
+  }
 }
 
 function onClick(e) {
