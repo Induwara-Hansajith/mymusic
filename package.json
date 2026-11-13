@@ -1,0 +1,63 @@
+{
+  "name": "my-music",
+  "productName": "My Music",
+  "version": "1.1.0",
+  "description": "My Music - a Spotify-style desktop player powered by YouTube Music",
+  "main": "src/main.js",
+  "author": "induw",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "node test\\smoke.mjs",
+    "test:e2e": "node test\\e2e-live.mjs",
+    "dist": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.induw.mymusic",
+    "productName": "My Music",
+    "copyright": "Copyright © 2026 induw",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "build/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/yt-dlp.exe",
+        "to": "bin/yt-dlp.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "build/icon.ico",
+      "legalTrademarks": "My Music",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "My Music",
+      "uninstallDisplayName": "My Music",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  },
+  "dependencies": {
+    "@xhayper/discord-rpc": "^1.5.1",
+    "youtubei.js": "^18.3.0"
+  },
+  "devDependencies": {
+    "electron": "^45.3.1",
+    "electron-builder": "^26.18.0"
+  }
+}

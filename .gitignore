@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+
+# build output & archives
+dist/
+dist.rar
+
+# logs & temp files
+*.log
+*.tmp
+
+# OS / editor junk
+Thumbs.db
+.DS_Store
