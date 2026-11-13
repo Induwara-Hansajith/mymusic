@@ -362,9 +362,14 @@ async function updatePresence(data) {
 app.whenReady().then(() => {
   // CORS bypass on audio streams for Web Audio BiquadFilterNodes (EQ)
   try {
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    session.defaultSession.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+      if (!details) {
+        callback({});
+        return;
+      }
       const responseHeaders = Object.assign({}, details.responseHeaders);
-      if (details.url.includes('googlevideo.com') || details.url.includes('youtube.com')) {
+      const url = details.url || '';
+      if (typeof url === 'string' && (url.includes('googlevideo.com') || url.includes('youtube.com'))) {
         responseHeaders['access-control-allow-origin'] = ['*'];
         responseHeaders['access-control-allow-headers'] = ['*'];
         responseHeaders['access-control-allow-methods'] = ['GET, HEAD, OPTIONS'];

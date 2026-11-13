@@ -56,7 +56,11 @@ function payloadOf(t) {
 }
 
 function lastThumb(thumb) {
+  if (!thumb) return '';
+  if (typeof thumb === 'string') return thumb;
+  if (thumb.url && typeof thumb.url === 'string') return thumb.url;
   const arr = thumb && thumb.contents ? thumb.contents : (Array.isArray(thumb) ? thumb : []);
+  if (!arr.length) return '';
   const last = arr[arr.length - 1];
   return (last && last.url) || '';
 }

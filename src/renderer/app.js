@@ -432,13 +432,20 @@ async function loadSearch(filter) {
   const tok = ++S.search.tok;
   const body = $('#searchBody');
   if (body) body.innerHTML = '<div class="loading">Searching…</div>';
+  let r;
   try {
-    const r = await call('ytm:search', { query: q, filter });
-    if (tok !== S.search.tok || S.search.q !== q) return;
-    S.search.results[filter] = r;
-    renderSearchBody();
+    r = await call('ytm:search', { query: q, filter });
   } catch (e) {
     if (tok === S.search.tok && body) body.innerHTML = `<div class="loading">Search failed: ${esc(e.message)}</div>`;
+    return;
+  }
+  if (tok !== S.search.tok || S.search.q !== q) return;
+  S.search.results[filter] = r;
+  try {
+    renderSearchBody();
+  } catch (err) {
+    console.error('Error rendering search results:', err);
+    if (body) body.innerHTML = `<div class="loading">Render failed: ${esc(err.message)}</div>`;
   }
 }
 
