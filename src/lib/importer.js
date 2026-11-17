@@ -71,10 +71,24 @@ function parseCsv(text) {
   return result;
 }
 
+function normalizeMediaUrl(raw) {
+  const value = String(raw || '').trim();
+  if (!value || value.startsWith('-')) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function resolveUrl(url) {
   return new Promise((resolve, reject) => {
-    if (!url || typeof url !== 'string') return reject(new Error('Invalid URL'));
-    const args = ['--flat-playlist', '-J', '--no-warnings', url.trim()];
+    const safeUrl = normalizeMediaUrl(url);
+    if (!safeUrl) return reject(new Error('Only http(s) URLs are supported'));
+    // '--' ends option parsing so a URL can never be interpreted as a yt-dlp flag.
+    const args = ['--flat-playlist', '-J', '--no-warnings', '--', safeUrl];
     const p = spawn(YTDLP, args, { windowsHide: true });
     let stdout = '', stderr = '';
     const to = setTimeout(() => {

@@ -1,13 +1,14 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 
 const store = require('./lib/store');
 const ytm = require('./lib/ytm');
 const downloader = require('./lib/downloader');
 const importer = require('./lib/importer');
 
-app.setAppUserModelId('com.mymusic.app');
+app.setAppUserModelId('com.induw.mymusic');
 
 function log(...args) {
   const line = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
@@ -224,8 +225,10 @@ function createWindow() {
 
   // Navigation hardening: no popups, no off-app navigation.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  const appUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
   win.webContents.on('will-navigate', (e, url) => {
-    if (!String(url).startsWith('file://')) e.preventDefault();
+    // Single-page app: only the packaged page may ever be navigated to.
+    if (url !== appUrl) e.preventDefault();
   });
 
   win.webContents.on('console-message', (...args) => {
@@ -362,7 +365,7 @@ async function updatePresence(data) {
 app.whenReady().then(() => {
   // CORS bypass on audio streams for Web Audio BiquadFilterNodes (EQ)
   try {
-    session.defaultSession.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+    session.defaultSession.webRequest.onHeadersReceived({ urls: ['*://*.googlevideo.com/*', '*://*.youtube.com/*'] }, (details, callback) => {
       try {
         if (!details) {
           callback({});

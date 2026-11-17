@@ -12,3 +12,10 @@ dist.rar
 # OS / editor junk
 Thumbs.db
 .DS_Store
+
+# Code signing secrets — never commit private keys
+build/*.pfx
+build/*.cer
+build/*.p12
+build/*.key
+

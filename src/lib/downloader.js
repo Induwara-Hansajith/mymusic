@@ -80,6 +80,7 @@ function sanitize(name) {
 function downloadTrack(track) {
   return new Promise((resolve, reject) => {
     if (!track || !track.id) return reject(new Error('Invalid track'));
+    if (!/^[A-Za-z0-9_-]{11}$/.test(track.id)) return reject(new Error('Invalid track ID format'));
     const dir = getDownloadDir();
     const safeTitle = sanitize(track.title || 'Unknown');
     const safeArtist = sanitize(track.artist || 'Unknown');
@@ -152,11 +153,15 @@ function downloadTrack(track) {
 }
 
 function reveal(filePath) {
-  if (filePath && fs.existsSync(filePath)) {
-    shell.showItemInFolder(filePath);
-    return true;
-  }
   const dir = getDownloadDir();
+  if (filePath) {
+    const resolved = path.resolve(filePath);
+    // Confine to the downloads directory to prevent path traversal
+    if (resolved.startsWith(dir + path.sep) || resolved === dir) {
+      shell.showItemInFolder(resolved);
+      return true;
+    }
+  }
   shell.openPath(dir);
   return true;
 }
