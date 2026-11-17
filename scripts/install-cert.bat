@@ -1,4 +1,5 @@
 @echo off
-echo Installing My Music code signing certificate to trusted stores...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Certificate -FilePath '%~dp0..\build\MyMusic.cer' -CertStoreLocation Cert:\CurrentUser\TrustedPublisher; Import-Certificate -FilePath '%~dp0..\build\MyMusic.cer' -CertStoreLocation Cert:\CurrentUser\TrustedPeople; Write-Host 'Certificate successfully installed into CurrentUser stores!' -ForegroundColor Green"
+echo Installing the My Music code-signing certificate for the current user...
+echo Only do this on a PC you control. It trusts code signed with build\MyMusic.cer.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Certificate -FilePath '%~dp0..\build\MyMusic.cer' -CertStoreLocation Cert:\CurrentUser\Root; Import-Certificate -FilePath '%~dp0..\build\MyMusic.cer' -CertStoreLocation Cert:\CurrentUser\TrustedPublisher; Write-Host 'Certificate installed into CurrentUser Root and TrustedPublisher.' -ForegroundColor Green"
 pause
