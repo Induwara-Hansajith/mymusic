@@ -19,6 +19,8 @@ let ytm = null;
 let initPromise = null;
 const streamCache = new Map(); // videoId -> { urls, expires }
 const lyricsCache = new Map(); // key -> lyrics result
+const searchCache = new Map(); // key -> { result, expires }
+const suggestionsCache = new Map(); // query -> { result, expires }
 
 // YouTube video ids are exactly 11 chars of [A-Za-z0-9_-]; anything else must
 // be rejected before it reaches yt-dlp as a spawn argument.
@@ -100,17 +102,18 @@ function metaParts(row) {
 // ---------- normalizers (v18 parsed rows expose .id/.title/.artists/.album/.duration) ----------
 
 function trackFromRow(row) {
-  const p0 = payloadOf(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || {};
+  const p0 = payloadOf(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || (row.endpoint && row.endpoint.payload) || {};
   const vt = ((p0.watchEndpointMusicSupportedConfigs || {}).watchEndpointMusicConfig || {}).musicVideoType || '';
   const isVideo = (row.item_type || '').toLowerCase() === 'video' || vt === 'MUSIC_VIDEO_TYPE_OMV' || vt === 'MUSIC_VIDEO_TYPE_UGV';
 
-  const artists = row.artists || row.authors || [];
+  const artists = row.artists || row.authors || (row.author ? [row.author] : []);
   const album = row.album;
-  const dur = row.duration;
+  const title = row.title || T(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || 'Unknown title';
+  const id = row.id || p0.videoId || null;
 
   return {
-    id: row.id || (p0.videoId || null),
-    title: row.title || 'Unknown title',
+    id,
+    title,
     artist: (artists.length ? artists.map(a => a.name).filter(Boolean).join(', ') : '') || metaParts(row)[0] || 'Unknown',
     artistId: (artists[0] && (artists[0].channel_id || (artists[0].endpoint && artists[0].endpoint.payload && artists[0].endpoint.payload.browseId))) || null,
     album: (album && (album.name || T(album))) || '',
@@ -122,11 +125,16 @@ function trackFromRow(row) {
 }
 
 function albumFromRow(row) {
+  const p0 = (row.endpoint && row.endpoint.payload) || {};
+  const authorName = (row.author && row.author.name) || (row.artists && row.artists[0] && row.artists[0].name) || metaParts(row)[0] || '';
+  const authorId = (row.author && (row.author.channel_id || (row.author.endpoint && row.author.endpoint.payload && row.author.endpoint.payload.browseId))) || (row.artists && row.artists[0] && row.artists[0].channel_id) || null;
+  const title = row.title || T(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || 'Unknown album';
+  const id = row.id || p0.browseId || null;
   return {
-    id: row.id || null,
-    title: row.title || 'Unknown album',
-    artist: metaParts(row)[0] || '',
-    artistId: null,
+    id,
+    title,
+    artist: authorName,
+    artistId: authorId,
     thumb: lastThumb(row.thumbnail),
     year: (typeof row.year === 'object' ? T(row.year) : row.year) || '',
     type: 'album'
@@ -134,26 +142,37 @@ function albumFromRow(row) {
 }
 
 function artistFromRow(row) {
+  const p0 = (row.endpoint && row.endpoint.payload) || {};
+  const name = row.name || row.title || T(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || (row.author && row.author.name) || 'Unknown artist';
+  const id = row.id || p0.browseId || null;
   return {
-    id: row.id || null,
-    name: row.name || row.title || 'Unknown artist',
+    id,
+    name,
     thumb: lastThumb(row.thumbnail),
     type: 'artist'
   };
 }
 
 function playlistFromRow(row) {
+  const p0 = (row.endpoint && row.endpoint.payload) || {};
+  const owner = (row.author && row.author.name) || metaParts(row).pop() || '';
+  const title = row.title || T(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || 'Unknown playlist';
+  const id = row.id || p0.browseId || null;
   return {
-    id: row.id || null,
-    title: row.title || 'Unknown playlist',
-    owner: metaParts(row).pop() || '',
+    id,
+    title,
+    owner,
     thumb: lastThumb(row.thumbnail),
     type: 'playlist'
   };
 }
 
 function classifyRow(row, out) {
-  if (!row || row.type !== 'MusicResponsiveListItem' || !row.id) return false;
+  if (!row) return false;
+  const p0 = payloadOf(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || (row.endpoint && row.endpoint.payload) || {};
+  const id = row.id || p0.videoId || p0.browseId || null;
+  if (!id) return false;
+
   const itemType = (row.item_type || '').toLowerCase();
   if (itemType === 'song' || itemType === 'video') { out[itemType === 'song' ? 'songs' : 'videos'].push(trackFromRow(row)); return true; }
   if (itemType === 'album' || itemType === 'single' || itemType === 'single-ep' || itemType === 'ep') { out.albums.push(albumFromRow(row)); return true; }
@@ -161,10 +180,10 @@ function classifyRow(row, out) {
   if (itemType === 'playlist') { out.playlists.push(playlistFromRow(row)); return true; }
 
   // no item_type: infer by id shape
-  if (/^MPRE/.test(row.id)) { out.albums.push(albumFromRow(row)); return true; }
-  if (/^UC/.test(row.id)) { out.artists.push(artistFromRow(row)); return true; }
-  if (/^(VL|PL)/.test(row.id)) { out.playlists.push(playlistFromRow(row)); return true; }
-  if (/^[A-Za-z0-9_-]{11}$/.test(row.id)) {
+  if (/^MPRE/.test(id)) { out.albums.push(albumFromRow(row)); return true; }
+  if (/^UC/.test(id)) { out.artists.push(artistFromRow(row)); return true; }
+  if (/^(VL|PL)/.test(id)) { out.playlists.push(playlistFromRow(row)); return true; }
+  if (/^[A-Za-z0-9_-]{11}$/.test(id)) {
     const t = trackFromRow(row);
     if (t.id) { out[t.type === 'video' ? 'videos' : 'songs'].push(t); return true; }
   }
@@ -260,84 +279,114 @@ function finalize(out) {
   return out;
 }
 
+// Map frontend filter tabs to direct YouTube Music InnerTube search types
+const FILTER_TYPE_MAP = {
+  songs: 'song',
+  videos: 'video',
+  albums: 'album',
+  artists: 'artist',
+  playlists: 'playlist'
+};
+
+const SEARCH_CACHE_MAX = 100;
+const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // ---------- public API ----------
 
 async function search(query, filter) {
   await ensureInit();
-  if (!query || !query.trim()) return finalize(emptyResult());
+  const q = (query || '').trim();
+  if (!q) return finalize(emptyResult());
 
-  const base = await ytm.search(query.trim());
-  if (!filter) return finalize(parseSearchResponse(base));
+  const cacheKey = `${filter || 'all'}:${q.toLowerCase()}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    return cached.result;
+  }
 
-  // Match YT Music's filter chips dynamically and case-insensitively
-  const LABEL = { songs: 'Songs', videos: 'Videos', albums: 'Albums', artists: 'Artists' };
-  const out = emptyResult();
-  try {
-    if (filter === 'playlists') {
-      for (const label of ['Featured playlists', 'Community playlists', 'Playlists']) {
-        const chip = (base.filters || []).find(f => f.toLowerCase() === label.toLowerCase());
-        if (chip) {
-          try {
-            const part = parseSearchResponse(await base.applyFilter(chip));
-            out.playlists.push(...part.playlists);
-          } catch { /* chip missing for some queries */ }
-        }
+  const directType = FILTER_TYPE_MAP[filter];
+  let out = emptyResult();
+
+  // Fast direct 1-step search using InnerTube protobuf filter
+  if (directType) {
+    try {
+      const res = await ytm.search(q, { type: directType });
+      const parsed = parseSearchResponse(res);
+      if (filter === 'songs') {
+        out.songs = [...parsed.songs, ...(parsed.videos || [])];
+      } else {
+        out[filter] = parsed[filter] || [];
       }
-      if (!out.playlists.length) out.playlists = parseSearchResponse(base).playlists;
-    } else {
-      const target = LABEL[filter] || filter;
-      const chip = (base.filters || []).find(f => f.toLowerCase() === target.toLowerCase() || f.toLowerCase().includes(filter));
-      if (chip) {
-        const part = parseSearchResponse(await base.applyFilter(chip));
-        out[filter] = part[filter] || [];
-        // Under songs filter, also include any tracks classified as videos
-        if (filter === 'songs' && part.videos && part.videos.length) {
-          out.songs.push(...part.videos);
-        }
-      }
-      // If the filter chip was not found or produced 0 items, fall back to base search
-      if (!out[filter].length) {
-        const part = parseSearchResponse(base);
-        out[filter] = part[filter] || [];
-        if (filter === 'songs' && part.videos && part.videos.length) {
-          out.songs.push(...part.videos);
-        }
-      }
-    }
-  } catch {
-    const part = parseSearchResponse(base);
-    out[filter] = part[filter] || [];
-    if (filter === 'songs' && part.videos && part.videos.length) {
-      out.songs.push(...part.videos);
+    } catch {
+      // Direct filter error, fallback to base
     }
   }
-  return finalize(out);
+
+  // Fallback to base search if direct query returned no items or no specific filter requested
+  if (!filter || !out[filter] || out[filter].length === 0) {
+    try {
+      const base = await ytm.search(q);
+      const parsed = parseSearchResponse(base);
+      if (!filter) {
+        out = parsed;
+      } else {
+        out[filter] = parsed[filter] || [];
+        if (filter === 'songs' && parsed.videos && parsed.videos.length) {
+          out.songs.push(...parsed.videos);
+        }
+      }
+    } catch {
+      // Base search error
+    }
+  }
+
+  const result = finalize(out);
+  pruneCache(searchCache, SEARCH_CACHE_MAX);
+  searchCache.set(cacheKey, { result, expires: Date.now() + SEARCH_CACHE_TTL });
+  return result;
 }
 
 function parseSearchResponse(res) {
   const out = emptyResult();
-  for (const node of res.contents || []) {
-    if (node.type === 'MusicCardShelf') {
-      classifyCardShelf(node, out);
-    } else if (node.type === 'MusicShelf' || node.type === 'ItemSection' || node.type === 'MusicCarouselShelf' || node.type === 'Shelf') {
-      for (const row of (node.contents || [])) {
-        if (!classifyRow(row, out) && row.type === 'MusicTwoRowItem') {
-          const it = twoRowItem(row);
-          if (it && it.id) out[it.type + 's'].push(it);
-        }
+
+  function parseNodes(nodes) {
+    for (const node of (nodes || [])) {
+      if (!node) continue;
+      if (node.type === 'MusicCardShelf') {
+        classifyCardShelf(node, out);
+      } else if (node.type === 'MusicResponsiveListItem') {
+        classifyRow(node, out);
+      } else if (node.type === 'MusicTwoRowItem') {
+        const it = twoRowItem(node);
+        if (it && it.id) out[it.type + 's'].push(it);
+      } else if (node.contents && Array.isArray(node.contents)) {
+        parseNodes(node.contents);
+      } else if (node.items && Array.isArray(node.items)) {
+        parseNodes(node.items);
+      } else {
+        classifyRow(node, out);
       }
-    } else {
-      classifyRow(node, out);
     }
   }
+
+  parseNodes(res && res.contents);
   return out;
 }
 
+const SUGGESTIONS_CACHE_MAX = 100;
+const SUGGESTIONS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 async function suggestions(query) {
   await ensureInit();
-  if (!query || !query.trim()) return [];
+  const q = (query || '').trim();
+  if (!q) return [];
+
+  const cacheKey = q.toLowerCase();
+  const cached = suggestionsCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.result;
+
   try {
-    const s = await ytm.getSearchSuggestions(query.trim());
+    const s = await ytm.getSearchSuggestions(q);
     const out = [];
     for (const sec of (s || [])) {
       for (const it of (sec.contents || [])) {
@@ -345,7 +394,10 @@ async function suggestions(query) {
         if (txt) out.push(txt);
       }
     }
-    return out.slice(0, 8);
+    const result = out.slice(0, 8);
+    pruneCache(suggestionsCache, SUGGESTIONS_CACHE_MAX);
+    suggestionsCache.set(cacheKey, { result, expires: Date.now() + SUGGESTIONS_CACHE_TTL });
+    return result;
   } catch {
     return [];
   }

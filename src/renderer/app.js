@@ -265,7 +265,7 @@ function navBack() {
   if (S.view === 'search' && S.params.q != null) {
     S.search.q = S.params.q;
     const input = $('#searchInput');
-    if (input) input.value = S.params.q;
+    if (input && document.activeElement !== input) input.value = S.params.q;
   }
   render(); updateNavActive();
 }
@@ -277,7 +277,7 @@ function navFwd() {
   if (S.view === 'search' && S.params.q != null) {
     S.search.q = S.params.q;
     const input = $('#searchInput');
-    if (input) input.value = S.params.q;
+    if (input && document.activeElement !== input) input.value = S.params.q;
   }
   render(); updateNavActive();
 }
@@ -408,7 +408,7 @@ function renderSearch() {
   const q = S.params.q != null ? S.params.q : S.search.q;
   S.search.q = q;
   const input = $('#searchInput');
-  if (input && q && input.value !== q) input.value = q;
+  if (input && q && input.value !== q && document.activeElement !== input) input.value = q;
   const tabs = [['songs', 'Songs'], ['videos', 'Videos'], ['albums', 'Albums'], ['artists', 'Artists'], ['playlists', 'Playlists']];
   set(`<h1 class="page-title">${q ? `Results for “${esc(q)}”` : 'Search'}</h1>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${k === S.search.filter ? 'on' : ''}" data-action="tab" data-tab="${k}">${l}</button>`).join('')}</div>
@@ -439,8 +439,10 @@ async function loadSearch(filter) {
     if (tok === S.search.tok && body) body.innerHTML = `<div class="loading">Search failed: ${esc(e.message)}</div>`;
     return;
   }
+  if (S.search.q === q) {
+    S.search.results[filter] = r;
+  }
   if (tok !== S.search.tok || S.search.q !== q) return;
-  S.search.results[filter] = r;
   try {
     renderSearchBody();
   } catch (err) {
@@ -1818,39 +1820,78 @@ function bindShellEvents() {
   // suggestions & search input
   const input = $('#searchInput');
   const sugg = $('#sugg');
+  let suggIdx = -1;
+
   const doSuggestions = debounce(async () => {
     const q = input.value.trim();
-    if (!q) { sugg.classList.remove('open'); return; }
+    if (!q) { sugg.classList.remove('open'); suggIdx = -1; return; }
     try {
       const list = await call('ytm:suggestions', { query: q });
-      if (!list.length) { sugg.classList.remove('open'); return; }
+      if (!list.length || input.value.trim() !== q) { sugg.classList.remove('open'); return; }
+      suggIdx = -1;
       sugg.innerHTML = list.map(s => `<button data-sugg="${esc(s)}">${esc(s)}</button>`).join('');
       sugg.classList.add('open');
     } catch { sugg.classList.remove('open'); }
-  }, 200);
+  }, 180);
 
   const doLiveSearch = debounce(() => {
     const q = input.value.trim();
-    if (S.view === 'search' && q && q !== S.search.q) {
-      doSearch(q);
+    if (q && q !== S.search.q) {
+      doSearch(q, { live: true });
     }
-  }, 450);
+  }, 350);
 
   input.addEventListener('input', () => {
+    suggIdx = -1;
     doSuggestions();
     doLiveSearch();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); doSearch(input.value); }
-    if (e.key === 'Escape') { sugg.classList.remove('open'); input.blur(); }
+    const items = $$('#sugg button');
+    if (sugg.classList.contains('open') && items.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        suggIdx = (suggIdx + 1) % items.length;
+        items.forEach((b, i) => b.classList.toggle('sel', i === suggIdx));
+        if (items[suggIdx]) input.value = items[suggIdx].dataset.sugg;
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        suggIdx = (suggIdx - 1 + items.length) % items.length;
+        items.forEach((b, i) => b.classList.toggle('sel', i === suggIdx));
+        if (items[suggIdx]) input.value = items[suggIdx].dataset.sugg;
+        return;
+      }
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      suggIdx = -1;
+      sugg.classList.remove('open');
+      doSearch(input.value);
+    }
+    if (e.key === 'Escape') {
+      suggIdx = -1;
+      sugg.classList.remove('open');
+      input.blur();
+    }
   });
   sugg.addEventListener('mousedown', (e) => {
     const b = e.target.closest('[data-sugg]');
-    if (b) { e.preventDefault(); doSearch(b.dataset.sugg); }
+    if (b) {
+      e.preventDefault();
+      const val = b.dataset.sugg;
+      input.value = val;
+      sugg.classList.remove('open');
+      doSearch(val);
+    }
   });
   const searchBtn = $('#searchBtn');
   if (searchBtn) {
-    searchBtn.addEventListener('click', () => doSearch(input.value));
+    searchBtn.addEventListener('click', () => {
+      sugg.classList.remove('open');
+      doSearch(input.value);
+    });
   }
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#searchWrap')) sugg.classList.remove('open');
@@ -1917,16 +1958,28 @@ function bindShellEvents() {
   }, true);
 }
 
-function doSearch(q) {
+function doSearch(q, opts = {}) {
   q = (q || '').trim();
   if (!q) return;
   const input = $('#searchInput');
-  if (input) input.value = q;
+  if (input && document.activeElement !== input) input.value = q;
   const sugg = $('#sugg');
   if (sugg) sugg.classList.remove('open');
-  if (S.search.q !== q) {
+
+  const queryChanged = S.search.q !== q;
+  if (queryChanged) {
     S.search = { q, filter: S.search.filter || 'songs', results: {}, tok: S.search.tok };
   }
+
+  // Live in-place search update when already on search view
+  if (S.view === 'search' && opts.live) {
+    S.params.q = q;
+    const titleEl = $('#content .page-title');
+    if (titleEl) titleEl.textContent = `Results for “${q}”`;
+    loadSearch(S.search.filter || 'songs');
+    return;
+  }
+
   if (S.view !== 'search' || S.params.q !== q) {
     go('search', { q });
   } else {
@@ -1953,7 +2006,7 @@ function onClick(e) {
     if (v === 'search') {
       $('#searchInput').focus();
       if (S.search.q) {
-        $('#searchInput').value = S.search.q;
+        if (document.activeElement !== $('#searchInput')) $('#searchInput').value = S.search.q;
         go('search', { q: S.search.q });
       } else {
         go('search', {});
