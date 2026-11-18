@@ -405,6 +405,7 @@ ipcMain.handle('ytm:suggestions', wrap((p) => ytm.suggestions(p.query)));
 ipcMain.handle('ytm:home', wrap(() => ytm.home()));
 ipcMain.handle('ytm:album', wrap((p) => ytm.album(p.id)));
 ipcMain.handle('ytm:artist', wrap((p) => ytm.artist(p.id)));
+ipcMain.handle('ytm:artist-thumb', wrap((p) => ytm.artistThumb(p && p.name, p && p.artistId)));
 ipcMain.handle('ytm:playlist', wrap((p) => ytm.playlist(p.id)));
 ipcMain.handle('ytm:stream', wrap((p) => ytm.stream(p.id)));
 ipcMain.handle('ytm:lyrics', wrap((p) => ytm.lyrics(p.track)));

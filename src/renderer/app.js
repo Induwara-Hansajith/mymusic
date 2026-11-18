@@ -589,17 +589,88 @@ function renderHome() {
   }
   if (topArtists.length) {
     html += `<div class="sechead"><h2>Your top artists</h2></div>`;
-    html += `<div class="grid">${topArtists.map(([name, a]) => `<button class="card round artist-chip" data-action="home-artist-search" data-query="${esc(name)}">
-      <div class="card-thumb"><div class="artist-avatar">${esc(name.slice(0,1).toUpperCase())}</div></div>
-      <div class="card-title">${esc(name)}</div>
-      <div class="card-sub">${a.plays} plays</div>
-    </button>`).join('')}</div>`;
+    html += `<div class="grid">${topArtists.map(([name, a]) => {
+      const thumb = a.thumb || (S.artistThumbs && S.artistThumbs[name]);
+      const thumbHtml = thumb
+        ? `<img class="artist-img" src="${esc(thumb)}" alt="${esc(name)}">`
+        : `<div class="artist-avatar">${esc(name.slice(0,1).toUpperCase())}</div>`;
+      return `<button class="card round artist-chip" data-action="${a.id ? 'artist' : 'home-artist-search'}" data-id="${esc(a.id || '')}" data-query="${esc(name)}">
+        <div class="card-thumb" data-artist-thumb-home="${esc(name)}">${thumbHtml}</div>
+        <div class="card-title">${esc(name)}</div>
+        <div class="card-sub">${a.plays} plays</div>
+      </button>`;
+    }).join('')}</div>`;
   }
   html += `<div id="homePersonal"></div>`;
   html += `<div id="homeFeed"><div class="home-skeleton">${[0,1,2,3].map(()=>'<div class="skel-row"></div>').join('')}</div></div>`;
   set(html);
+  loadTopArtistThumbs(topArtists);
   loadPersonalizedFeed();
   loadHomeFeed();
+}
+
+function findArtistId(name) {
+  if (!name || !S.store) return null;
+  const match = (t) => t && t.artist === name && t.artistId;
+  const fromRec = (S.store.recent || []).find(match);
+  if (fromRec) return fromRec.artistId;
+  const fromFav = (S.store.favorites || []).find(match);
+  if (fromFav) return fromFav.artistId;
+  const tracks = Object.values((S.store.playStats && S.store.playStats.tracks) || {});
+  const fromTracks = tracks.find(match);
+  if (fromTracks) return fromTracks.artistId;
+  return null;
+}
+
+if (!S.artistThumbs) S.artistThumbs = {};
+
+function updateArtistThumbInDom(name, thumb, id) {
+  document.querySelectorAll('[data-artist-thumb-home]').forEach(el => {
+    if (el.dataset.artistThumbHome === name) {
+      el.innerHTML = `<img class="artist-img" src="${esc(thumb)}" alt="${esc(name)}">`;
+      const btn = el.closest('button.artist-chip');
+      if (btn && id) {
+        btn.dataset.action = 'artist';
+        btn.dataset.id = id;
+      }
+    }
+  });
+  document.querySelectorAll('[data-artist-thumb-stat]').forEach(el => {
+    if (el.dataset.artistThumbStat === name) {
+      el.innerHTML = `<img class="top-thumb round" src="${esc(thumb)}" alt="${esc(name)}">`;
+      const item = el.closest('.top-item');
+      if (item && id) {
+        item.dataset.action = 'artist';
+        item.dataset.id = id;
+      }
+    }
+  });
+}
+
+async function loadTopArtistThumbs(artistsList) {
+  if (!artistsList || !artistsList.length) return;
+  for (const [name, a] of artistsList) {
+    if (a.thumb) {
+      S.artistThumbs[name] = a.thumb;
+      continue;
+    }
+    if (S.artistThumbs[name]) {
+      a.thumb = S.artistThumbs[name];
+      updateArtistThumbInDom(name, S.artistThumbs[name], a.id);
+      continue;
+    }
+    const knownId = a.id || findArtistId(name);
+    call('ytm:artist-thumb', { name, artistId: knownId }).then((res) => {
+      if (!res || !res.thumb) return;
+      const thumb = res.thumb;
+      const id = res.id || knownId;
+      S.artistThumbs[name] = thumb;
+      a.thumb = thumb;
+      if (id && !a.id) a.id = id;
+      mutate({ type: 'stats.artistUpdate', artist: name, thumb, id: a.id }).catch(() => {});
+      updateArtistThumbInDom(name, thumb, a.id);
+    }).catch(() => {});
+  }
 }
 
 async function loadPersonalizedFeed() {
@@ -4074,7 +4145,7 @@ function recordListening(t, seconds = 30) {
   S.recorded.add(key);
   mutate({
     type: 'stats.record',
-    track: { id: t.id, title: t.title, artist: t.artist, thumb: t.thumb, duration: t.duration },
+    track: { id: t.id, title: t.title, artist: t.artist, artistId: t.artistId, artistThumb: t.artistThumb, thumb: t.thumb, duration: t.duration },
     seconds: Math.round(seconds)
   }).catch(() => {});
 }
@@ -4123,16 +4194,23 @@ function renderStats(tok) {
     </div>
   `).join('') : '<div class="q-empty" style="padding:16px 0">Play some songs to build your top tracks list!</div>';
 
-  const topArtistsHtml = topArtistsList.length ? topArtistsList.map(([artist, a], i) => `
-    <div class="top-item">
-      <div class="top-rank rank-${i + 1}">${i + 1}</div>
-      <div class="top-meta">
-        <div class="top-title">${esc(artist)}</div>
-        <div class="top-sub">${Math.round(a.seconds / 60)} minutes listened</div>
+  const topArtistsHtml = topArtistsList.length ? topArtistsList.map(([artist, a], i) => {
+    const thumb = a.thumb || (S.artistThumbs && S.artistThumbs[artist]);
+    const thumbHtml = thumb
+      ? `<img class="top-thumb round" src="${esc(thumb)}" alt="${esc(artist)}">`
+      : `<div class="top-thumb round artist-avatar" style="font-size:15px;width:40px;height:40px">${esc(artist.slice(0, 1).toUpperCase())}</div>`;
+    return `
+      <div class="top-item" data-action="${a.id ? 'artist' : 'home-artist-search'}" data-id="${esc(a.id || '')}" data-query="${esc(artist)}" style="cursor:pointer">
+        <div class="top-rank rank-${i + 1}">${i + 1}</div>
+        <div class="top-thumb-wrap" data-artist-thumb-stat="${esc(artist)}">${thumbHtml}</div>
+        <div class="top-meta">
+          <div class="top-title">${esc(artist)}</div>
+          <div class="top-sub">${Math.round(a.seconds / 60)} minutes listened</div>
+        </div>
+        <div class="top-count">${a.plays} plays</div>
       </div>
-      <div class="top-count">${a.plays} plays</div>
-    </div>
-  `).join('') : '<div class="q-empty" style="padding:16px 0">Listen to music to see your top artists!</div>';
+    `;
+  }).join('') : '<div class="q-empty" style="padding:16px 0">Listen to music to see your top artists!</div>';
 
   set(`
     <div class="stats-view">
@@ -4176,6 +4254,7 @@ function renderStats(tok) {
       </div>
     </div>
   `);
+  loadTopArtistThumbs(topArtistsList);
 }
 
 const WALLPAPER_PRESETS = [

@@ -80,6 +80,14 @@ function load() {
   }
   if (!data.playStats || typeof data.playStats !== 'object') {
     data.playStats = DEFAULTS().playStats;
+  } else if (data.playStats.artists && typeof data.playStats.artists === 'object') {
+    const all = [...(data.recent || []), ...(data.favorites || []), ...Object.values(data.playStats.tracks || {})];
+    for (const [name, a] of Object.entries(data.playStats.artists)) {
+      if (a && typeof a === 'object' && !a.id) {
+        const found = all.find(t => t && t.artist === name && t.artistId);
+        if (found) a.id = found.artistId;
+      }
+    }
   }
   return data;
 }
@@ -185,13 +193,26 @@ function mutate(p) {
         d.playStats.totalSeconds = (d.playStats.totalSeconds || 0) + dur;
         const trk = d.playStats.tracks[t.id] || { id: t.id, title: t.title, artist: t.artist, thumb: t.thumb, plays: 0 };
         trk.plays++;
+        if (t.artistId && !trk.artistId) trk.artistId = t.artistId;
         d.playStats.tracks[t.id] = trk;
         if (t.artist) {
           const a = d.playStats.artists[t.artist] || { name: t.artist, plays: 0, seconds: 0 };
           a.plays++;
           a.seconds = (a.seconds || 0) + dur;
+          if (t.artistId && !a.id) a.id = t.artistId;
+          if (t.artistThumb && !a.thumb) a.thumb = t.artistThumb;
           d.playStats.artists[t.artist] = a;
         }
+      }
+      break;
+    }
+    case 'stats.artistUpdate': {
+      if (!d.playStats) d.playStats = { totalPlays: 0, totalSeconds: 0, tracks: {}, artists: {} };
+      if (p.artist && typeof p.artist === 'string') {
+        const a = d.playStats.artists[p.artist] || { name: p.artist, plays: 0, seconds: 0 };
+        if (p.thumb) a.thumb = p.thumb;
+        if (p.id) a.id = p.id;
+        d.playStats.artists[p.artist] = a;
       }
       break;
     }

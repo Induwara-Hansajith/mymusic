@@ -681,4 +681,64 @@ async function radio(id) {
   return dedupe(tracks).slice(0, 25);
 }
 
-module.exports = { search, suggestions, home, album, artist, playlist, stream, lyrics, translate, radio };
+const artistThumbCache = new Map();
+
+async function artistThumb(name, artistId) {
+  const normKey = (artistId || name || '').trim().toLowerCase();
+  if (!normKey) return null;
+  if (artistThumbCache.has(normKey)) return artistThumbCache.get(normKey);
+
+  await ensureInit();
+
+  let thumb = null;
+  let resolvedId = artistId || null;
+
+  // 1. Direct fetch if artistId looks like a valid browseId (UC...)
+  if (resolvedId && /^UC/.test(resolvedId)) {
+    try {
+      const a = await artist(resolvedId);
+      if (a && a.thumb) thumb = a.thumb;
+    } catch {}
+  }
+
+  // 2. Search by exact artist name
+  if (!thumb && name) {
+    try {
+      const s = await search(name, 'artists');
+      const first = s.artists && s.artists[0];
+      if (first && first.thumb) {
+        thumb = first.thumb;
+        if (!resolvedId && first.id) resolvedId = first.id;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback: search primary artist name before comma, &, or feat
+  if (!thumb && name && /[,&]|feat\.|ft\./i.test(name)) {
+    const primary = name.split(/[,&]|feat\.|ft\./i)[0].trim();
+    if (primary && primary !== name) {
+      try {
+        const s = await search(primary, 'artists');
+        const first = s.artists && s.artists[0];
+        if (first && first.thumb) {
+          thumb = first.thumb;
+          if (!resolvedId && first.id) resolvedId = first.id;
+        }
+      } catch {}
+    }
+  }
+
+  if (thumb) {
+    if (thumb.includes('=w60-h60')) {
+      thumb = thumb.replace('=w60-h60', '=w240-h240');
+    }
+    const result = { thumb, id: resolvedId };
+    artistThumbCache.set(normKey, result);
+    if (name) artistThumbCache.set(name.trim().toLowerCase(), result);
+    return result;
+  }
+
+  return null;
+}
+
+module.exports = { search, suggestions, home, album, artist, playlist, stream, lyrics, translate, radio, artistThumb };

@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const CHANNELS = new Set([
-  'ytm:search', 'ytm:suggestions', 'ytm:home', 'ytm:album', 'ytm:artist',
+  'ytm:search', 'ytm:suggestions', 'ytm:home', 'ytm:album', 'ytm:artist', 'ytm:artist-thumb',
   'ytm:playlist', 'ytm:stream', 'ytm:lyrics', 'ytm:translate', 'ytm:radio',
   'library:get', 'library:mutate',
   'window:setMiniMode', 'presence:update',
