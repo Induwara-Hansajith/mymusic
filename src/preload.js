@@ -7,11 +7,13 @@ const CHANNELS = new Set([
   'window:setMiniMode', 'presence:update',
   'download:start', 'download:list', 'download:reveal',
   'import:url', 'import:csv', 'import:match',
-  'player:status'
+  'player:status',
+  'updates:check', 'updates:install', 'updates:defer', 'updates:get-status'
 ]);
 
 const EVENTS = new Set([
-  'cmd:toggle', 'cmd:next', 'cmd:prev'
+  'cmd:toggle', 'cmd:next', 'cmd:prev',
+  'updates:available', 'updates:progress', 'updates:error', 'updates:not-available'
 ]);
 
 contextBridge.exposeInMainWorld('api', {

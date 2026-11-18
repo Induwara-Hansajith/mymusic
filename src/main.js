@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, session, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const { autoUpdater } = require('electron-updater');
 
 const store = require('./lib/store');
 const ytm = require('./lib/ytm');
@@ -22,6 +23,12 @@ let mainWindow = null;
 let tray = null;
 let appIsQuitting = false;
 let currentPlaybackStatus = { playing: false, title: '', artist: '' };
+let updateInterval = null;
+let pendingUpdateInfo = null;
+let updateCheckIsManual = false;
+let updateCheckInProgress = false;
+let installAfterDownload = false;
+let updateDownloadStarted = false;
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -252,6 +259,147 @@ const wrap = (fn) => async (_ev, payload) => {
   catch (e) { console.error('[ipc] failed:', (e && e.message) || e); return fail(e); }
 };
 
+function updaterSupported() {
+  if (!app.isPackaged || process.platform !== 'win32' || process.env.PORTABLE_EXECUTABLE_DIR) return false;
+  const updateConfig = path.join(process.resourcesPath, 'app-update.yml');
+  if (!fs.existsSync(updateConfig)) return false;
+  // The NSIS installer creates an uninstaller beside the app executable. ZIP and
+  // portable builds do not have this marker and must be updated manually.
+  try {
+    return fs.readdirSync(path.dirname(process.execPath)).some(name => /^uninstall.*\.exe$/i.test(name));
+  } catch {
+    return false;
+  }
+}
+
+function sendUpdateEvent(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(channel, payload);
+}
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function showUpdateNotification(info) {
+  if (!Notification.isSupported()) return;
+  try {
+    const options = {
+      title: 'My Music update available',
+      body: `Version ${info.version} is ready. Open My Music to choose Update now or Later.`
+    };
+    const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
+    if (fs.existsSync(iconPath)) options.icon = iconPath;
+    const notification = new Notification(options);
+    notification.on('click', focusMainWindow);
+    notification.show();
+  } catch (e) {
+    log('Update notification could not be shown:', e.message);
+  }
+}
+
+async function checkForUpdate(manual = true) {
+  if (!updaterSupported()) throw new Error('Automatic updates are available only in the installed Windows Setup version.');
+  const currentSettings = store.all().settings || {};
+  if (!manual && currentSettings.autoUpdate === false) return { skipped: true };
+  if (updateCheckInProgress) return { checking: true };
+  if (manual && currentSettings.updateDeferredVersion) {
+    store.mutate({ type: 'settings.set', patch: { updateDeferredVersion: '' } });
+  }
+  updateCheckIsManual = !!manual;
+  updateCheckInProgress = true;
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    updateCheckInProgress = false;
+    updateCheckIsManual = false;
+    throw error;
+  }
+  return { checking: true };
+}
+
+function startUpdateChecker() {
+  if (!updaterSupported()) {
+    log('Auto-updater disabled for development, portable, and ZIP builds');
+    return;
+  }
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.on('update-available', (info) => {
+    updateCheckInProgress = false;
+    pendingUpdateInfo = { version: String(info.version || '') };
+    const deferred = (store.all().settings || {}).updateDeferredVersion;
+    if (deferred && deferred === pendingUpdateInfo.version) {
+      log('Update remains deferred:', pendingUpdateInfo.version);
+      updateCheckIsManual = false;
+      return;
+    }
+    sendUpdateEvent('updates:available', pendingUpdateInfo);
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) showUpdateNotification(pendingUpdateInfo);
+    updateCheckIsManual = false;
+  });
+  autoUpdater.on('update-not-available', (info) => {
+    updateCheckInProgress = false;
+    if (updateCheckIsManual) sendUpdateEvent('updates:not-available', { version: info && info.version });
+    updateCheckIsManual = false;
+  });
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateEvent('updates:progress', { percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)) });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    updateDownloadStarted = false;
+    if (!installAfterDownload) return;
+    installAfterDownload = false;
+    log('Update downloaded; restarting to install', info && info.version);
+    appIsQuitting = true;
+    autoUpdater.quitAndInstall(false, true);
+  });
+  autoUpdater.on('error', (error) => {
+    updateCheckInProgress = false;
+    const message = String((error && error.message) || 'Update check failed').slice(0, 240);
+    log('Auto-updater error:', message);
+    sendUpdateEvent('updates:error', { message, manual: updateCheckIsManual || updateDownloadStarted });
+    updateCheckIsManual = false;
+    updateDownloadStarted = false;
+    installAfterDownload = false;
+  });
+
+  setTimeout(() => checkForUpdate(false).catch((e) => log('Initial update check failed:', e.message)), 12000);
+  updateInterval = setInterval(() => {
+    checkForUpdate(false).catch((e) => log('Scheduled update check failed:', e.message));
+  }, 6 * 60 * 60 * 1000);
+}
+
+ipcMain.handle('updates:get-status', wrap(() => ({
+  supported: updaterSupported(),
+  enabled: (store.all().settings || {}).autoUpdate !== false
+})));
+ipcMain.handle('updates:check', wrap((p) => checkForUpdate(p.manual !== false)));
+ipcMain.handle('updates:defer', wrap((p) => {
+  const version = String(p.version || '').slice(0, 32);
+  if (!version) throw new Error('Update version is missing.');
+  store.mutate({ type: 'settings.set', patch: { updateDeferredVersion: version } });
+  return true;
+}));
+ipcMain.handle('updates:install', wrap(async () => {
+  if (!updaterSupported() || !pendingUpdateInfo) throw new Error('There is no update ready to download.');
+  if (updateDownloadStarted) return { downloading: true };
+  updateDownloadStarted = true;
+  installAfterDownload = true;
+  try {
+    await autoUpdater.downloadUpdate();
+    return { downloading: true };
+  } catch (error) {
+    updateDownloadStarted = false;
+    installAfterDownload = false;
+    throw error;
+  }
+}));
+
 ipcMain.handle('ytm:search', wrap((p) => ytm.search(p.query, p.filter)));
 ipcMain.handle('ytm:suggestions', wrap((p) => ytm.suggestions(p.query)));
 ipcMain.handle('ytm:home', wrap(() => ytm.home()));
@@ -389,6 +537,7 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
+  startUpdateChecker();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -397,6 +546,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   appIsQuitting = true;
+  if (updateInterval) clearInterval(updateInterval);
 });
 
 app.on('window-all-closed', () => {

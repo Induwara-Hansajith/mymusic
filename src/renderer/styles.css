@@ -616,6 +616,35 @@ input[type=range]:hover::-webkit-slider-runnable-track { background: linear-grad
 .modal-btns button { padding: 8px 16px; border-radius: 999px; }
 .modal-btns button:hover { filter: brightness(1.1); }
 
+#updateModal {
+  position: fixed; inset: 0; z-index: 130;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0, 0, 0, .68);
+  backdrop-filter: blur(8px);
+}
+.update-box {
+  width: min(420px, 100%); padding: 26px;
+  border: 1px solid var(--glass-brd); border-radius: 18px;
+  background: var(--panel-opaque, #131723);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+}
+.update-icon {
+  width: 44px; height: 44px; display: grid; place-items: center;
+  margin-bottom: 16px; border-radius: 13px; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+}
+.update-icon .ic { width: 22px; height: 22px; }
+.update-box h3 { margin: 0 0 8px; font-size: 19px; }
+.update-box p, .update-status { color: var(--muted); line-height: 1.5; }
+.update-box p { margin: 0 0 14px; }
+.update-status { min-height: 20px; font-size: 12px; margin: 10px 0 18px; }
+.update-progress { height: 6px; overflow: hidden; border-radius: 999px; background: var(--bg3); }
+.update-progress > div { height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
+.update-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.update-actions button { padding: 9px 16px; border-radius: 999px; }
+.update-actions .primary { color: #fff; background: var(--accent); font-weight: 650; }
+.update-actions button:disabled { opacity: .55; cursor: default; }
+
 /* ---------- aurora backdrop + visualizer (liquid glass) ---------- */
 #aurora {
   position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;

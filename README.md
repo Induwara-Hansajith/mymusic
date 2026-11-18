@@ -21,6 +21,7 @@ Search, browse, stream, and download songs, albums, artists, and playlists — w
 - **Mini Floating Player** — Compact (380×140) always-on-top floating mode with draggable window frame and playback controls.
 - **Discord Rich Presence** — Displays current song, artist, album art, and playback timeline in your Discord profile.
 - **Local Library** — Favorites, playlists, recently played (last 100), settings, and queue restore saved atomically as JSON (`src/lib/store.js`).
+- **App Updates** — Installed Windows Setup builds check GitHub Releases at startup and every six hours; users can install an update now or defer it. Portable and ZIP builds require a manual download.
 
 ---
 
@@ -76,6 +77,14 @@ Or standard build:
 ```bat
 npm run dist
 ```
+
+To prepare an update release, set `GH_TOKEN` (or `GITHUB_TOKEN`) for the current shell, bump the version in `package.json`, and run:
+
+```bat
+powershell -ExecutionPolicy Bypass -File scripts\build-signed.ps1 -Publish
+```
+
+The publish build creates or updates a draft release tagged `v<version>` and uploads the NSIS installer plus `latest.yml`. Review the draft assets, then publish the release; installed Setup builds will detect it. The existing 1.1.1 release predates updater metadata, so users on 1.1.1 must install 1.1.2 once manually; later releases can update the installed Setup version automatically. Portable and ZIP users continue to download and replace the app manually.
 
 Outputs are generated in `dist/`:
 - `My Music Setup 1.1.2.exe` — Windows NSIS installer with desktop and Start Menu shortcuts.

@@ -139,6 +139,9 @@ async function boot() {
     vizInit();
     applyWallpaper();
     applySpeedAndPitch();
+    if (settings().ambientColors !== false && (settings().accentHue == null || settings().accentHue === 0)) {
+      settings().accentHue = 'auto';
+    }
     const initHue = settings().accentHue !== 'auto' && settings().accentHue != null
       ? settings().accentHue : ACC_DEFAULT_HUE;
     setHue(initHue === 'auto' ? ACC_DEFAULT_HUE : initHue);
@@ -147,6 +150,10 @@ async function boot() {
       window.api.on('cmd:toggle', () => togglePlay());
       window.api.on('cmd:next', () => next());
       window.api.on('cmd:prev', () => prev());
+      window.api.on('updates:available', (info) => showUpdatePrompt(info));
+      window.api.on('updates:progress', (info) => updateProgress(info));
+      window.api.on('updates:error', (info) => showUpdateError(info));
+      window.api.on('updates:not-available', () => toast('You’re up to date'));
     }
 
     const lq = S.store.lastQueue;
@@ -2482,6 +2489,43 @@ function extractHueFromPixels(data) {
   };
 }
 
+async function extractPaletteFromUrl(url) {
+  // Method 1: fetch + createImageBitmap (bypasses DOM CORS taint, fastest & cleanest in Electron)
+  try {
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const bmp = await createImageBitmap(blob);
+      const c = document.createElement('canvas');
+      c.width = 32; c.height = 32;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(bmp, 0, 0, 32, 32);
+      if (typeof bmp.close === 'function') bmp.close();
+      const d = ctx.getImageData(0, 0, 32, 32).data;
+      const pal = extractHueFromPixels(d);
+      if (pal) return pal;
+    }
+  } catch {}
+
+  // Method 2: Image element with crossOrigin anonymous fallback
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = 32; c.height = 32;
+        const x = c.getContext('2d');
+        x.drawImage(img, 0, 0, 32, 32);
+        const d = x.getImageData(0, 0, 32, 32).data;
+        resolve(extractHueFromPixels(d));
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
 function applyAccent(thumb) {
   if (settings().ambientColors === false) {
     const fixedHue = settings().accentHue !== 'auto' && settings().accentHue != null
@@ -2489,11 +2533,14 @@ function applyAccent(thumb) {
     setHue(fixedHue === 'auto' ? ACC_DEFAULT_HUE : fixedHue);
     return;
   }
-  if (settings().accentHue != null && settings().accentHue !== 'auto') {
-    setHue(settings().accentHue);
+  // When ambientColors is on (default), we ALWAYS extract palette from the playing track's artwork
+  if (!thumb) {
+    curAccThumb = null;
+    const fallbackHue = settings().accentHue !== 'auto' && settings().accentHue != null
+      ? settings().accentHue : ACC_DEFAULT_HUE;
+    setHue(fallbackHue);
     return;
   }
-  if (!thumb) { curAccThumb = null; setHue(ACC_DEFAULT_HUE); return; }
   curAccThumb = thumb;
   if (accCache.has(thumb)) {
     const cached = accCache.get(thumb);
@@ -2501,39 +2548,18 @@ function applyAccent(thumb) {
     return;
   }
 
-  // Try drawing to canvas; if CORS taints it, retry with explicit crossOrigin + cache-bust
-  function tryDraw(src, crossOrigin) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      if (crossOrigin) img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        try {
-          const c = document.createElement('canvas');
-          c.width = c.height = 32; // sample for accurate palette extraction
-          const x = c.getContext('2d');
-          x.drawImage(img, 0, 0, 32, 32);
-          const d = x.getImageData(0, 0, 32, 32).data;
-          resolve(extractHueFromPixels(d));
-        } catch { resolve(null); }
-      };
-      img.onerror = () => resolve(null);
-      img.src = src;
-    });
-  }
-
-  const run = async () => {
-    if (curAccThumb !== thumb) return;
-    // First try without crossOrigin (fastest, works for cached images)
-    let palette = await tryDraw(thumb, false);
-    if (palette === null && curAccThumb === thumb) {
-      // Retry with crossOrigin + cache-bust to get past tainted-canvas
+  (async () => {
+    const captured = thumb;
+    let palette = await extractPaletteFromUrl(thumb);
+    if (!palette && captured === curAccThumb) {
       const bust = thumb + (thumb.includes('?') ? '&' : '?') + '_cb=' + Date.now();
-      palette = await tryDraw(bust, true);
+      palette = await extractPaletteFromUrl(bust);
     }
     accCache.set(thumb, palette);
-    if (curAccThumb === thumb) setHue(palette ?? ACC_DEFAULT_HUE);
-  };
-  run();
+    if (curAccThumb === captured) {
+      setHue(palette ?? ACC_DEFAULT_HUE);
+    }
+  })();
 }
 
 function setHue(input, secHue) {
@@ -3101,6 +3127,67 @@ function modal({ title, message, input, value = '', confirmText = 'Confirm', dan
   });
 }
 
+function showUpdatePrompt(info) {
+  const version = String(info && info.version || 'new version').slice(0, 32);
+  const host = $('#updateModal');
+  if (!host) return;
+  host.innerHTML = `<div class="update-box" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+    <div class="update-icon">${icon('download')}</div>
+    <h3 id="updateTitle">A new version is available</h3>
+    <p>My Music ${esc(version)} is ready. Would you like to download and install it now?</p>
+    <div class="update-progress hidden" id="updateProgressTrack"><div id="updateProgressFill"></div></div>
+    <div class="update-status" id="updateStatus">You can keep using My Music while the update downloads.</div>
+    <div class="update-actions">
+      <button id="updateLater">Later</button>
+      <button id="updateNow" class="primary">Update now</button>
+    </div>
+  </div>`;
+  host.classList.remove('hidden');
+  $('#updateLater', host).addEventListener('click', async () => {
+    host.classList.add('hidden');
+    try { await call('updates:defer', { version }); } catch (e) { console.warn('Could not defer update:', e.message); }
+  });
+  $('#updateNow', host).addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = 'Starting…';
+    $('#updateLater', host).disabled = true;
+    $('#updateStatus', host).textContent = 'Downloading the update. My Music will restart when installation is ready.';
+    $('#updateProgressTrack', host).classList.remove('hidden');
+    try {
+      await call('updates:install');
+    } catch (e) {
+      button.disabled = false;
+      button.textContent = 'Retry download';
+      $('#updateLater', host).disabled = false;
+      $('#updateStatus', host).textContent = 'The update could not start. Check your connection and try again.';
+      toast(e.message || 'Could not start the update');
+    }
+  });
+}
+
+function updateProgress(info) {
+  const host = $('#updateModal');
+  if (!host || host.classList.contains('hidden')) return;
+  const progress = Math.max(0, Math.min(100, Number(info && info.percent) || 0));
+  const fill = $('#updateProgressFill', host);
+  if (fill) fill.style.width = `${progress}%`;
+  const status = $('#updateStatus', host);
+  if (status) status.textContent = `Downloading update… ${Math.round(progress)}%`;
+}
+
+function showUpdateError(info) {
+  if (info && info.manual) toast(info.message || 'Update check failed');
+  const host = $('#updateModal');
+  if (!host || host.classList.contains('hidden')) return;
+  const status = $('#updateStatus', host);
+  const now = $('#updateNow', host);
+  const later = $('#updateLater', host);
+  if (status) status.textContent = 'Download failed. Check your connection, then retry.';
+  if (now) { now.disabled = false; now.textContent = 'Retry download'; }
+  if (later) later.disabled = false;
+}
+
 // ---------- misc UI ----------
 function updateVolFill() {
   const v = $('#vol');
@@ -3396,13 +3483,16 @@ function onClick(e) {
       const hue = el.dataset.hue === 'auto' ? 'auto' : +el.dataset.hue;
       settings().accentHue = hue;
       if (hue === 'auto') {
+        settings().ambientColors = true;
         accCache.clear(); // flush so new extractor runs fresh
         const cur = curTrack();
         applyAccent(cur ? cur.thumb : null);
+        mutate({ type: 'settings.set', patch: { accentHue: 'auto', ambientColors: true } });
       } else {
+        settings().ambientColors = false;
         setHue(hue);
+        mutate({ type: 'settings.set', patch: { accentHue: hue, ambientColors: false } });
       }
-      mutate({ type: 'settings.set', patch: { accentHue: hue } });
       renderSettings();
       break;
     }
@@ -4126,6 +4216,7 @@ function renderSettings(tok) {
   const curDim = s.wallpaperDim != null ? s.wallpaperDim : 60;
   const curHue = s.accentHue != null ? s.accentHue : 'auto';
   const closeToTray = !!s.closeToTray;
+  const autoUpdate = s.autoUpdate !== false;
   const ambientColors = s.ambientColors !== false;
 
   const wpCards = WALLPAPER_PRESETS.map(p => `
@@ -4233,6 +4324,24 @@ function renderSettings(tok) {
       </div>
 
       <div class="settings-card">
+        <h3>${icon('download')} App Updates</h3>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">Check for updates automatically</span>
+            <span class="settings-desc" id="updateSupportText">Checks GitHub Releases at startup and every 6 hours. Update prompts let you install now or later.</span>
+          </div>
+          <label class="eq-checkbox-label">
+            <input type="checkbox" id="settingAutoUpdate" ${autoUpdate ? 'checked' : ''}>
+            <span>Enabled</span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top:10px">
+          <span class="settings-desc">Automatic installation works with the Windows Setup installer. Portable and ZIP builds need a manual download.</span>
+          <button class="ghostbtn" id="checkUpdatesBtn" style="padding:7px 14px;border-radius:999px">Check now</button>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <h3>${icon('download')} Storage & Offline Music</h3>
         <div class="settings-row">
           <div class="settings-label">
@@ -4277,12 +4386,45 @@ function renderSettings(tok) {
     });
   }
 
+  const updateCheck = $('#settingAutoUpdate');
+  if (updateCheck) {
+    updateCheck.addEventListener('change', (e) => {
+      const enabled = !!e.target.checked;
+      settings().autoUpdate = enabled;
+      mutate({ type: 'settings.set', patch: { autoUpdate: enabled } });
+      toast(`Automatic update checks ${enabled ? 'enabled' : 'disabled'}`);
+      if (enabled) call('updates:check', { manual: false }).catch((err) => console.warn('Update check failed:', err.message));
+    });
+  }
+
+  const checkUpdatesBtn = $('#checkUpdatesBtn');
+  if (checkUpdatesBtn) {
+    checkUpdatesBtn.addEventListener('click', async () => {
+      checkUpdatesBtn.disabled = true;
+      checkUpdatesBtn.textContent = 'Checking…';
+      try { await call('updates:check', { manual: true }); }
+      catch (err) { toast(err.message || 'Update check failed'); }
+      finally {
+        checkUpdatesBtn.disabled = false;
+        checkUpdatesBtn.textContent = 'Check now';
+      }
+    });
+    call('updates:get-status').then((status) => {
+      if (status.supported) return;
+      checkUpdatesBtn.disabled = true;
+      checkUpdatesBtn.title = 'Automatic updates are available only in the installed Windows Setup version';
+      const note = $('#updateSupportText');
+      if (note) note.textContent = 'Update checks are active in the installed Windows Setup version. Portable, ZIP, and development builds cannot self-update.';
+    }).catch(() => {});
+  }
+
   const ambientCheck = $('#ambientColorsToggle');
   if (ambientCheck) {
     ambientCheck.addEventListener('change', (e) => {
       const on = !!e.target.checked;
       settings().ambientColors = on;
-      mutate({ type: 'settings.set', patch: { ambientColors: on } });
+      if (on) settings().accentHue = 'auto';
+      mutate({ type: 'settings.set', patch: { ambientColors: on, accentHue: on ? 'auto' : settings().accentHue } });
       accCache.clear();
       if (on) {
         const cur = curTrack();
@@ -4292,6 +4434,7 @@ function renderSettings(tok) {
           ? settings().accentHue : ACC_DEFAULT_HUE;
         setHue(fixedHue === 'auto' ? ACC_DEFAULT_HUE : fixedHue);
       }
+      renderSettings();
       toast('Ambient colors ' + (on ? 'on' : 'off'));
     });
   }

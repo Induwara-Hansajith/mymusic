@@ -1,4 +1,6 @@
 #requires -Version 5.1
+param([switch]$Publish)
+
 <#
 Builds the Windows installer with the local signing key.
 
@@ -6,6 +8,7 @@ The PFX password is read from the DPAPI-protected file created by
 scripts\rotate-signing-cert.ps1; it is never written to the repo or printed.
 
   powershell -ExecutionPolicy Bypass -File scripts\build-signed.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\build-signed.ps1 -Publish
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -19,6 +22,9 @@ if (-not (Test-Path $pfxPath)) {
 if (-not (Test-Path $passwordPath)) {
   throw "Missing $passwordPath. Run scripts\rotate-signing-cert.ps1 first."
 }
+if ($Publish -and -not ($env:GH_TOKEN -or $env:GITHUB_TOKEN -or $env:GITHUB_RELEASE_TOKEN)) {
+  throw 'Publishing requires GH_TOKEN, GITHUB_TOKEN, or GITHUB_RELEASE_TOKEN with permission to publish repository releases.'
+}
 
 $secure = Get-Content -Path $passwordPath | ConvertTo-SecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
@@ -27,7 +33,8 @@ try {
   $env:CSC_KEY_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
   Push-Location $root
   try {
-    npm run dist
+    if ($Publish) { npm run dist:publish }
+    else { npm run dist }
   } finally {
     Pop-Location
   }
