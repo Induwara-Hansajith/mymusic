@@ -586,7 +586,7 @@ function renderHome() {
     </button>`).join('')}</div>`;
   }
   html += `<div id="homePersonal"></div>`;
-  html += `<div id="homeFeed"></div>`;
+  html += `<div id="homeFeed"><div class="home-skeleton">${[0,1,2,3].map(()=>'<div class="skel-row"></div>').join('')}</div></div>`;
   set(html);
   loadPersonalizedFeed();
   loadHomeFeed();
@@ -610,26 +610,32 @@ async function loadPersonalizedFeed() {
   // "Recommended for you" from second top artist
   if (topArtists[1]) queries.push({ title: `You might also like ${topArtists[1]}`, q: topArtists[1] });
 
+  if (queries.length > 2) queries.length = 2;
+
   if (!queries.length) return;
 
-  // wait for container
   const container = $('#homePersonal');
   if (!container) return;
-  let html = '';
-  for (let qi = 0; qi < queries.length; qi++) {
-    const { title, q } = queries[qi];
+  container.innerHTML = `<div class="home-skeleton">${[0,1,2].map(()=>'<div class="skel-row"></div>').join('')}</div>`;
+
+  // Fire all searches in parallel to cut load time
+  const results = await Promise.all(queries.map(async ({ title, q }, qi) => {
     try {
       const res = await call('ytm:search', { query: q, filter: 'songs' });
-      if (tok !== S.homePersonalTok || S.view !== 'home') return;
+      if (tok !== S.homePersonalTok || S.view !== 'home') return null;
       const songs = (res && res.songs ? res.songs : []).slice(0, 6);
-      if (!songs.length) continue;
+      if (!songs.length) return null;
       const key = 'home-personal-' + qi;
       S.lists[key] = songs;
-      html += `<div class="sechead"><h2>${esc(title)}</h2></div>` + rowsBlock(songs, key);
-    } catch { /* optional */ }
-  }
+      return `<div class="sechead"><h2>${esc(title)}</h2></div>` + rowsBlock(songs, key);
+    } catch { return null; }
+  }));
+
   const c2 = $('#homePersonal');
-  if (c2 && tok === S.homePersonalTok) c2.innerHTML = html;
+  if (c2 && tok === S.homePersonalTok) {
+    const html = results.filter(Boolean).join('');
+    c2.innerHTML = html || '';
+  }
 }
 
 // home-artist-search action handled in click delegation below (search by name)
