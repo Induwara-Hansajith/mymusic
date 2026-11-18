@@ -18,7 +18,10 @@
       "provider": "github",
       "owner": "Induwara-Hansajith",
       "repo": "mymusic",
-      "releaseType": "draft"
+      "releaseType": "draft",
+      "publisherName": [
+        "My Music (induw)"
+      ]
     }],
     "appId": "com.induw.mymusic",
     "productName": "My Music",
@@ -48,9 +51,11 @@
       "icon": "build/icon.ico",
       "legalTrademarks": "My Music",
       "requestedExecutionLevel": "asInvoker",
-      "publisherName": [
-        "My Music (induw)"
-      ],
+      "signtoolOptions": {
+        "publisherName": [
+          "My Music (induw)"
+        ]
+      },
       "cscLink": "build/cert.pfx"
     },
     "nsis": {
