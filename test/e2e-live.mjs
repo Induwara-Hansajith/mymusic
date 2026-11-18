@@ -135,7 +135,7 @@ async function run() {
 
     console.log('\n--- 2. Visualizer Modes Cycling ---');
     let vizModes = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 6; i++) {
       const mode = await client.eval(`
         (() => {
           const btn = document.getElementById('pb-viz');

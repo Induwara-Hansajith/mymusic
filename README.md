@@ -13,9 +13,10 @@ Search, browse, stream, and download songs, albums, artists, and playlists — w
 - **Streaming & Resolution** — Audio stream URLs resolved via bundled `bin\yt-dlp.exe` and cached for ~4.5 hours with self-pruning LRU eviction.
 - **Offline Downloader** — Download tracks directly to your local music directory with automated ID3/metadata tagging, sanitized filenames, and cover artwork embedding.
 - **Playlist CSV Importer** — Import existing playlists and song collections from CSV or plain text tracklists with fuzzy search matching.
+- **Apple Music-Style AutoMix** — Dual-deck seamless song transitions with equal-power crossfade volume curves ($\cos / \sin$), dead-air/silence trimming, dynamic duration adaptation, background lookahead pre-buffering (preloads next song ~15s early), live "MIXING" visual badge with artwork cross-dissolve, and smooth DJ skip transitions.
 - **10-Band EQ & Audio Processing** — Built-in 10-band equalizer, playback speed control (0.5x–2.0x), pitch lock, and listening analytics / play statistics.
 - **Enhanced Lyrics** — Synced line highlighting from lrclib.net with fallback to YouTube Music; click-to-seek directly on lyrics, persistent per-track millisecond offset adjustments, and one-click translation.
-- **6 Reactive Visualizers** — Liquid, Orbit, Bars (with gravity peak caps), Wave, Silk, and Blob modes responding live to Web Audio API frequencies and bass pulse.
+- **5 Reactive Visualizers** — Liquid, Orbit, Bars (with gravity peak caps), Wave, and Silk modes responding live to Web Audio API frequencies and bass pulse.
 - **Dynamic Accent Palette** — Samples cover artwork colors to dynamically shade glass borders, glows, and theme highlights.
 - **Mini Floating Player** — Compact (380×140) always-on-top floating mode with draggable window frame and playback controls.
 - **Discord Rich Presence** — Displays current song, artist, album art, and playback timeline in your Discord profile.
@@ -77,9 +78,9 @@ npm run dist
 ```
 
 Outputs are generated in `dist/`:
-- `My Music Setup 1.1.1.exe` — Windows NSIS installer with desktop and Start Menu shortcuts.
-- `My Music Portable 1.1.1.exe` — Self-contained portable executable.
-- `My Music-1.1.1-win.zip` — Portable directory archive.
+- `My Music Setup 1.1.2.exe` — Windows NSIS installer with desktop and Start Menu shortcuts.
+- `My Music Portable 1.1.2.exe` — Self-contained portable executable.
+- `My Music-1.1.2-win.zip` — Portable directory archive.
 
 ### Certificate Management & Security Hardening
 

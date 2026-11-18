@@ -42,7 +42,10 @@ const DEFAULTS = () => ({
     wallpaper: null,
     wallpaperDim: 0.6,
     accentHue: null,
-    closeToTray: true
+    closeToTray: true,
+    automix: true,
+    automixMode: 'smart',
+    crossfadeDuration: 6
   },
   lyricsOffsets: {},
   lastQueue: null,
@@ -66,6 +69,8 @@ function load() {
   }
   if (!data.settings || typeof data.settings !== 'object') {
     data.settings = DEFAULTS().settings;
+  } else {
+    data.settings = { ...DEFAULTS().settings, ...data.settings };
   }
   if (typeof data.settings.radio !== 'boolean') {
     data.settings.radio = true;
@@ -151,7 +156,7 @@ function mutate(p) {
       if ('repeat' in patch && ['off', 'all', 'one'].includes(patch.repeat)) d.settings.repeat = patch.repeat;
       if ('shuffle' in patch) d.settings.shuffle = !!patch.shuffle;
       if ('radio' in patch) d.settings.radio = !!patch.radio;
-      if ('viz' in patch && ['liquid', 'orbit', 'bars', 'wave', 'silk', 'blob', 'off'].includes(patch.viz)) d.settings.viz = patch.viz;
+      if ('viz' in patch && ['liquid', 'orbit', 'bars', 'wave', 'silk', 'off'].includes(patch.viz)) d.settings.viz = patch.viz;
       if ('speed' in patch) d.settings.speed = Math.max(0.5, Math.min(2.0, Number(patch.speed) || 1.0));
       if ('pitchLock' in patch) d.settings.pitchLock = !!patch.pitchLock;
       if ('eq' in patch && Array.isArray(patch.eq) && patch.eq.length === 10) d.settings.eq = patch.eq.map(v => Math.max(-12, Math.min(12, Number(v) || 0)));
@@ -160,6 +165,9 @@ function mutate(p) {
       if ('wallpaperDim' in patch) d.settings.wallpaperDim = Math.max(0, Math.min(0.95, Number(patch.wallpaperDim) || 0.6));
       if ('accentHue' in patch) d.settings.accentHue = patch.accentHue != null ? Math.max(0, Math.min(360, Number(patch.accentHue) || 0)) : null;
       if ('closeToTray' in patch) d.settings.closeToTray = !!patch.closeToTray;
+      if ('automix' in patch) d.settings.automix = !!patch.automix;
+      if ('automixMode' in patch && ['smart', 'crossfade'].includes(patch.automixMode)) d.settings.automixMode = patch.automixMode;
+      if ('crossfadeDuration' in patch) d.settings.crossfadeDuration = Math.max(1, Math.min(12, Math.round(Number(patch.crossfadeDuration) || 6)));
       break;
     }
     case 'stats.record': {

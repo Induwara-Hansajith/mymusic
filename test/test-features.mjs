@@ -44,6 +44,18 @@ assert(typeof state.settings.speed === 'number', 'speed setting exists');
 assert(typeof state.settings.pitchLock === 'boolean', 'pitchLock setting exists');
 assert(state.settings.wallpaper !== undefined, 'wallpaper setting exists');
 assert(state.settings.closeToTray !== undefined, 'closeToTray setting exists');
+assert(typeof state.settings.automix === 'boolean', 'automix setting exists');
+assert(['smart', 'crossfade'].includes(state.settings.automixMode), 'automixMode is valid');
+assert(typeof state.settings.crossfadeDuration === 'number', 'crossfadeDuration is a number');
+
+// Mutate automix settings
+const mutatedSettings = store.mutate({
+  type: 'settings.set',
+  patch: { automix: true, automixMode: 'crossfade', crossfadeDuration: 8 }
+});
+assert(mutatedSettings.settings.automixMode === 'crossfade', 'automixMode mutated');
+assert(mutatedSettings.settings.crossfadeDuration === 8, 'crossfadeDuration mutated');
+
 assert(state.playStats, 'playStats exists');
 
 // Mutate stats

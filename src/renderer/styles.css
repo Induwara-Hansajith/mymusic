@@ -414,11 +414,66 @@ input { font: inherit; color: inherit; }
   transition: box-shadow .15s ease-out;
 }
 .pb-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.np-thumb-wrap {
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 56px;
+}
 #np-thumb {
   width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex: none;
   box-shadow: 0 4px 18px rgba(0,0,0,0.4), 0 0 calc(8px + var(--bass, 0) * 32px) var(--accent-glow), 0 0 0 1px rgba(255,255,255,0.14);
   transform: scale(calc(1 + var(--bass, 0) * 0.04));
   transition: transform .08s ease-out;
+}
+.np-mixing-badge {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18, 20, 32, 0.94);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+  color: var(--accent);
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  animation: mixBadgePulse 1.6s infinite ease-in-out;
+}
+.np-mixing-badge.hidden { display: none !important; }
+.mixing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  display: inline-block;
+  animation: mixDotBlink 0.9s infinite alternate;
+}
+@keyframes mixBadgePulse {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.06); }
+}
+@keyframes mixDotBlink {
+  0% { opacity: 0.35; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1.15); }
+}
+#pb-automix.on { color: var(--accent); }
+#pb-automix.mixing-glow {
+  color: var(--accent);
+  animation: automixGlow 1.2s infinite ease-in-out;
+}
+@keyframes automixGlow {
+  0%, 100% { filter: drop-shadow(0 0 3px var(--accent)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 9px var(--accent)); transform: scale(1.14); }
 }
 .np-meta { min-width: 0; }
 .np-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
@@ -798,6 +853,85 @@ body.mini-mode #pb-mini {
   display: flex; justify-content: space-between; align-items: center;
 }
 
+/* ---------- AutoMix Settings in Modal ---------- */
+.automix-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.automix-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.automix-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.automix-badge {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb, 129, 140, 248), 0.16);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.automix-modes {
+  display: flex;
+  gap: 8px;
+}
+.automix-mode-btn {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s;
+}
+.automix-mode-btn:hover {
+  color: var(--text);
+  border-color: var(--muted);
+  background: rgba(255, 255, 255, 0.08);
+}
+.automix-mode-btn.active {
+  background: rgba(var(--accent-rgb, 129, 140, 248), 0.18);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.automix-duration-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.automix-duration-slider {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.automix-desc {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 /* ---------- Import Playlist Modal ---------- */
 #importModal {
   position: fixed; inset: 0; z-index: 120;
@@ -999,8 +1133,29 @@ body.mini-mode #pb-mini {
 .dl-folder-btn:hover {
   background: rgba(255, 255, 255, 0.12);
 }
-.dl-tag {
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 4px;
-  background: rgba(52, 211, 153, 0.18); color: #34d399; margin-left: 6px;
+/* ---------- Home recommendations ---------- */
+.home-hero {
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent-soft, rgba(139,92,246,0.28)), rgba(236,72,153,0.12));
+  border: 1px solid rgba(255,255,255,0.08);
+  margin: 6px 0 18px;
+  backdrop-filter: blur(8px);
 }
+.home-hero-eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+}
+.home-hero-title {
+  font-size: 26px; font-weight: 800; letter-spacing: -0.4px; margin-bottom: 6px;
+}
+.home-hero-sub { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.home-hero-sub b { color: var(--text); }
+.artist-avatar {
+  width: 100%; height: 100%; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+}
+.artist-chip { cursor: pointer; }

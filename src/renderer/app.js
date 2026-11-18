@@ -47,14 +47,32 @@ const I = {
   viz: '<path d="M3 12h3l2-7 3 14 3-9 2 5h5"/>',
   mini: '<rect x="3" y="3" width="18" height="18" rx="3"/><rect x="11" y="11" width="8" height="8" rx="1.5"/>',
   translate: '<path d="M5 8h6M8 5v6M4 14c2.5 0 5-1.5 6-4M13 19l4-9 4 9M15 16h4"/>',
-  radio: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5m-8.4 0c-2.3-2.3-2.3-6.1 0-8.5m11.3-2.8c4 4 4 10.3 0 14.2m-14.2 0c-4-4-4-10.3 0-14.2"/>'
+  radio: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5m-8.4 0c-2.3-2.3-2.3-6.1 0-8.5m11.3-2.8c4 4 4 10.3 0 14.2m-14.2 0c-4-4-4-10.3 0-14.2"/>',
+  automix: '<path d="M3 17h4l4-10h6M17 4l4 3-4 3M3 7h4l1.5 3.5M14.5 13.5L16 17h5M17 14l4 3-4 3"/>'
 };
 const FILLED = new Set(['play', 'pause', 'next', 'prev']);
 const icon = (n, cls = '') =>
   `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="${FILLED.has(n) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[n] || ''}</svg>`;
 
-// ---------- state ----------
-const audio = $('#audio');
+// ---------- dual-deck audio state ----------
+const deckA = $('#audio');
+const deckB = $('#audioB');
+let curAudio = deckA;
+let standbyAudio = deckB;
+let audio = curAudio;
+
+const automixS = {
+  mixing: false,
+  preloadedPos: -1,
+  preloadedId: null,
+  preloading: false,
+  raf: 0,
+  startTime: 0,
+  duration: 6,
+  progress: 0,
+  swappedMeta: false,
+  quick: false
+};
 
 const S = {
   store: null,
@@ -69,6 +87,7 @@ const S = {
   search: { q: '', filter: 'songs', results: {}, tok: 0 },
   errStreak: 0,
   homeTok: 0,
+  homePersonalTok: 0,
   viewTok: 0,
   seeking: false,
   lists: {},           // listKey -> track array (for row buttons)
@@ -160,7 +179,12 @@ function buildShell() {
 
   $('#playerbar').innerHTML = `
     <div class="pb-left">
-      <img id="np-thumb" src="" alt="">
+      <div class="np-thumb-wrap">
+        <img id="np-thumb" src="" alt="">
+        <div id="np-mixing-badge" class="np-mixing-badge hidden" title="AutoMix: Blending into next track">
+          <span class="mixing-dot"></span> MIXING
+        </div>
+      </div>
       <div class="np-meta">
         <div id="np-title" class="np-title">My Music</div>
         <div id="np-artist" class="np-artist">Search YouTube Music to start playing</div>
@@ -174,6 +198,7 @@ function buildShell() {
         <button id="pb-play" data-action="pb-play" title="Play / Pause">${icon('play')}</button>
         <button id="pb-next" class="iconbtn" data-action="pb-next" title="Next">${icon('next')}</button>
         <button id="pb-repeat" class="iconbtn" data-action="pb-repeat" title="Repeat">${icon('repeat')}</button>
+        <button id="pb-automix" class="iconbtn ${settings().automix ? 'on' : ''}" data-action="pb-automix" title="AutoMix (Apple Music Transitions)">${icon('automix')}</button>
         <button id="pb-radio" class="iconbtn" data-action="pb-radio" title="Autoplay / Radio">${icon('radio')}</button>
       </div>
       <div class="pb-seek">
@@ -196,6 +221,9 @@ function buildShell() {
     <div class="panel-head">
       <span>Queue</span>
       <div style="display:flex;align-items:center;gap:6px;">
+        <button id="q-automix-toggle" class="ghostbtn ${settings().automix ? 'on' : ''}" data-action="toggle-automix" title="Apple Music-style AutoMix transitions" style="padding:4px 10px;font-size:12px;display:flex;align-items:center;gap:5px;">
+          ${icon('automix')} AutoMix
+        </button>
         <button id="q-radio-toggle" class="ghostbtn ${settings().radio ? 'on' : ''}" data-action="toggle-radio" title="Autoplay similar songs when queue ends" style="padding:4px 10px;font-size:12px;display:flex;align-items:center;gap:5px;">
           ${icon('radio')} Autoplay
         </button>
@@ -362,7 +390,25 @@ function renderHome() {
   S.lists['home-recent'] = rec;
   S.lists['home-liked'] = fav;
 
+  const stats = (S.store && S.store.playStats) || {};
+  const topArtists = Object.entries(stats.artists || {})
+    .sort((a, b) => (b[1].plays || 0) - (a[1].plays || 0))
+    .slice(0, 6);
+  const topTracks = Object.entries(stats.tracks || {})
+    .sort((a, b) => (b[1].plays || 0) - (a[1].plays || 0))
+    .slice(0, 6);
+
   let html = `<h1 class="page-title">Home</h1>`;
+  if (topArtists.length) {
+    const name = topArtists[0][0];
+    html += `<div class="home-hero">
+      <div class="home-hero-eyebrow">Made for you</div>
+      <div class="home-hero-title">Welcome back</div>
+      <div class="home-hero-sub">Your top artist is <b>${esc(name)}</b> — here are mixes, recommendations and more to keep the music going.</div>
+    </div>`;
+  } else if (!rec.length && !fav.length) {
+    html += `<div class="empty-hero"><b>Welcome to My Music</b><br>Type in the search bar above to find any song, album, artist or playlist from YouTube Music.</div>`;
+  }
   if (rec.length) {
     S.lists['home-recent'] = S.store.recent;
     html += `<div class="sechead"><h2>Recently played</h2><button class="seeall" data-nav="recent">Show all</button></div>` + rowsBlock(rec, 'home-recent');
@@ -371,14 +417,66 @@ function renderHome() {
     S.lists['home-liked'] = S.store.favorites;
     html += `<div class="sechead"><h2>Liked songs</h2><button class="seeall" data-nav="liked">Show all</button></div>` + rowsBlock(fav, 'home-liked');
   }
-  if (!rec.length && !fav.length) {
-    html += `<div class="empty-hero"><b>Welcome to My Music</b><br>Type in the search bar above to find any song, album, artist or playlist from YouTube Music.</div>`;
+  if (topTracks.length) {
+    S.lists['home-top'] = topTracks.map(([id, t]) => ({ id, title: t.title, artist: t.artist, thumb: t.thumb, duration: t.duration }));
+    html += `<div class="sechead"><h2>Your top tracks</h2><button class="seeall" data-nav="stats">See stats</button></div>` + rowsBlock(S.lists['home-top'], 'home-top');
   }
+  if (topArtists.length) {
+    html += `<div class="sechead"><h2>Your top artists</h2></div>`;
+    html += `<div class="grid">${topArtists.map(([name, a]) => `<button class="card round artist-chip" data-action="home-artist-search" data-query="${esc(name)}">
+      <div class="card-thumb"><div class="artist-avatar">${esc(name.slice(0,1).toUpperCase())}</div></div>
+      <div class="card-title">${esc(name)}</div>
+      <div class="card-sub">${a.plays} plays</div>
+    </button>`).join('')}</div>`;
+  }
+  html += `<div id="homePersonal"></div>`;
   html += `<div id="homeFeed"></div>`;
   set(html);
+  loadPersonalizedFeed();
   loadHomeFeed();
 }
 
+async function loadPersonalizedFeed() {
+  const tok = ++S.homePersonalTok;
+  const el = null;
+  // build personalized shelves from top artists
+  const stats = (S.store && S.store.playStats) || {};
+  const topArtists = Object.entries(stats.artists || {})
+    .sort((a, b) => (b[1].plays || 0) - (a[1].plays || 0))
+    .slice(0, 3)
+    .map(([name]) => name);
+  const recentTracks = (S.store.recent || []).slice(0, 3);
+  const queries = [];
+  // "More from your top artist"
+  if (topArtists[0]) queries.push({ title: `More from ${topArtists[0]}`, q: topArtists[0] });
+  // "Because you listened to X"
+  if (recentTracks[0]) queries.push({ title: `Because you played ${recentTracks[0].title}`, q: recentTracks[0].artist || recentTracks[0].title });
+  // "Recommended for you" from second top artist
+  if (topArtists[1]) queries.push({ title: `You might also like ${topArtists[1]}`, q: topArtists[1] });
+
+  if (!queries.length) return;
+
+  // wait for container
+  const container = $('#homePersonal');
+  if (!container) return;
+  let html = '';
+  for (let qi = 0; qi < queries.length; qi++) {
+    const { title, q } = queries[qi];
+    try {
+      const res = await call('ytm:search', { query: q, filter: 'songs' });
+      if (tok !== S.homePersonalTok || S.view !== 'home') return;
+      const songs = (res && res.songs ? res.songs : []).slice(0, 6);
+      if (!songs.length) continue;
+      const key = 'home-personal-' + qi;
+      S.lists[key] = songs;
+      html += `<div class="sechead"><h2>${esc(title)}</h2></div>` + rowsBlock(songs, key);
+    } catch { /* optional */ }
+  }
+  const c2 = $('#homePersonal');
+  if (c2 && tok === S.homePersonalTok) c2.innerHTML = html;
+}
+
+// home-artist-search action handled in click delegation below (search by name)
 async function loadHomeFeed() {
   const tok = ++S.homeTok;
   try {
@@ -631,7 +729,250 @@ async function fetchRadioTracks(seedTrack) {
   }
 }
 
+// ---------- AutoMix & Song Transitions Engine (Apple Music Style) ----------
+
+function getAutomixDuration(trackDuration) {
+  if (settings().automixMode === 'crossfade') {
+    return Math.max(1, Math.min(12, Number(settings().crossfadeDuration) || 6));
+  }
+  // Smart DJ mode: dynamic adaptation based on track length
+  if (!trackDuration || trackDuration < 90) return 4;
+  if (trackDuration < 180) return 6;
+  return 8;
+}
+
+function cancelAutoMix() {
+  if (!automixS.mixing) return;
+  if (automixS.raf) cancelAnimationFrame(automixS.raf);
+  automixS.mixing = false;
+  try {
+    standbyAudio.pause();
+    standbyAudio.src = '';
+    standbyAudio.volume = 0;
+  } catch {}
+  const mVol = Math.min(1, Math.max(0, settings().volume ?? 0.8));
+  curAudio.volume = mVol;
+  const badge = $('#np-mixing-badge');
+  if (badge) badge.classList.add('hidden');
+  const mixBtn = $('#pb-automix');
+  if (mixBtn) mixBtn.classList.remove('mixing-glow');
+}
+
+async function preloadNextTrack(nextPos) {
+  if (automixS.preloading || automixS.mixing) return;
+  const nextIdx = S.order[nextPos];
+  if (nextIdx == null || !S.queue[nextIdx]) return;
+  const t = S.queue[nextIdx];
+  if (automixS.preloadedPos === nextPos && automixS.preloadedId === t.id && standbyAudio.src) return;
+
+  automixS.preloading = true;
+  try {
+    let url = null;
+    if (t.localPath) {
+      url = 'file:///' + t.localPath.replace(/\\/g, '/');
+    } else {
+      const r = await call('ytm:stream', { id: t.id });
+      if (r && r.urls && r.urls.length) url = r.urls[0];
+    }
+    if (url) {
+      standbyAudio.src = url;
+      standbyAudio.preload = 'auto';
+      standbyAudio.volume = 0;
+      standbyAudio.load();
+      automixS.preloadedPos = nextPos;
+      automixS.preloadedId = t.id;
+      console.log('[automix] pre-buffered next track on standby deck:', t.title);
+    }
+  } catch (err) {
+    console.log('[automix] preload error:', (err && err.message) || err);
+  } finally {
+    automixS.preloading = false;
+  }
+}
+
+async function startAutoMix(nextPos, isQuick = false) {
+  if (automixS.mixing) return;
+  const nextIdx = S.order[nextPos];
+  if (nextIdx == null || !S.queue[nextIdx]) return;
+  const nextTrack = S.queue[nextIdx];
+
+  const duration = isQuick ? 1.8 : getAutomixDuration(curAudio.duration);
+
+  // If standbyAudio doesn't have the next track preloaded, load it now
+  if (automixS.preloadedPos !== nextPos || !standbyAudio.src) {
+    try {
+      let url = null;
+      if (nextTrack.localPath) {
+        url = 'file:///' + nextTrack.localPath.replace(/\\/g, '/');
+      } else {
+        const r = await call('ytm:stream', { id: nextTrack.id });
+        if (r && r.urls && r.urls.length) url = r.urls[0];
+      }
+      if (!url) {
+        playIndex(nextPos);
+        return;
+      }
+      standbyAudio.src = url;
+      automixS.preloadedPos = nextPos;
+      automixS.preloadedId = nextTrack.id;
+    } catch {
+      playIndex(nextPos);
+      return;
+    }
+  }
+
+  automixS.mixing = true;
+  automixS.startTime = performance.now();
+  automixS.duration = duration;
+  automixS.progress = 0;
+  automixS.swappedMeta = false;
+  automixS.quick = isQuick;
+
+  // Apply speed, pitch lock and zero initial volume
+  standbyAudio.playbackRate = curAudio.playbackRate || 1.0;
+  standbyAudio.preservesPitch = curAudio.preservesPitch !== false;
+  standbyAudio.currentTime = 0;
+  standbyAudio.volume = 0;
+
+  try {
+    await standbyAudio.play();
+  } catch (err) {
+    console.log('[automix] standby play failed, falling back:', err);
+    automixS.mixing = false;
+    playIndex(nextPos);
+    return;
+  }
+
+  // Visual cues: "MIXING" badge on playerbar thumbnail + pulsing glow on automix button
+  const badge = $('#np-mixing-badge');
+  if (badge) badge.classList.remove('hidden');
+  const mixBtn = $('#pb-automix');
+  if (mixBtn) mixBtn.classList.add('mixing-glow');
+
+  if (automixS.raf) cancelAnimationFrame(automixS.raf);
+
+  const mVol = Math.min(1, Math.max(0, settings().volume ?? 0.8));
+
+  function mixStep(now) {
+    if (!automixS.mixing) return;
+    const elapsed = (now - automixS.startTime) / 1000;
+    const p = Math.min(1, Math.max(0, elapsed / automixS.duration));
+    automixS.progress = p;
+
+    // Equal-power crossfade curve: cos(p * pi/2) and sin(p * pi/2)
+    const theta = p * (Math.PI / 2);
+    curAudio.volume = Math.max(0, Math.min(1, mVol * Math.cos(theta)));
+    standbyAudio.volume = Math.max(0, Math.min(1, mVol * Math.sin(theta)));
+
+    // Cross-dissolve artwork and title halfway through the mix
+    if (p >= 0.5 && !automixS.swappedMeta) {
+      automixS.swappedMeta = true;
+      S.curTrack = nextTrack;
+      setNowPlaying(nextTrack);
+      renderQueuePanel();
+    }
+
+    if (p < 1 && !curAudio.paused && !standbyAudio.paused) {
+      automixS.raf = requestAnimationFrame(mixStep);
+    } else {
+      finishAutoMix(nextPos, nextTrack);
+    }
+  }
+
+  automixS.raf = requestAnimationFrame(mixStep);
+}
+
+function finishAutoMix(nextPos, nextTrack) {
+  if (automixS.raf) cancelAnimationFrame(automixS.raf);
+  automixS.mixing = false;
+
+  const mVol = Math.min(1, Math.max(0, settings().volume ?? 0.8));
+
+  // Stop and clean the outgoing deck
+  try {
+    curAudio.pause();
+    curAudio.src = '';
+    curAudio.volume = 0;
+  } catch {}
+
+  // Swap decks: standbyAudio becomes curAudio
+  const oldActive = curAudio;
+  curAudio = standbyAudio;
+  standbyAudio = oldActive;
+  audio = curAudio;
+
+  // Ensure incoming deck is at full master volume
+  curAudio.volume = mVol;
+
+  // Update playback state
+  S.oi = nextPos;
+  S.curTrack = nextTrack;
+  S.playToken++;
+  saveLastQueue();
+  recordListening(nextTrack, curAudio.duration || 0);
+
+  // If metadata wasn't swapped yet, swap now
+  if (!automixS.swappedMeta) {
+    setNowPlaying(nextTrack);
+    renderQueuePanel();
+  }
+
+  // Hide mixing UI indicators
+  const badge = $('#np-mixing-badge');
+  if (badge) badge.classList.add('hidden');
+  const mixBtn = $('#pb-automix');
+  if (mixBtn) mixBtn.classList.remove('mixing-glow');
+
+  // Re-tap spectrum tap for visualizers on the new active deck
+  ensureTap();
+
+  // Reset preload state for the *next* track
+  automixS.preloadedPos = -1;
+  automixS.preloadedId = null;
+
+  // If nearing the end of the queue, prefetch radio
+  if (settings().repeat === 'off' && settings().radio && S.oi >= S.order.length - 1 && radioFailStreak < 3) {
+    fetchRadioTracks(nextTrack).catch(() => {});
+  }
+}
+
+function handleAutomixTimeupdate(ct, d) {
+  if (!settings().automix || d <= 10 || S.seeking) return;
+  const remain = d - ct;
+  if (remain <= 0) return;
+
+  let nextPos = S.oi + 1;
+  if (nextPos >= S.order.length) {
+    if (settings().repeat === 'all') nextPos = 0;
+    else if (settings().radio && radioFailStreak < 3) return;
+    else return;
+  }
+
+  // 1. Lookahead pre-buffering (15s before track end)
+  if (remain <= 15 && !automixS.mixing && !automixS.preloading && automixS.preloadedPos !== nextPos) {
+    preloadNextTrack(nextPos);
+  }
+
+  // 2. Trigger AutoMix transition
+  if (!automixS.mixing && remain > 0.4) {
+    const targetPos = settings().repeat === 'one' ? S.oi : nextPos;
+    const mixDur = getAutomixDuration(d);
+    if (remain <= mixDur) {
+      console.log(`[automix] track nearing end (${remain.toFixed(1)}s remain), starting ${mixDur}s transition`);
+      startAutoMix(targetPos, false);
+    }
+  }
+}
+
+function setAutomix(on) {
+  settings().automix = !!on;
+  updateShuffleRepeatBtns();
+  saveSettings();
+  toast('AutoMix ' + (settings().automix ? 'enabled (Apple Music style transitions)' : 'disabled'));
+}
+
 async function playIndex(pos) {
+  cancelAutoMix();
   const idx = S.order[pos];
   if (idx == null || !S.queue[idx]) return;
   S.oi = pos;
@@ -674,22 +1015,36 @@ function startUrl(i) {
     return;
   }
   S.curUrlIdx = i;
-  audio.src = S.curUrls[i];
-  audio.play().catch(() => { /* error event handles fallback */ });
+  curAudio.src = S.curUrls[i];
+  curAudio.volume = Math.min(1, Math.max(0, settings().volume ?? 0.8));
+  curAudio.play().catch(() => { /* error event handles fallback */ });
 }
 
 function togglePlay() {
   if (!S.queue.length) return;
-  if (!audio.src) { playIndex(S.oi < 0 ? 0 : S.oi); return; }
-  if (audio.paused) audio.play().catch(() => {});
-  else audio.pause();
+  if (!curAudio.src) { playIndex(S.oi < 0 ? 0 : S.oi); return; }
+  if (curAudio.paused) {
+    curAudio.play().catch(() => {});
+    if (automixS.mixing && standbyAudio.src && standbyAudio.paused) {
+      standbyAudio.play().catch(() => {});
+    }
+  } else {
+    curAudio.pause();
+    if (automixS.mixing && standbyAudio.src && !standbyAudio.paused) {
+      standbyAudio.pause();
+    }
+  }
 }
 
 async function next(auto = false) {
   if (!S.order.length) return;
   if (auto && settings().repeat === 'one') {
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
+    if (settings().automix) {
+      startAutoMix(S.oi, false);
+      return;
+    }
+    curAudio.currentTime = 0;
+    curAudio.play().catch(() => {});
     return;
   }
   let pos = S.oi + 1;
@@ -701,25 +1056,40 @@ async function next(auto = false) {
       toast('Finding similar songs…');
       const added = await fetchRadioTracks(seed);
       if (added > 0 && pos < S.order.length) {
-        playIndex(pos);
+        if (settings().automix && !auto && S.playing && curAudio.currentTime > 2) {
+          startAutoMix(pos, true);
+        } else {
+          cancelAutoMix();
+          playIndex(pos);
+        }
         return;
       } else {
-        audio.pause();
-        audio.currentTime = audio.duration || 0;
+        cancelAutoMix();
+        curAudio.pause();
+        curAudio.currentTime = curAudio.duration || 0;
         return;
       }
     } else {
-      audio.pause();
-      audio.currentTime = audio.duration || 0;
+      cancelAutoMix();
+      curAudio.pause();
+      curAudio.currentTime = curAudio.duration || 0;
       return;
     }
   }
-  playIndex(pos);
+
+  // Smooth Next Track transition when AutoMix is enabled
+  if (!auto && settings().automix && S.playing && curAudio.currentTime > 2) {
+    startAutoMix(pos, true);
+  } else {
+    cancelAutoMix();
+    playIndex(pos);
+  }
 }
 
 function prev() {
+  cancelAutoMix();
   if (!S.order.length) return;
-  if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+  if (curAudio.currentTime > 3) { curAudio.currentTime = 0; return; }
   let pos = S.oi - 1;
   if (pos < 0) pos = settings().repeat === 'all' ? S.order.length - 1 : 0;
   playIndex(pos);
@@ -770,6 +1140,18 @@ function updateShuffleRepeatBtns() {
   if (qRadio) {
     const on = !!settings().radio;
     qRadio.classList.toggle('on', on);
+  }
+
+  const mixBtn = $('#pb-automix');
+  if (mixBtn) {
+    const on = !!settings().automix;
+    mixBtn.classList.toggle('on', on);
+    mixBtn.title = 'AutoMix: ' + (on ? `${settings().automixMode === 'crossfade' ? (settings().crossfadeDuration || 6) + 's Crossfade' : 'Smart DJ Transition'}` : 'Off');
+  }
+  const qMix = $('#q-automix-toggle');
+  if (qMix) {
+    const on = !!settings().automix;
+    qMix.classList.toggle('on', on);
   }
 }
 
@@ -844,7 +1226,7 @@ function updateMediaMetadata(t) {
 }
 
 // ---------- visualizer + track accent ----------
-const VIZ_MODES = ['liquid', 'orbit', 'bars', 'wave', 'silk', 'blob', 'off'];
+const VIZ_MODES = ['liquid', 'orbit', 'bars', 'wave', 'silk', 'off'];
 const vizCanvas = $('#viz');
 const vctx = vizCanvas.getContext('2d');
 const vizS = {
@@ -992,7 +1374,7 @@ function vizFrame(ts) {
 
   // smooth toward target so bars rise fast and fall gracefully
   const prev = vizS.prev, N = vizS.N;
-  for (let i = 0; i < N; i++) prev[i] += (bands[i] - prev[i]) * (bands[i] > prev[i] ? 0.5 : 0.16);
+  for (let i = 0; i < N; i++) prev[i] += (bands[i] - prev[i]) * (bands[i] > prev[i] ? 0.6 : 0.12);
 
   let bass = 0;
   for (let i = 0; i < 10; i++) bass += prev[i];
@@ -1009,7 +1391,6 @@ function vizFrame(ts) {
   else if (vizS.mode === 'bars') drawBars(w, h);
   else if (vizS.mode === 'wave') drawWave(w, h, t);
   else if (vizS.mode === 'silk') drawSilk(w, h, t, bass);
-  else if (vizS.mode === 'blob') drawBlob(w, h, t, bass);
 }
 
 const col = (a = 1, light = 62, dh = 0) => `hsla(${(vizS.hue + dh) % 360}, 80%, ${light}%, ${a})`;
@@ -1070,7 +1451,7 @@ function drawLiquid(w, h, t, bass) {
   vctx.stroke();
   vctx.shadowBlur = 0;
 
-  if (bass > 0.26 && Math.random() < 0.35 && vizS.droplets.length < 24) {
+  if (bass > 0.22 && Math.random() < 0.45 && vizS.droplets.length < 32) {
     const randPt = pts[Math.floor(Math.random() * (pts.length - 6)) + 3];
     vizS.droplets.push({
       x: randPt.x + (Math.random() - 0.5) * 16,
@@ -1123,7 +1504,7 @@ function drawOrbit(w, h, t, bass) {
   vctx.stroke();
   vctx.shadowBlur = 0;
 
-  const RAY_COUNT = 48;
+  const RAY_COUNT = 64;
   for (let i = 0; i < RAY_COUNT; i++) {
     const a = (i / RAY_COUNT) * Math.PI * 2 + t * 0.2;
     const band = prev[Math.floor(((i / RAY_COUNT) * N) % N)];
@@ -1170,7 +1551,7 @@ function drawBars(w, h) {
   const N = vizS.N, prev = vizS.prev, caps = vizS.caps;
   const bw = w / N;
   vctx.lineCap = 'round';
-  vctx.lineWidth = Math.max(2.6, bw * 0.62);
+  vctx.lineWidth = Math.max(3, bw * 0.68);
 
   for (let i = 0; i < N; i++) {
     const v = prev[i];
@@ -1189,7 +1570,7 @@ function drawBars(w, h) {
     vctx.stroke();
 
     if (v >= caps[i]) caps[i] = v;
-    else caps[i] = Math.max(0, caps[i] - 0.012);
+    else caps[i] = Math.max(0, caps[i] - 0.010);
     const capH = Math.max(4, caps[i] * (h - 16));
     const capY = h - 2 - capH - 4;
     vctx.beginPath();
@@ -1206,7 +1587,8 @@ function drawWave(w, h, t) {
   const N = vizS.N, prev = vizS.prev;
   const passes = [
     { c: col(0.92, 68), lw: 3, sb: 16, ph: 0 },
-    { c: col(0.6, 62, 45), lw: 1.8, sb: 6, ph: 2.4 }
+    { c: col(0.6, 62, 45), lw: 1.8, sb: 6, ph: 2.4 },
+    { c: col(0.45, 58, 90), lw: 1.4, sb: 4, ph: 4.8 }
   ];
   for (const p of passes) {
     vctx.beginPath();
@@ -1232,7 +1614,8 @@ function drawSilk(w, h, t, bass) {
   const ribbons = [
     { dh: -25, lw: 2.6, yBase: 0.62, speed: 1.4, amp: 0.42 },
     { dh: 15, lw: 3.2, yBase: 0.52, speed: 2.0, amp: 0.5 },
-    { dh: 55, lw: 2.2, yBase: 0.44, speed: 2.7, amp: 0.38 }
+    { dh: 55, lw: 2.2, yBase: 0.44, speed: 2.7, amp: 0.38 },
+    { dh: -55, lw: 2.0, yBase: 0.70, speed: 1.1, amp: 0.34 }
   ];
   for (let rIdx = 0; rIdx < ribbons.length; rIdx++) {
     const r = ribbons[rIdx];
@@ -1257,54 +1640,6 @@ function drawSilk(w, h, t, bass) {
   vctx.shadowBlur = 0;
 }
 
-function drawBlob(w, h, t, bass) {
-  const N = vizS.N, prev = vizS.prev;
-  const cx = w / 2, cy = h * 0.56;
-  const R = Math.min(w * 0.17, h * 0.42) * (1 + bass * 0.24);
-  const PTS = 96, pts = [];
-  for (let i = 0; i < PTS; i++) {
-    const a = (i / PTS) * Math.PI * 2 + t * 0.38;
-    const band = prev[Math.floor(((i / PTS) * N * 2) % N)];
-    const wob = 0.18 * band + 0.06 * Math.sin(t * 2.3 + i * 0.8);
-    const r = R * (1 + wob);
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.82]);
-  }
-  vctx.beginPath();
-  for (let i = 0; i < PTS; i++) {
-    const p = pts[i], n = pts[(i + 1) % PTS];
-    const mx = (p[0] + n[0]) / 2, my = (p[1] + n[1]) / 2;
-    if (i === 0) vctx.moveTo(mx, my); else vctx.quadraticCurveTo(p[0], p[1], mx, my);
-  }
-  vctx.closePath();
-  const g = vctx.createRadialGradient(cx, cy, R * 0.15, cx, cy, R * 1.25);
-  g.addColorStop(0, col(0.55, 68));
-  g.addColorStop(0.7, col(0.18, 58, 24));
-  g.addColorStop(1, col(0, 58));
-  vctx.fillStyle = g;
-  vctx.fill();
-  vctx.strokeStyle = col(0.8, 72);
-  vctx.lineWidth = 1.8;
-  vctx.shadowColor = col(0.6, 64);
-  vctx.shadowBlur = 16;
-  vctx.stroke();
-  vctx.shadowBlur = 0;
-
-  for (let s = 0; s < 3; s++) {
-    const sa = t * 1.2 + (s * Math.PI * 2) / 3;
-    const sDist = R * (1.35 + Math.sin(t * 2 + s) * 0.15);
-    const sx = cx + Math.cos(sa) * sDist;
-    const sy = cy + Math.sin(sa) * sDist * 0.75;
-    const sr = 5 + bass * 4;
-    vctx.beginPath();
-    vctx.arc(sx, sy, sr, 0, Math.PI * 2);
-    vctx.fillStyle = col(0.7, 72, s * 30);
-    vctx.shadowColor = col(0.8, 65, s * 30);
-    vctx.shadowBlur = 8;
-    vctx.fill();
-    vctx.shadowBlur = 0;
-  }
-}
-
 // ---------- album-art accent ----------
 function applyAccent(thumb) {
   if (settings().accentHue != null && settings().accentHue !== 'auto') {
@@ -1325,7 +1660,7 @@ function applyAccent(thumb) {
       const x = c.getContext('2d');
       x.drawImage(img, 0, 0, 24, 24);
       const d = x.getImageData(0, 0, 24, 24).data;
-      const bins = new Array(12).fill(0);
+      const bins = new Array(24).fill(0);
       let satWeight = 0;
       for (let i = 0; i < d.length; i += 4) {
         const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
@@ -1337,12 +1672,12 @@ function applyAccent(thumb) {
         else if (mx === g) hh = 120 + ((b - r) / (mx - mn)) * 60;
         else hh = 240 + ((r - g) / (mx - mn)) * 60;
         if (hh < 0) hh += 360;
-        bins[Math.min(11, Math.floor(hh / 30))] += sat * sat;
+        bins[Math.min(23, Math.floor(hh / 15))] += sat * sat * sat;
         satWeight += sat;
       }
       let bi = -1, bv = 0;
       bins.forEach((v, i) => { if (v > bv) { bv = v; bi = i; } });
-      if (bi >= 0 && satWeight > 0.9) hue = bi * 30 + 15;
+      if (bi >= 0 && satWeight > 0.9) hue = bi * 15 + 7.5;
     } catch { hue = null; }
     accCache.set(thumb, hue);
     if (curAccThumb === thumb) setHue(hue ?? ACC_DEFAULT_HUE);
@@ -1398,77 +1733,100 @@ async function toggleMiniMode() {
 }
 
 // ---------- audio events ----------
-audio.addEventListener('play', () => {
-  S.playing = true;
-  updatePlayBtn();
-  ensureTap();
-  ensureDspGraph();
-  applySpeedAndPitch();
-  vizStart();
-  syncPresence();
-  syncTaskbarTray();
-  const t = curTrack();
-  if (t && !S.recorded.has(t.id)) {
-    S.recorded.add(t.id);
-    if (S.recorded.size > 300) S.recorded = new Set([...S.recorded].slice(-100));
-    mutate({ type: 'recent.add', track: t }).then(() => { if (S.view === 'recent' || S.view === 'home') rerenderKeepScroll(); });
-  }
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-});
-audio.addEventListener('pause', () => {
-  S.playing = false;
-  updatePlayBtn();
-  syncPresence();
-  syncTaskbarTray();
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-});
-audio.addEventListener('ended', () => {
-  const t = curTrack();
-  if (t) recordListening(t, audio.duration || audio.currentTime);
-  syncPresence();
-  syncTaskbarTray();
-  next(true);
-});
-audio.addEventListener('loadedmetadata', () => {
-  $('#t-total').textContent = fmtDur(audio.duration);
-  syncPresence();
-});
-audio.addEventListener('error', () => {
-  if (S.curUrls && S.curUrlIdx + 1 < S.curUrls.length) { startUrl(S.curUrlIdx + 1); return; }
-  S.playing = false;
-  updatePlayBtn();
-  syncPresence();
-  // Last URL failed: auto-skip to the next queued track instead of dying
-  // silently, but stop after 3 consecutive failures (e.g. offline).
-  const token = S.playToken;
-  const t = curTrack();
-  if (t && S.order.length > 1 && ++S.errStreak <= 3) {
-    toast('Could not play "' + t.title + '" — skipping');
-    setTimeout(() => { if (token === S.playToken) next(true); }, 400);
-  }
-});
-audio.addEventListener('playing', () => { S.errStreak = 0; });
-
-let lastQueueSave = 0;
-let lastPresenceSave = 0;
-audio.addEventListener('timeupdate', () => {
-  if (S.seeking) return;
-  const d = audio.duration || 0;
-  const pct = d ? (audio.currentTime / d) * 100 : 0;
-  const seek = $('#seek');
-  seek.value = pct;
-  seek.style.setProperty('--fill', pct + '%');
-  $('#t-cur').textContent = fmtDur(audio.currentTime);
-  if (S.lyricsOpen) highlightLyric(audio.currentTime);
-  if (audio.currentTime >= 30) {
+function bindDeckEvents(deckEl) {
+  deckEl.addEventListener('play', () => {
+    if (deckEl !== curAudio && !automixS.mixing) return;
+    S.playing = true;
+    updatePlayBtn();
+    ensureTap();
+    ensureDspGraph();
+    applySpeedAndPitch();
+    vizStart();
+    syncPresence();
+    syncTaskbarTray();
     const t = curTrack();
-    if (t) recordListening(t, audio.currentTime);
-  }
-  const now = Date.now();
-  if (now - lastQueueSave > 10000 && audio.src) { lastQueueSave = now; saveLastQueue(); }
-  // keep Discord's progress bar fresh without flooding the RPC client
-  if (now - lastPresenceSave > 15000 && audio.src) { lastPresenceSave = now; syncPresence(); }
-});
+    if (t && !S.recorded.has(t.id)) {
+      S.recorded.add(t.id);
+      if (S.recorded.size > 300) S.recorded = new Set([...S.recorded].slice(-100));
+      mutate({ type: 'recent.add', track: t }).then(() => { if (S.view === 'recent' || S.view === 'home') rerenderKeepScroll(); });
+    }
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+  });
+
+  deckEl.addEventListener('pause', () => {
+    if (deckEl !== curAudio && !automixS.mixing) return;
+    if (curAudio.paused && (!automixS.mixing || standbyAudio.paused)) {
+      S.playing = false;
+      updatePlayBtn();
+      syncPresence();
+      syncTaskbarTray();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    }
+  });
+
+  deckEl.addEventListener('ended', () => {
+    if (deckEl !== curAudio) return;
+    const t = curTrack();
+    if (t) recordListening(t, deckEl.duration || deckEl.currentTime);
+    syncPresence();
+    syncTaskbarTray();
+    if (automixS.mixing) return;
+    next(true);
+  });
+
+  deckEl.addEventListener('loadedmetadata', () => {
+    if (deckEl === curAudio) {
+      $('#t-total').textContent = fmtDur(deckEl.duration);
+      syncPresence();
+    }
+  });
+
+  deckEl.addEventListener('error', () => {
+    if (deckEl !== curAudio) return;
+    if (S.curUrls && S.curUrlIdx + 1 < S.curUrls.length) { startUrl(S.curUrlIdx + 1); return; }
+    S.playing = false;
+    updatePlayBtn();
+    syncPresence();
+    const token = S.playToken;
+    const t = curTrack();
+    if (t && S.order.length > 1 && ++S.errStreak <= 3) {
+      toast('Could not play "' + t.title + '" — skipping');
+      setTimeout(() => { if (token === S.playToken) next(true); }, 400);
+    }
+  });
+
+  deckEl.addEventListener('playing', () => {
+    if (deckEl === curAudio) S.errStreak = 0;
+  });
+
+  deckEl.addEventListener('timeupdate', () => {
+    if (deckEl !== curAudio) return;
+    if (S.seeking) return;
+    const d = deckEl.duration || 0;
+    const ct = deckEl.currentTime || 0;
+    const pct = d ? (ct / d) * 100 : 0;
+    const seek = $('#seek');
+    if (seek) {
+      seek.value = pct;
+      seek.style.setProperty('--fill', pct + '%');
+    }
+    const tCur = $('#t-cur');
+    if (tCur) tCur.textContent = fmtDur(ct);
+    if (S.lyricsOpen) highlightLyric(ct);
+    if (ct >= 30) {
+      const t = curTrack();
+      if (t) recordListening(t, ct);
+    }
+    const now = Date.now();
+    if (now - lastQueueSave > 10000 && deckEl.src) { lastQueueSave = now; saveLastQueue(); }
+    if (now - lastPresenceSave > 15000 && deckEl.src) { lastPresenceSave = now; syncPresence(); }
+
+    handleAutomixTimeupdate(ct, d);
+  });
+}
+
+bindDeckEvents(deckA);
+bindDeckEvents(deckB);
 
 // ---------- queue panel ----------
 function renderQueuePanel() {
@@ -1805,12 +2163,26 @@ function modal({ title, message, input, value = '', confirmText = 'Confirm', dan
 // ---------- misc UI ----------
 function updateVolFill() {
   const v = $('#vol');
-  v.style.setProperty('--fill', (audio.volume * 100) + '%');
-  $('#pb-vol').innerHTML = icon(audio.volume === 0 ? 'volmute' : 'vol');
+  const mVol = Math.min(1, Math.max(0, settings().volume ?? 0.8));
+  if (v) {
+    v.value = mVol;
+    v.style.setProperty('--fill', (mVol * 100) + '%');
+  }
+  const pbVol = $('#pb-vol');
+  if (pbVol) pbVol.innerHTML = icon(mVol === 0 ? 'volmute' : 'vol');
 }
 
 function setVolume(v) {
-  audio.volume = Math.min(1, Math.max(0, v));
+  const mVol = Math.min(1, Math.max(0, v));
+  settings().volume = mVol;
+  if (automixS.mixing) {
+    const theta = automixS.progress * (Math.PI / 2);
+    curAudio.volume = Math.max(0, Math.min(1, mVol * Math.cos(theta)));
+    standbyAudio.volume = Math.max(0, Math.min(1, mVol * Math.sin(theta)));
+  } else {
+    curAudio.volume = mVol;
+    standbyAudio.volume = 0;
+  }
   updateVolFill();
   saveSettings();
 }
@@ -1906,6 +2278,7 @@ function bindShellEvents() {
     const order = ['off', 'all', 'one'];
     setRepeat(order[(order.indexOf(settings().repeat) + 1) % 3]);
   });
+  $('#pb-automix')?.addEventListener('click', () => setAutomix(!settings().automix));
   $('#pb-radio')?.addEventListener('click', () => setRadio(!settings().radio));
   $('#pb-fav').addEventListener('click', () => { const t = curTrack(); if (t) toggleFav(t); });
   $('#pb-queue').addEventListener('click', () => {
@@ -2081,11 +2454,14 @@ function onClick(e) {
       }
       break;
     }
+    case 'toggle-automix':
+    case 'pb-automix': setAutomix(!settings().automix); break;
     case 'toggle-radio': setRadio(!settings().radio); break;
     case 'search-submit': doSearch($('#searchInput').value); break;
     case 'history-back': navBack(); break;
     case 'history-fwd': navFwd(); break;
     case 'tab': loadSearch(el.dataset.tab); break;
+     case 'home-artist-search': doSearch(el.dataset.query); break;
     case 'row-play': {
       const row = el.closest('.trow');
       const list = S.lists[row.dataset.list];
@@ -2243,6 +2619,9 @@ function openEqModal() {
   const curEq = settings().eq || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const curSpeed = settings().speed || 1.0;
   const curPitchLock = settings().pitchLock !== false;
+  const curAutomix = settings().automix !== false;
+  const curAutomixMode = settings().automixMode || 'smart';
+  const curCrossfadeDuration = settings().crossfadeDuration || 6;
 
   const presetHtml = Object.entries(EQ_PRESETS).map(([id, p]) =>
     `<button class="eq-preset-btn ${curPreset === id ? 'active' : ''}" data-eq-preset="${id}">${esc(p.name)}</button>`
@@ -2278,6 +2657,33 @@ function openEqModal() {
           <input type="checkbox" id="eqPitchLock" ${curPitchLock ? 'checked' : ''}>
           <span>Lock Pitch (Timestretch)</span>
         </label>
+      </div>
+      <div class="automix-section">
+        <div class="automix-header">
+          <div class="automix-title">
+            ${icon('automix')} Song Transitions & AutoMix
+            <span class="automix-badge">Apple Music Style</span>
+          </div>
+        </div>
+        <div class="automix-modes">
+          <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'smart' ? 'active' : ''}" data-automix-mode="smart">
+            AutoMix (Smart DJ)
+          </button>
+          <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'crossfade' ? 'active' : ''}" data-automix-mode="crossfade">
+            Manual Crossfade
+          </button>
+          <button class="automix-mode-btn ${!curAutomix ? 'active' : ''}" data-automix-mode="off">
+            Off (Gapless)
+          </button>
+        </div>
+        <div class="automix-duration-row ${curAutomix && curAutomixMode === 'crossfade' ? '' : 'hidden'}" id="automixDurWrap">
+          <span>Crossfade Duration</span>
+          <input type="range" id="automixDurInput" class="automix-duration-slider" min="1" max="12" step="1" value="${curCrossfadeDuration}">
+          <span id="automixDurVal" style="font-weight:700;color:var(--accent);min-width:32px;">${curCrossfadeDuration}s</span>
+        </div>
+        <div class="automix-desc" id="automixDesc">
+          ${curAutomix ? (curAutomixMode === 'smart' ? 'Intelligently analyzes track endings, trims dead-air silence, and dynamically blends tempos and beats with equal-power DJ curves.' : `Smoothly crossfades outgoing and incoming tracks with equal-power volume curves over ${curCrossfadeDuration} seconds.`) : 'Standard continuous playback with no track overlap or fading.'}
+        </div>
       </div>
       <div class="eq-footer">
         <button id="eqResetBtn" class="ghostbtn" style="padding:6px 14px;border-radius:999px;">Reset to Flat</button>
@@ -2350,6 +2756,48 @@ function openEqModal() {
       settings().pitchLock = !!e.target.checked;
       applySpeedAndPitch();
       mutate({ type: 'settings.set', patch: { pitchLock: settings().pitchLock } });
+    });
+  }
+
+  const durWrap = $('#automixDurWrap', modalEl);
+  const durInput = $('#automixDurInput', modalEl);
+  const durVal = $('#automixDurVal', modalEl);
+  const descEl = $('#automixDesc', modalEl);
+
+  modalEl.querySelectorAll('.automix-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.automixMode;
+      modalEl.querySelectorAll('.automix-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (mode === 'off') {
+        settings().automix = false;
+        if (durWrap) durWrap.classList.add('hidden');
+        if (descEl) descEl.textContent = 'Standard continuous playback with no track overlap or fading.';
+        mutate({ type: 'settings.set', patch: { automix: false } });
+      } else {
+        settings().automix = true;
+        settings().automixMode = mode;
+        if (durWrap) durWrap.classList.toggle('hidden', mode !== 'crossfade');
+        if (descEl) {
+          descEl.textContent = mode === 'smart'
+            ? 'Intelligently analyzes track endings, trims dead-air silence, and dynamically blends tempos and beats with equal-power DJ curves.'
+            : `Smoothly crossfades outgoing and incoming tracks with equal-power volume curves over ${settings().crossfadeDuration || 6} seconds.`;
+        }
+        mutate({ type: 'settings.set', patch: { automix: true, automixMode: mode } });
+      }
+      updateShuffleRepeatBtns();
+    });
+  });
+
+  if (durInput && durVal) {
+    durInput.addEventListener('input', (e) => {
+      const secs = Math.round(parseFloat(e.target.value));
+      durVal.textContent = secs + 's';
+      settings().crossfadeDuration = secs;
+      if (descEl && settings().automixMode === 'crossfade') {
+        descEl.textContent = `Smoothly crossfades outgoing and incoming tracks with equal-power volume curves over ${secs} seconds.`;
+      }
+      mutate({ type: 'settings.set', patch: { crossfadeDuration: secs } });
+      updateShuffleRepeatBtns();
     });
   }
 
