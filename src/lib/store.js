@@ -45,7 +45,8 @@ const DEFAULTS = () => ({
     closeToTray: true,
     automix: true,
     automixMode: 'smart',
-    crossfadeDuration: 6
+    crossfadeDuration: 6,
+    fsViz: 'bokeh'
   },
   lyricsOffsets: {},
   lastQueue: null,
@@ -168,6 +169,7 @@ function mutate(p) {
       if ('automix' in patch) d.settings.automix = !!patch.automix;
       if ('automixMode' in patch && ['smart', 'crossfade'].includes(patch.automixMode)) d.settings.automixMode = patch.automixMode;
       if ('crossfadeDuration' in patch) d.settings.crossfadeDuration = Math.max(1, Math.min(12, Math.round(Number(patch.crossfadeDuration) || 6)));
+      if ('fsViz' in patch && ['bokeh', 'stardust', 'bubbles', 'waves', 'off'].includes(patch.fsViz)) d.settings.fsViz = patch.fsViz;
       break;
     }
     case 'stats.record': {

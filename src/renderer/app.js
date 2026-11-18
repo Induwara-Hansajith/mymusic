@@ -48,7 +48,10 @@ const I = {
   mini: '<rect x="3" y="3" width="18" height="18" rx="3"/><rect x="11" y="11" width="8" height="8" rx="1.5"/>',
   translate: '<path d="M5 8h6M8 5v6M4 14c2.5 0 5-1.5 6-4M13 19l4-9 4 9M15 16h4"/>',
   radio: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5m-8.4 0c-2.3-2.3-2.3-6.1 0-8.5m11.3-2.8c4 4 4 10.3 0 14.2m-14.2 0c-4-4-4-10.3 0-14.2"/>',
-  automix: '<path d="M3 17h4l4-10h6M17 4l4 3-4 3M3 7h4l1.5 3.5M14.5 13.5L16 17h5M17 14l4 3-4 3"/>'
+  automix: '<path d="M3 17h4l4-10h6M17 4l4 3-4 3M3 7h4l1.5 3.5M14.5 13.5L16 17h5M17 14l4 3-4 3"/>',
+  chevronDown: '<path d="M6 9l6 6 6-6"/>',
+  expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  contract: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/>'
 };
 const FILLED = new Set(['play', 'pause', 'next', 'prev']);
 const icon = (n, cls = '') =>
@@ -93,7 +96,11 @@ const S = {
   lists: {},           // listKey -> track array (for row buttons)
   renderCtx: null,     // { listKey } of the main list in current view
   menuTrack: null, menuExtra: null,
-  lastVol: null
+  lastVol: null,
+  fsOpen: false,
+  fsTab: 'stage',
+  fsSeeking: false,
+  _lastFsLy: -1
 };
 
 const curTrack = () => (S.order[S.oi] != null ? S.queue[S.order[S.oi]] : null);
@@ -251,6 +258,136 @@ function buildShell() {
   $('#lyricsPanel').innerHTML = `
     <div class="panel-head">Lyrics<button class="iconbtn" data-action="panel-close" data-panel="lyricsPanel">${icon('close')}</button></div>
     <div id="lyricsBody" class="panel-body"></div>`;
+
+  const npOverlay = $('#nowPlayingOverlay');
+  if (npOverlay) {
+    npOverlay.innerHTML = `
+      <div class="fs-backdrop-gradient"></div>
+      <canvas id="fsCanvas"></canvas>
+      <div class="fs-container">
+        <header class="fs-header">
+          <div class="fs-header-left">
+            <button id="fs-collapse" class="fs-circle-btn" title="Collapse (Esc)">
+              ${icon('chevronDown')}
+            </button>
+            <div class="fs-context-info">
+              <span class="fs-context-eyebrow">PLAYING FROM</span>
+              <span id="fs-context-title" class="fs-context-title">Queue</span>
+            </div>
+          </div>
+          
+          <div class="fs-view-tabs">
+            <button class="fs-tab-btn active" data-tab="stage">Now Playing</button>
+            <button class="fs-tab-btn" data-tab="lyrics">Lyrics</button>
+            <button class="fs-tab-btn" data-tab="queue">Up Next</button>
+          </div>
+
+          <div class="fs-header-right">
+            <div class="fs-viz-picker">
+              <span class="fs-viz-label">${icon('viz')}</span>
+              <select id="fs-viz-select" class="fs-select" title="Background Visualizer">
+                <option value="bokeh" ${settings().fsViz === 'bokeh' ? 'selected' : ''}>Petals &amp; Bokeh</option>
+                <option value="stardust" ${settings().fsViz === 'stardust' ? 'selected' : ''}>Stardust &amp; Aurora</option>
+                <option value="bubbles" ${settings().fsViz === 'bubbles' ? 'selected' : ''}>Floating Bubbles</option>
+                <option value="waves" ${settings().fsViz === 'waves' ? 'selected' : ''}>Ambient Waves</option>
+                <option value="off" ${settings().fsViz === 'off' ? 'selected' : ''}>Visualizer Off</option>
+              </select>
+            </div>
+            <button id="fs-fullscreen-btn" class="fs-circle-btn" title="Toggle Fullscreen">
+              ${icon('expand')}
+            </button>
+          </div>
+        </header>
+
+        <main class="fs-center-stage">
+          <section id="fs-view-stage" class="fs-tab-view active">
+            <div class="fs-stage-card">
+              <div class="fs-artwork-wrap">
+                <img id="fs-thumb" src="" alt="Artwork" class="fs-artwork">
+                <div id="fs-mixing-badge" class="np-mixing-badge hidden" title="AutoMix: Blending into next track">
+                  <span class="mixing-dot"></span> MIXING
+                </div>
+              </div>
+              <div class="fs-stage-meta">
+                <div id="fs-title" class="fs-track-title">My Music</div>
+                <div id="fs-artist" class="fs-track-artist">Select a song to start playing</div>
+              </div>
+              <div id="fs-lyrics-card" class="fs-lyrics-preview-card" title="Click to view full lyrics">
+                <div class="fs-ly-preview-tag">${icon('lyrics')} LYRICS PREVIEW</div>
+                <div id="fs-ly-preview-text" class="fs-ly-preview-text">No lyrics for this one yet</div>
+              </div>
+            </div>
+          </section>
+
+          <section id="fs-view-lyrics" class="fs-tab-view">
+            <div class="fs-lyrics-container">
+              <div class="fs-lyrics-actions">
+                <div id="fs-lyrics-offset-bar" class="ly-offset-bar fs-ly-offset">
+                  <span class="ly-off-label">Sync Offset:</span>
+                  <button class="ly-off-btn fs-off-btn" data-dir="-1" title="-500ms">-0.5s</button>
+                  <span id="fs-ly-off-val" class="ly-off-val">0ms</span>
+                  <button class="ly-off-btn fs-off-btn" data-dir="1" title="+500ms">+0.5s</button>
+                  <button id="fs-ly-off-reset" class="ly-off-reset" title="Reset offset">Reset</button>
+                </div>
+                <button id="fs-lyrics-trans-btn" class="ghostbtn ly-trans-btn" title="Translate lyrics to English">
+                  ${icon('translate')} <span>Translate</span>
+                </button>
+              </div>
+              <div id="fs-lyrics-body" class="fs-lyrics-scroll-body">
+                <div class="fs-lyrics-empty">No lyrics loaded</div>
+              </div>
+            </div>
+          </section>
+
+          <section id="fs-view-queue" class="fs-tab-view">
+            <div class="fs-queue-container">
+              <div class="fs-queue-header">
+                <h3>Upcoming Tracks</h3>
+                <div class="fs-queue-actions">
+                  <button id="fs-q-shuffle" class="ghostbtn" title="Shuffle remaining queue">${icon('shuffle')} Shuffle</button>
+                </div>
+              </div>
+              <div id="fs-queue-body" class="fs-queue-scroll-body"></div>
+            </div>
+          </section>
+        </main>
+
+        <footer class="fs-transport">
+          <div class="fs-seek-container">
+            <span id="fs-t-cur" class="fs-time-cur">0:00</span>
+            <input id="fs-seek" class="fs-seek-slider" type="range" min="0" max="100" step="0.1" value="0">
+            <span id="fs-t-total" class="fs-time-total">0:00</span>
+          </div>
+
+          <div class="fs-controls-container">
+            <div class="fs-ctrls-left">
+              <button id="fs-fav" class="fs-icon-btn" title="Favorite">${icon('heart')}</button>
+            </div>
+
+            <div class="fs-ctrls-center">
+              <button id="fs-shuffle" class="fs-icon-btn" title="Shuffle">${icon('shuffle')}</button>
+              <button id="fs-prev" class="fs-icon-btn fs-skip-btn" title="Previous">${icon('prev')}</button>
+              <button id="fs-play" class="fs-hero-play-btn" title="Play / Pause">${icon('play')}</button>
+              <button id="fs-next" class="fs-icon-btn fs-skip-btn" title="Next">${icon('next')}</button>
+              <button id="fs-repeat" class="fs-icon-btn" title="Repeat">${icon('repeat')}</button>
+            </div>
+
+            <div class="fs-ctrls-right">
+              <button id="fs-automix" class="fs-icon-btn ${settings().automix ? 'on' : ''}" title="AutoMix (Apple Music Transitions)">
+                ${icon('automix')}
+              </button>
+              <div class="fs-vol-group">
+                <button id="fs-vol-btn" class="fs-icon-btn" title="Mute">${icon('vol')}</button>
+                <input id="fs-vol" class="fs-vol-slider" type="range" min="0" max="1" step="0.01" value="${audio.volume}">
+              </div>
+            </div>
+          </div>
+        </footer>
+      </div>
+    `;
+    fsVizInit();
+    bindNowPlayingOverlayEvents();
+  }
 
   updateVolFill();
   renderSidebarPlaylists();
@@ -771,8 +908,12 @@ function cancelAutoMix() {
   curAudio.volume = mVol;
   const badge = $('#np-mixing-badge');
   if (badge) badge.classList.add('hidden');
+  const fsBadge = $('#fs-mixing-badge');
+  if (fsBadge) fsBadge.classList.add('hidden');
   const mixBtn = $('#pb-automix');
   if (mixBtn) mixBtn.classList.remove('mixing-glow');
+  const fsMixBtn = $('#fs-automix');
+  if (fsMixBtn) fsMixBtn.classList.remove('mixing-glow');
 }
 
 async function preloadNextTrack(nextPos) {
@@ -863,8 +1004,12 @@ async function startAutoMix(nextPos, isQuick = false) {
   // Visual cues: "MIXING" badge on playerbar thumbnail + pulsing glow on automix button
   const badge = $('#np-mixing-badge');
   if (badge) badge.classList.remove('hidden');
+  const fsBadge = $('#fs-mixing-badge');
+  if (fsBadge) fsBadge.classList.remove('hidden');
   const mixBtn = $('#pb-automix');
   if (mixBtn) mixBtn.classList.add('mixing-glow');
+  const fsMixBtn = $('#fs-automix');
+  if (fsMixBtn) fsMixBtn.classList.add('mixing-glow');
 
   if (automixS.raf) cancelAnimationFrame(automixS.raf);
 
@@ -937,8 +1082,12 @@ function finishAutoMix(nextPos, nextTrack) {
   // Hide mixing UI indicators
   const badge = $('#np-mixing-badge');
   if (badge) badge.classList.add('hidden');
+  const fsBadge = $('#fs-mixing-badge');
+  if (fsBadge) fsBadge.classList.add('hidden');
   const mixBtn = $('#pb-automix');
   if (mixBtn) mixBtn.classList.remove('mixing-glow');
+  const fsMixBtn = $('#fs-automix');
+  if (fsMixBtn) fsMixBtn.classList.remove('mixing-glow');
 
   // Re-tap spectrum tap for visualizers on the new active deck
   ensureTap();
@@ -1170,10 +1319,27 @@ function updateShuffleRepeatBtns() {
     const on = !!settings().automix;
     qMix.classList.toggle('on', on);
   }
+
+  const fsShuffle = $('#fs-shuffle');
+  if (fsShuffle) fsShuffle.classList.toggle('on', !!settings().shuffle);
+  const fsRepeat = $('#fs-repeat');
+  if (fsRepeat) {
+    fsRepeat.classList.toggle('on', r !== 'off');
+    fsRepeat.title = 'Repeat: ' + r;
+    fsRepeat.innerHTML = icon('repeat') + (r === 'one' ? '<span class="rep1">1</span>' : '');
+  }
+  const fsMix = $('#fs-automix');
+  if (fsMix) {
+    const on = !!settings().automix;
+    fsMix.classList.toggle('on', on);
+    fsMix.title = 'AutoMix: ' + (on ? `${settings().automixMode === 'crossfade' ? (settings().crossfadeDuration || 6) + 's Crossfade' : 'Smart DJ Transition'}` : 'Off');
+  }
 }
 
 function updatePlayBtn() {
   $('#pb-play').innerHTML = icon(S.playing ? 'pause' : 'play');
+  const fsPlay = $('#fs-play');
+  if (fsPlay) fsPlay.innerHTML = icon(S.playing ? 'pause' : 'play');
 }
 
 function setNowPlaying(t, restoreOnly = false) {
@@ -1191,10 +1357,11 @@ function setNowPlaying(t, restoreOnly = false) {
   updateFavBtn();
   if (t.title) document.title = t.title + ' — My Music';
   updateMediaMetadata(t);
+  updateFsNowPlaying(t);
 
   // highlight the row in any visible list
   $$('#content .trow').forEach(row => row.classList.toggle('playing', row.dataset.tid === t.id));
-  if (S.lyricsOpen && !restoreOnly) loadLyrics(t);
+  if ((S.lyricsOpen || S.fsOpen) && !restoreOnly) loadLyrics(t);
   syncPresence();
   syncTaskbarTray();
 }
@@ -1203,8 +1370,15 @@ function updateFavBtn() {
   const t = curTrack();
   const liked = t ? isFav(t) : false;
   const btn = $('#pb-fav');
-  btn.classList.toggle('liked', liked);
-  btn.innerHTML = icon('heart', liked ? 'filled' : '');
+  if (btn) {
+    btn.classList.toggle('liked', liked);
+    btn.innerHTML = icon('heart', liked ? 'filled' : '');
+  }
+  const fsFav = $('#fs-fav');
+  if (fsFav) {
+    fsFav.classList.toggle('liked', liked);
+    fsFav.innerHTML = icon('heart', liked ? 'filled' : '');
+  }
 }
 
 async function toggleFav(track) {
@@ -1657,6 +1831,570 @@ function drawSilk(w, h, t, bass) {
   vctx.shadowBlur = 0;
 }
 
+// ---------- Full-Screen Now Playing Visualizer Engine ----------
+const fsVizS = {
+  raf: 0,
+  mode: 'bokeh',
+  w: 0,
+  h: 0,
+  particles: [],
+  stars: [],
+  bubbles: [],
+  petals: []
+};
+
+function fsVizInit() {
+  const c = $('#fsCanvas');
+  if (!c) return;
+  fsVizResize();
+  const w = fsVizS.w || 1200;
+  const h = fsVizS.h || 800;
+
+  fsVizS.particles = Array.from({ length: 35 }, () => ({
+    x: Math.random() * w,
+    y: Math.random() * h,
+    baseR: 24 + Math.random() * 60,
+    alpha: 0.15 + Math.random() * 0.28,
+    vx: (Math.random() - 0.5) * 0.35,
+    vy: -0.25 - Math.random() * 0.45,
+    phase: Math.random() * Math.PI * 2,
+    dh: (Math.random() - 0.5) * 45
+  }));
+
+  fsVizS.petals = Array.from({ length: 28 }, () => ({
+    x: Math.random() * w,
+    y: Math.random() * h,
+    size: 10 + Math.random() * 12,
+    angle: Math.random() * Math.PI * 2,
+    vAngle: (Math.random() - 0.5) * 0.025,
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: 0.35 + Math.random() * 0.65,
+    swayPhase: Math.random() * Math.PI * 2,
+    swaySpeed: 0.8 + Math.random() * 1.2,
+    alpha: 0.3 + Math.random() * 0.4,
+    dh: (Math.random() - 0.5) * 35
+  }));
+
+  fsVizS.stars = Array.from({ length: 90 }, () => ({
+    x: Math.random() * w,
+    y: Math.random() * h,
+    size: 1.2 + Math.random() * 2.5,
+    baseAlpha: 0.25 + Math.random() * 0.5,
+    twinkleSpeed: 1.5 + Math.random() * 3,
+    twinklePhase: Math.random() * Math.PI * 2
+  }));
+
+  fsVizS.bubbles = Array.from({ length: 36 }, () => ({
+    x: Math.random() * w,
+    y: Math.random() * h,
+    baseR: 12 + Math.random() * 30,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -0.3 - Math.random() * 0.55,
+    wobblePhase: Math.random() * Math.PI * 2,
+    wobbleSpeed: 1.2 + Math.random() * 2,
+    alpha: 0.2 + Math.random() * 0.3,
+    dh: (Math.random() - 0.5) * 35
+  }));
+}
+
+function fsVizResize() {
+  const c = $('#fsCanvas');
+  if (!c) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  fsVizS.w = c.clientWidth || window.innerWidth;
+  fsVizS.h = c.clientHeight || window.innerHeight;
+  c.width = Math.max(1, Math.round(fsVizS.w * dpr));
+  c.height = Math.max(1, Math.round(fsVizS.h * dpr));
+  const ctx = c.getContext('2d');
+  if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function fsVizStart() {
+  if (fsVizS.raf || !S.fsOpen || fsVizS.mode === 'off') return;
+  fsVizResize();
+  fsVizS.raf = requestAnimationFrame(fsVizFrame);
+}
+
+function fsVizStop() {
+  if (fsVizS.raf) cancelAnimationFrame(fsVizS.raf);
+  fsVizS.raf = 0;
+  const c = $('#fsCanvas');
+  if (c) {
+    const ctx = c.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, fsVizS.w, fsVizS.h);
+  }
+}
+
+function fsVizFrame(ts) {
+  if (!S.fsOpen || fsVizS.mode === 'off') {
+    fsVizS.raf = 0;
+    return;
+  }
+  fsVizS.raf = requestAnimationFrame(fsVizFrame);
+  const c = $('#fsCanvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+
+  const w = fsVizS.w || c.clientWidth;
+  const h = fsVizS.h || c.clientHeight;
+  const t = ts / 1000;
+  const prev = vizS.prev || [];
+
+  // Energy measurements
+  let bass = 0;
+  for (let i = 0; i < 10 && i < prev.length; i++) bass += prev[i];
+  bass = bass / 10;
+
+  let mid = 0;
+  for (let i = 15; i < 35 && i < prev.length; i++) mid += prev[i];
+  mid = mid / 20;
+
+  let treble = 0;
+  for (let i = 40; i < 60 && i < prev.length; i++) treble += prev[i];
+  treble = treble / 20;
+
+  ctx.clearRect(0, 0, w, h);
+  const hue = (vizS.hue != null ? vizS.hue : 265);
+
+  if (fsVizS.mode === 'bokeh') {
+    // 1. Bokeh Orbs
+    for (let i = 0; i < fsVizS.particles.length; i++) {
+      const p = fsVizS.particles[i];
+      p.y += p.vy * (1 + bass * 0.9);
+      p.x += p.vx + Math.sin(t + p.phase) * 0.35;
+      if (p.y < -p.baseR * 2) { p.y = h + p.baseR; p.x = Math.random() * w; }
+      if (p.x < -p.baseR * 2) p.x = w + p.baseR;
+      else if (p.x > w + p.baseR * 2) p.x = -p.baseR;
+
+      const curR = p.baseR * (1 + bass * 0.45);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, curR);
+      const hColor = (hue + p.dh + 360) % 360;
+      g.addColorStop(0, `hsla(${hColor}, 85%, 68%, ${p.alpha * (0.6 + bass * 0.5)})`);
+      g.addColorStop(0.6, `hsla(${hColor}, 80%, 55%, ${p.alpha * 0.25})`);
+      g.addColorStop(1, `hsla(${hColor}, 80%, 50%, 0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, curR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 2. Sakura / Drift Petals
+    for (let i = 0; i < fsVizS.petals.length; i++) {
+      const p = fsVizS.petals[i];
+      p.y += p.vy * (1 + bass * 0.6);
+      p.x += Math.sin(t * p.swaySpeed + p.swayPhase) * (1.2 + mid * 1.5) + p.vx;
+      p.angle += p.vAngle * (1 + bass * 0.8);
+      if (p.y > h + 30) { p.y = -30; p.x = Math.random() * w; }
+      if (p.x < -30) p.x = w + 20;
+      else if (p.x > w + 30) p.x = -20;
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      const petalHColor = (hue + p.dh + 330) % 360;
+      ctx.fillStyle = `hsla(${petalHColor}, 78%, 74%, ${p.alpha * (0.7 + mid * 0.4)})`;
+      ctx.beginPath();
+      ctx.moveTo(0, -p.size);
+      ctx.bezierCurveTo(p.size * 0.7, -p.size * 0.5, p.size * 0.8, p.size * 0.6, 0, p.size);
+      ctx.bezierCurveTo(-p.size * 0.8, p.size * 0.6, -p.size * 0.7, -p.size * 0.5, 0, -p.size);
+      ctx.fill();
+      ctx.restore();
+    }
+  } else if (fsVizS.mode === 'stardust') {
+    // 1. Aurora waves
+    const ribbons = [
+      { dh: -20, alpha: 0.16 + bass * 0.18, yBase: 0.35, speed: 0.9, amp: 55 },
+      { dh: 25, alpha: 0.13 + mid * 0.15, yBase: 0.50, speed: 1.3, amp: 70 },
+      { dh: 60, alpha: 0.11 + bass * 0.14, yBase: 0.65, speed: 1.8, amp: 45 }
+    ];
+    for (let r = 0; r < ribbons.length; r++) {
+      const rb = ribbons[r];
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 40) {
+        const f = x / w;
+        const wave = Math.sin(t * rb.speed + f * 5.2 + r * 1.5) * rb.amp * (1 + bass * 0.6);
+        const y = h * rb.yBase + wave;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, h * rb.yBase - 80, 0, h);
+      const rHue = (hue + rb.dh + 360) % 360;
+      grad.addColorStop(0, `hsla(${rHue}, 85%, 65%, ${rb.alpha})`);
+      grad.addColorStop(1, `hsla(${rHue}, 85%, 65%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    // 2. Stardust Particles
+    for (let i = 0; i < fsVizS.stars.length; i++) {
+      const s = fsVizS.stars[i];
+      const twinkle = s.baseAlpha * (0.3 + 0.7 * Math.sin(t * s.twinkleSpeed + s.twinklePhase) + treble * 0.5);
+      if (twinkle <= 0.05) continue;
+      const sR = s.size * (1 + treble * 0.8);
+      ctx.fillStyle = `hsla(${(hue + 40) % 360}, 90%, 85%, ${Math.min(1, twinkle)})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, sR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (fsVizS.mode === 'bubbles') {
+    for (let i = 0; i < fsVizS.bubbles.length; i++) {
+      const b = fsVizS.bubbles[i];
+      b.y += b.vy * (1 + bass * 0.8);
+      b.x += b.vx + Math.sin(t * b.wobbleSpeed + b.wobblePhase) * (0.4 + mid * 0.6);
+      if (b.y < -b.baseR * 2) { b.y = h + b.baseR; b.x = Math.random() * w; }
+      if (b.x < -b.baseR) b.x = w + b.baseR;
+      else if (b.x > w + b.baseR) b.x = -b.baseR;
+
+      const r = b.baseR * (1 + bass * 0.35) + Math.sin(t * b.wobbleSpeed + b.wobblePhase) * 2;
+      const bHue = (hue + b.dh + 360) % 360;
+      ctx.strokeStyle = `hsla(${bHue}, 75%, 75%, ${b.alpha * (0.6 + bass * 0.4)})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = `hsla(${bHue}, 75%, 70%, ${b.alpha * 0.15})`;
+      ctx.fill();
+
+      // Specular highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.beginPath();
+      ctx.arc(b.x - r * 0.35, b.y - r * 0.35, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (fsVizS.mode === 'waves') {
+    const waveLayers = [
+      { dh: -30, speed: 1.2, yBase: 0.72, amp: 38, alpha: 0.22 + bass * 0.15 },
+      { dh: 0, speed: 1.7, yBase: 0.78, amp: 48, alpha: 0.26 + mid * 0.18 },
+      { dh: 35, speed: 2.3, yBase: 0.84, amp: 32, alpha: 0.32 + bass * 0.2 }
+    ];
+    for (let r = 0; r < waveLayers.length; r++) {
+      const wl = waveLayers[r];
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 30) {
+        const f = x / w;
+        const wave = Math.sin(t * wl.speed + f * 6.5 + r * 2) * wl.amp * (1 + bass * 0.75);
+        ctx.lineTo(x, h * wl.yBase + wave);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      const wGrad = ctx.createLinearGradient(0, h * wl.yBase - 50, 0, h);
+      const wHue = (hue + wl.dh + 360) % 360;
+      wGrad.addColorStop(0, `hsla(${wHue}, 80%, 62%, ${wl.alpha})`);
+      wGrad.addColorStop(1, `hsla(${wHue}, 80%, 55%, 0.05)`);
+      ctx.fillStyle = wGrad;
+      ctx.fill();
+    }
+  }
+}
+
+// ---------- Full-Screen Overlay View & Controls Logic ----------
+
+function getContextTitle() {
+  if (S.view === 'localpl' && S.params.id) {
+    const pl = S.store && S.store.playlists && S.store.playlists.find(p => p.id === S.params.id);
+    if (pl) return pl.name;
+  }
+  if (S.view === 'liked') return 'Liked Songs';
+  if (S.view === 'album' && S.params.id) return S.params.title || 'Album';
+  if (S.view === 'artist' && S.params.id) return S.params.name || 'Artist';
+  if (S.view === 'recent') return 'Recently Played';
+  if (S.view === 'downloads') return 'Downloads';
+  return 'Queue';
+}
+
+function updateFsNowPlaying(t) {
+  if (!t) return;
+  const thumb = $('#fs-thumb');
+  if (thumb) thumb.src = t.thumb || '';
+  const title = $('#fs-title');
+  if (title) title.textContent = t.title || 'My Music';
+  const a = $('#fs-artist');
+  if (a) a.textContent = t.artist || '';
+  const ctxTitle = $('#fs-context-title');
+  if (ctxTitle) ctxTitle.textContent = getContextTitle();
+  updateFavBtn();
+  updateFsLyricsPreview(t);
+  if (S.fsTab === 'lyrics') renderFsLyrics(t);
+  if (S.fsTab === 'queue') renderFsQueue();
+}
+
+function updateFsLyricsPreview(t) {
+  const prevText = $('#fs-ly-preview-text');
+  if (!prevText) return;
+  if (S.lyrics && S.lyrics.synced && S.lyrics.synced.length) {
+    const lines = $$('#fs-lyrics-body .fs-ly-row');
+    const onLine = lines.find(l => l.classList.contains('on'));
+    if (onLine) prevText.textContent = onLine.textContent;
+    else prevText.textContent = S.lyrics.synced[0].text || '…';
+  } else if (S.lyrics && S.lyrics.plain) {
+    prevText.textContent = S.lyrics.plain.split('\n')[0] || '…';
+  } else {
+    prevText.textContent = 'No lyrics for this one yet';
+  }
+}
+
+function renderFsLyrics(t) {
+  t = t || curTrack();
+  const body = $('#fs-lyrics-body');
+  if (!body) return;
+  const r = (S.showTranslated && t && S.translatedLyrics.get(t.id)) ? S.translatedLyrics.get(t.id) : S.lyrics;
+  const offVal = $('#fs-ly-off-val');
+  const curOff = (t && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[t.id]) || 0;
+  if (offVal) offVal.textContent = (curOff > 0 ? '+' : '') + curOff + 'ms';
+
+  if (!r) {
+    body.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
+    return;
+  }
+  if (r.synced && r.synced.length) {
+    body.innerHTML = r.synced.map(l =>
+      `<div class="fs-ly-row" data-t="${l.t != null ? l.t : ''}">${esc(l.text)}</div>`
+    ).join('');
+  } else if (r.plain) {
+    body.innerHTML = `<div class="fs-lyrics-plain" style="font-size:22px;line-height:1.8;white-space:pre-wrap;color:rgba(255,255,255,0.85);">${esc(r.plain)}</div>`;
+  } else {
+    body.innerHTML = '<div class="fs-lyrics-empty">No lyrics found for this track</div>';
+  }
+
+  // Seeking on lyric click
+  body.querySelectorAll('.fs-ly-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const ts = parseFloat(row.dataset.t);
+      if (!isNaN(ts)) {
+        audio.currentTime = Math.max(0, ts - (curOff / 1000));
+        syncPresence();
+      }
+    });
+  });
+
+  highlightLyric(audio.currentTime);
+}
+
+function renderFsQueue() {
+  const body = $('#fs-queue-body');
+  if (!body) return;
+  const cur = curTrack();
+  const upcoming = S.order.slice(S.oi + 1).map((orderIdx, offset) => ({
+    track: S.queue[orderIdx],
+    index: offset
+  })).filter(x => x.track);
+
+  let html = '';
+  if (cur) {
+    html += `
+      <div style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;">Now Playing</div>
+      <div class="fs-queue-row playing" data-action="fs-q-jump" data-idx="-1">
+        <img class="fs-queue-thumb" src="${esc(cur.thumb || '')}" alt="">
+        <div class="fs-queue-meta">
+          <div class="fs-queue-title">${esc(cur.title)}</div>
+          <div class="fs-queue-artist">${esc(cur.artist || 'Unknown')}</div>
+        </div>
+        <div class="fs-queue-dur">${fmtDur(cur.duration)}</div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:1px;margin:20px 0 8px;text-transform:uppercase;">Next Up (${upcoming.length})</div>
+    `;
+  }
+  if (upcoming.length) {
+    html += upcoming.map(item => `
+      <div class="fs-queue-row" data-action="fs-q-jump" data-idx="${item.index}">
+        <img class="fs-queue-thumb" src="${esc(item.track.thumb || '')}" alt="">
+        <div class="fs-queue-meta">
+          <div class="fs-queue-title">${esc(item.track.title)}</div>
+          <div class="fs-queue-artist">${esc(item.track.artist || 'Unknown')}</div>
+        </div>
+        <div class="fs-queue-dur">${fmtDur(item.track.duration)}</div>
+      </div>
+    `).join('');
+  } else {
+    html += '<div class="fs-lyrics-empty" style="padding-top:40px;">No more tracks in queue</div>';
+  }
+  body.innerHTML = html;
+}
+
+function shuffleRemaining() {
+  if (S.oi >= S.order.length - 1) return;
+  const cur = S.order.slice(0, S.oi + 1);
+  const remaining = S.order.slice(S.oi + 1);
+  for (let i = remaining.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+  }
+  S.order = cur.concat(remaining);
+  renderQueuePanel();
+}
+
+function openNowPlayingOverlay() {
+  const overlay = $('#nowPlayingOverlay');
+  if (!overlay) return;
+  S.fsOpen = true;
+  overlay.classList.remove('hidden');
+  overlay.classList.add('fs-entering');
+  setTimeout(() => overlay.classList.remove('fs-entering'), 400);
+
+  const t = curTrack();
+  if (t) {
+    updateFsNowPlaying(t);
+    if (!S.lyrics || S.lyricsId !== t.id) {
+      loadLyrics(t);
+    }
+  }
+
+  fsVizResize();
+  fsVizStart();
+}
+
+function closeNowPlayingOverlay() {
+  const overlay = $('#nowPlayingOverlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+  S.fsOpen = false;
+  overlay.classList.add('fs-leaving');
+  setTimeout(() => {
+    overlay.classList.remove('fs-leaving');
+    overlay.classList.add('hidden');
+    fsVizStop();
+  }, 280);
+}
+
+function switchFsTab(tabName) {
+  S.fsTab = tabName;
+  $$('.fs-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+  $$('.fs-tab-view').forEach(v => v.classList.toggle('active', v.id === `fs-view-${tabName}`));
+  const t = curTrack();
+  if (tabName === 'lyrics') renderFsLyrics(t);
+  if (tabName === 'queue') renderFsQueue();
+}
+
+function bindNowPlayingOverlayEvents() {
+  $('#fs-collapse')?.addEventListener('click', closeNowPlayingOverlay);
+
+  // Tab switching
+  $$('.fs-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      switchFsTab(btn.dataset.tab);
+    });
+  });
+
+  // Lyrics card click switches to lyrics tab
+  $('#fs-lyrics-card')?.addEventListener('click', () => {
+    switchFsTab('lyrics');
+  });
+
+  // Visualizer select
+  const vizSel = $('#fs-viz-select');
+  if (vizSel) {
+    vizSel.value = settings().fsViz || 'bokeh';
+    fsVizS.mode = vizSel.value;
+    vizSel.addEventListener('change', (e) => {
+      fsVizS.mode = e.target.value;
+      mutate({ type: 'settings.set', patch: { fsViz: fsVizS.mode } });
+      if (fsVizS.mode !== 'off') {
+        fsVizResize();
+        fsVizStart();
+      } else {
+        fsVizStop();
+      }
+      toast('Visualizer: ' + vizSel.options[vizSel.selectedIndex].text);
+    });
+  }
+
+  // Fullscreen button
+  $('#fs-fullscreen-btn')?.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const fsBtn = $('#fs-fullscreen-btn');
+    if (fsBtn) fsBtn.innerHTML = icon(document.fullscreenElement ? 'contract' : 'expand');
+  });
+
+  // Transport controls
+  $('#fs-play')?.addEventListener('click', () => togglePlay());
+  $('#fs-prev')?.addEventListener('click', () => prev());
+  $('#fs-next')?.addEventListener('click', () => next());
+  $('#fs-shuffle')?.addEventListener('click', () => setShuffle(!settings().shuffle));
+  $('#fs-repeat')?.addEventListener('click', () => {
+    const next = { off: 'all', all: 'one', one: 'off' }[settings().repeat] || 'off';
+    setRepeat(next);
+  });
+  $('#fs-fav')?.addEventListener('click', () => {
+    const t = curTrack();
+    if (t) toggleFav(t);
+  });
+  $('#fs-automix')?.addEventListener('click', () => setAutomix(!settings().automix));
+
+  // Volume
+  $('#fs-vol-btn')?.addEventListener('click', () => {
+    if (audio.volume > 0) { S.lastVol = audio.volume; setVolume(0); }
+    else setVolume(S.lastVol || 0.8);
+  });
+  $('#fs-vol')?.addEventListener('input', (e) => setVolume(parseFloat(e.target.value)));
+
+  // Seek
+  const fsSeek = $('#fs-seek');
+  if (fsSeek) {
+    fsSeek.addEventListener('input', (e) => {
+      S.fsSeeking = true;
+      const pct = parseFloat(e.target.value);
+      fsSeek.style.setProperty('--fill', pct + '%');
+      $('#fs-t-cur').textContent = fmtDur((pct / 100) * (audio.duration || 0));
+    });
+    fsSeek.addEventListener('change', (e) => {
+      audio.currentTime = (parseFloat(e.target.value) / 100) * (audio.duration || 0);
+      S.fsSeeking = false;
+      syncPresence();
+    });
+  }
+
+  // Lyrics Offset controls
+  $$('#fs-lyrics-offset-bar .fs-off-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const t = curTrack();
+      if (!t) return;
+      const dir = parseInt(btn.dataset.dir, 10);
+      adjustLyricsOffset(t, dir * 500);
+      renderFsLyrics(t);
+    });
+  });
+  $('#fs-ly-off-reset')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const t = curTrack();
+    if (!t) return;
+    resetLyricsOffset(t);
+    renderFsLyrics(t);
+  });
+
+  // Lyrics translate
+  $('#fs-lyrics-trans-btn')?.addEventListener('click', async () => {
+    const t = curTrack();
+    if (t) {
+      await toggleTranslateLyrics(t);
+      renderFsLyrics(t);
+    }
+  });
+
+  // Queue row click
+  $('#fs-queue-body')?.addEventListener('click', (e) => {
+    const row = e.target.closest('.fs-queue-row');
+    if (!row) return;
+    const idx = parseInt(row.dataset.idx, 10);
+    if (!isNaN(idx)) jumpQueue(idx);
+  });
+  $('#fs-q-shuffle')?.addEventListener('click', () => {
+    shuffleRemaining();
+    renderFsQueue();
+    toast('Queue shuffled');
+  });
+}
+
 // ---------- album-art accent ----------
 function extractHueFromPixels(data) {
   const bins = new Array(24).fill(0);
@@ -1849,7 +2587,18 @@ function bindDeckEvents(deckEl) {
     }
     const tCur = $('#t-cur');
     if (tCur) tCur.textContent = fmtDur(ct);
-    if (S.lyricsOpen) highlightLyric(ct);
+    if (S.lyricsOpen || S.fsOpen) highlightLyric(ct);
+    if (S.fsOpen && !S.fsSeeking) {
+      const fsSeek = $('#fs-seek');
+      if (fsSeek) {
+        fsSeek.value = pct;
+        fsSeek.style.setProperty('--fill', pct + '%');
+      }
+      const fsCur = $('#fs-t-cur');
+      if (fsCur) fsCur.textContent = fmtDur(ct);
+      const fsTot = $('#fs-t-total');
+      if (fsTot) fsTot.textContent = fmtDur(d);
+    }
     if (ct >= 30) {
       const t = curTrack();
       if (t) recordListening(t, ct);
@@ -2029,37 +2778,73 @@ async function loadLyrics(t) {
   S.showTranslated = false;
   renderLyricsHeader(t);
   const el = $('#lyricsBody');
-  el.innerHTML = '<div class="ly-load">Loading lyrics…</div>';
+  if (el) el.innerHTML = '<div class="ly-load">Loading lyrics…</div>';
   try {
     const r = await call('ytm:lyrics', { track: t });
-    if (S.lyricsId !== t.id || !S.lyricsOpen) return;
+    if (S.lyricsId !== t.id || (!S.lyricsOpen && !S.fsOpen)) return;
     S.lyrics = r;
     renderLyricsHeader(t);
     renderLyricsContent(t);
+    updateFsLyricsPreview(t);
+    if (S.fsTab === 'lyrics') renderFsLyrics(t);
   } catch {
     if (S.lyricsId === t.id) {
       S.lyrics = null;
       renderLyricsHeader(t);
-      el.innerHTML = '<div class="ly-load">Lyrics unavailable.</div>';
+      if (el) el.innerHTML = '<div class="ly-load">Lyrics unavailable.</div>';
+      updateFsLyricsPreview(t);
+      if (S.fsTab === 'lyrics') renderFsLyrics(t);
     }
   }
 }
 
 function highlightLyric(time) {
-  const lines = $$('#lyricsBody .ly-line');
-  if (!lines.length) return;
   const tTrack = curTrack();
   const offsetMs = (tTrack && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[tTrack.id]) || 0;
   const adjustedTime = time + (offsetMs / 1000);
-  let active = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const t = parseFloat(lines[i].dataset.t);
-    if (!isNaN(t) && t <= adjustedTime + 0.3) active = i;
+
+  // Sidepanel lyrics
+  const lines = $$('#lyricsBody .ly-line');
+  if (lines.length) {
+    let active = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const t = parseFloat(lines[i].dataset.t);
+      if (!isNaN(t) && t <= adjustedTime + 0.3) active = i;
+    }
+    lines.forEach((el, i) => el.classList.toggle('on', i === active));
+    if (active >= 0 && active !== S._lastLy) {
+      S._lastLy = active;
+      lines[active].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   }
-  lines.forEach((el, i) => el.classList.toggle('on', i === active));
-  if (active >= 0 && active !== S._lastLy) {
-    S._lastLy = active;
-    lines[active].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+  // Full-screen overlay lyrics
+  const fsLines = $$('#fs-lyrics-body .fs-ly-row');
+  let fsActive = -1;
+  if (fsLines.length) {
+    for (let i = 0; i < fsLines.length; i++) {
+      const t = parseFloat(fsLines[i].dataset.t);
+      if (!isNaN(t) && t <= adjustedTime + 0.3) fsActive = i;
+    }
+    fsLines.forEach((el, i) => el.classList.toggle('on', i === fsActive));
+    if (fsActive >= 0 && fsActive !== S._lastFsLy) {
+      S._lastFsLy = fsActive;
+      fsLines[fsActive].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  // Preview card text
+  const prevText = $('#fs-ly-preview-text');
+  if (prevText) {
+    if (fsActive >= 0 && fsLines[fsActive]) {
+      prevText.textContent = fsLines[fsActive].textContent;
+    } else if (S.lyrics && S.lyrics.synced && S.lyrics.synced.length) {
+      prevText.textContent = S.lyrics.synced[0].text || '…';
+    } else if (S.lyrics && S.lyrics.plain) {
+      prevText.textContent = S.lyrics.plain.split('\n')[0] || '…';
+    } else {
+      prevText.textContent = 'No lyrics for this one yet';
+    }
   }
 }
 
@@ -2207,6 +2992,14 @@ function updateVolFill() {
   }
   const pbVol = $('#pb-vol');
   if (pbVol) pbVol.innerHTML = icon(mVol === 0 ? 'volmute' : 'vol');
+
+  const fsVol = $('#fs-vol');
+  if (fsVol) {
+    fsVol.value = mVol;
+    fsVol.style.setProperty('--fill', (mVol * 100) + '%');
+  }
+  const fsVolBtn = $('#fs-vol-btn');
+  if (fsVolBtn) fsVolBtn.innerHTML = icon(mVol === 0 ? 'volmute' : 'vol');
 }
 
 function setVolume(v) {
@@ -2306,6 +3099,12 @@ function bindShellEvents() {
     if (!e.target.closest('#searchWrap')) sugg.classList.remove('open');
   });
 
+  // expand full-screen now playing overlay when clicking bottom playerbar song info
+  $('.pb-left')?.addEventListener('click', (e) => {
+    if (e.target.closest('#pb-fav')) return;
+    openNowPlayingOverlay();
+  });
+
   // player controls
   $('#pb-play').addEventListener('click', togglePlay);
   $('#pb-next').addEventListener('click', () => next());
@@ -2359,7 +3158,11 @@ function bindShellEvents() {
     else if (e.code === 'Space' && !typing && !e.target.closest('button')) { e.preventDefault(); togglePlay(); }
     else if (!typing && e.key === 'ArrowRight' && audio.duration) audio.currentTime += 5;
     else if (!typing && e.key === 'ArrowLeft' && audio.duration) audio.currentTime -= 5;
-    else if (e.key === 'Escape') { closeMenu(); sugg.classList.remove('open'); }
+    else if (e.key === 'Escape') {
+      if (S.fsOpen) { closeNowPlayingOverlay(); return; }
+      closeMenu();
+      sugg.classList.remove('open');
+    }
   });
 
   // hide broken thumbnails

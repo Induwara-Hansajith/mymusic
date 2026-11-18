@@ -21,6 +21,8 @@ const streamCache = new Map(); // videoId -> { urls, expires }
 const lyricsCache = new Map(); // key -> lyrics result
 const searchCache = new Map(); // key -> { result, expires }
 const suggestionsCache = new Map(); // query -> { result, expires }
+const albumCache = new Map();       // album id -> { result, expires }
+const artistCache = new Map();      // artist id -> { result, expires }
 
 // YouTube video ids are exactly 11 chars of [A-Za-z0-9_-]; anything else must
 // be rejected before it reaches yt-dlp as a spawn argument.
@@ -291,6 +293,30 @@ const FILTER_TYPE_MAP = {
 const SEARCH_CACHE_MAX = 100;
 const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
+async function retryWithBackoff(fn, retries = 2, delayMs = 600) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = (err && err.message) || String(err);
+      const isRateLimit = /429|rate\s*limit|too many requests|sign in to confirm|confirm your age/i.test(msg);
+      if (!isRateLimit && attempt > 0) throw err;
+      if (attempt < retries) {
+        const wait = delayMs * Math.pow(2, attempt) + Math.random() * 200;
+        console.warn(`[ytm] Rate limit or transient error on attempt ${attempt + 1}, retrying in ${Math.round(wait)}ms:`, msg);
+        await new Promise(r => setTimeout(r, wait));
+      }
+    }
+  }
+  const msg = (lastErr && lastErr.message) || String(lastErr);
+  if (/429|rate\s*limit|too many requests/i.test(msg)) {
+    throw new Error('YouTube is temporarily rate-limiting requests. Please wait a moment and try again.');
+  }
+  throw lastErr;
+}
+
 // ---------- public API ----------
 
 async function search(query, filter) {
@@ -310,7 +336,7 @@ async function search(query, filter) {
   // Fast direct 1-step search using InnerTube protobuf filter
   if (directType) {
     try {
-      const res = await ytm.search(q, { type: directType });
+      const res = await retryWithBackoff(() => ytm.search(q, { type: directType }), 1, 500);
       const parsed = parseSearchResponse(res);
       if (filter === 'songs') {
         out.songs = [...parsed.songs, ...(parsed.videos || [])];
@@ -325,7 +351,7 @@ async function search(query, filter) {
   // Fallback to base search if direct query returned no items or no specific filter requested
   if (!filter || !out[filter] || out[filter].length === 0) {
     try {
-      const base = await ytm.search(q);
+      const base = await retryWithBackoff(() => ytm.search(q), 1, 500);
       const parsed = parseSearchResponse(base);
       if (!filter) {
         out = parsed;
@@ -335,8 +361,9 @@ async function search(query, filter) {
           out.songs.push(...parsed.videos);
         }
       }
-    } catch {
-      // Base search error
+    } catch (err) {
+      const msg = (err && err.message) || String(err);
+      if (/rate-limit|too many requests/i.test(msg)) throw err;
     }
   }
 
@@ -375,6 +402,8 @@ function parseSearchResponse(res) {
 
 const SUGGESTIONS_CACHE_MAX = 100;
 const SUGGESTIONS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const ALBUM_CACHE_TTL = 30 * 60 * 1000;      // 30 minutes
+const ARTIST_CACHE_TTL = 30 * 60 * 1000;     // 30 minutes
 
 async function suggestions(query) {
   await ensureInit();
@@ -422,11 +451,14 @@ async function home() {
 }
 
 async function album(id) {
+  if (!id) return null;
+  const cached = albumCache.get(id);
+  if (cached && cached.expires > Date.now()) return cached.result;
   await ensureInit();
   const a = await ytm.getAlbum(id);
   const header = a.header || {};
   const parts = T(header.subtitle).split(' • ').map(s => s.trim()).filter(s => s && !KIND_RE.test(s));
-  return {
+  const result = {
     id,
     title: T(header.title) || 'Album',
     artist: parts[0] || '',
@@ -435,6 +467,9 @@ async function album(id) {
     thumb: lastThumb(header.thumbnail),
     tracks: (a.contents || []).filter(r => r.type === 'MusicResponsiveListItem' && r.id).map(trackFromRow)
   };
+  pruneCache(albumCache, 50);
+  albumCache.set(id, { result, expires: Date.now() + ALBUM_CACHE_TTL });
+  return result;
 }
 
 async function playlist(id) {
@@ -452,6 +487,9 @@ async function playlist(id) {
 }
 
 async function artist(id) {
+  if (!id) return null;
+  const cached = artistCache.get(id);
+  if (cached && cached.expires > Date.now()) return cached.result;
   await ensureInit();
   const a = await ytm.getArtist(id);
   const header = a.header || {};
@@ -466,7 +504,7 @@ async function artist(id) {
     playlists.push(...items.playlists);
   }
 
-  return {
+  const result = {
     id,
     name: T(header.title) || 'Artist',
     thumb: lastThumb(header.thumbnail),
@@ -476,6 +514,9 @@ async function artist(id) {
     videos: dedupe(videos).slice(0, 12),
     playlists: dedupe(playlists).slice(0, 6)
   };
+  pruneCache(artistCache, 50);
+  artistCache.set(id, { result, expires: Date.now() + ARTIST_CACHE_TTL });
+  return result;
 }
 
 // ---------- stream resolution (yt-dlp) ----------
@@ -508,7 +549,7 @@ async function stream(id) {
   const cached = streamCache.get(id);
   if (cached && cached.expires > Date.now()) return { urls: cached.urls };
 
-  const urls = await ytdlpUrl(id);
+  const urls = await retryWithBackoff(() => ytdlpUrl(id), 2, 800);
   streamCache.set(id, { urls, expires: Date.now() + 4.5 * 3600 * 1000 });
   pruneCache(streamCache, 40);
   return { urls };
