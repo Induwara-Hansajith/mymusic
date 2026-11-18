@@ -77,6 +77,8 @@ const automixS = {
   quick: false
 };
 
+let lastQueueSave = 0, lastPresenceSave = 0;
+
 const S = {
   store: null,
   view: 'home', params: {},
@@ -3153,7 +3155,7 @@ function bindShellEvents() {
 
   // keyboard
   document.addEventListener('keydown', (e) => {
-    const typing = e.target.matches('input, textarea');
+    const typing = Boolean(e.target && typeof e.target.matches === 'function' && e.target.matches('input, textarea'));
     if (e.key === '/' && !typing) { e.preventDefault(); input.focus(); input.select(); }
     else if (e.code === 'Space' && !typing && !e.target.closest('button')) { e.preventDefault(); togglePlay(); }
     else if (!typing && e.key === 'ArrowRight' && audio.duration) audio.currentTime += 5;
