@@ -115,7 +115,7 @@ async function boot() {
       settings: {
         volume: 0.8, repeat: 'off', shuffle: false, viz: 'bars', radio: true,
         speed: 1.0, pitchLock: true, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], eqPreset: 'flat',
-        wallpaper: '', wallpaperDim: 60, accentHue: 'auto', closeToTray: false
+        wallpaper: '', wallpaperDim: 60, accentHue: 'auto', closeToTray: false, ambientColors: true
       },
       lyricsOffsets: {},
       lastQueue: null,
@@ -142,8 +142,25 @@ async function boot() {
       S.queue = lq.tracks;
       S.order = S.queue.map((_, i) => i);
       S.oi = Math.max(0, Math.min(lq.index | 0, S.queue.length - 1));
-      if (S.queue[S.oi]) {
-        setNowPlaying(S.queue[S.oi], true);
+      const t = S.queue[S.oi];
+      if (t) {
+        setNowPlaying(t, true);
+        // Restore audio position without auto-playing (crash recovery)
+        (async () => {
+          try {
+            if (t.localPath) {
+              curAudio.src = 'file:///' + t.localPath.replace(/\\/g, '/');
+            } else {
+              const r = await call('ytm:stream', { id: t.id });
+              if (!r || !r.urls || !r.urls.length) return;
+              curAudio.src = r.urls[0];
+            }
+            curAudio.addEventListener('loadedmetadata', function onMeta() {
+              curAudio.removeEventListener('loadedmetadata', onMeta);
+              try { curAudio.currentTime = Math.max(0, Number(lq.time) || 0); } catch {}
+            }, { once: true });
+          } catch { /* non-fatal */ }
+        })();
       }
     }
     go('home', {}, { push: false });
@@ -1641,7 +1658,31 @@ function drawSilk(w, h, t, bass) {
 }
 
 // ---------- album-art accent ----------
+function extractHueFromPixels(data) {
+  const bins = new Array(24).fill(0);
+  let satWeight = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+    const sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1) || 1);
+    // relax lightness floor from 0.07→0.04 to catch dark-but-colorful art
+    if (sat < 0.18 || l < 0.04 || l > 0.95) continue;
+    let hh;
+    if (mx === r) hh = ((g - b) / (mx - mn)) * 60;
+    else if (mx === g) hh = 120 + ((b - r) / (mx - mn)) * 60;
+    else hh = 240 + ((r - g) / (mx - mn)) * 60;
+    if (hh < 0) hh += 360;
+    bins[Math.min(23, Math.floor(hh / 15))] += sat * sat * sat;
+    satWeight += sat;
+  }
+  let bi = -1, bv = 0;
+  bins.forEach((v, i) => { if (v > bv) { bv = v; bi = i; } });
+  // satWeight > 0 means at least one colorful pixel contributed — that's enough
+  return (bi >= 0 && satWeight > 0) ? bi * 15 + 7.5 : null;
+}
+
 function applyAccent(thumb) {
+  if (settings().ambientColors === false) return; // feature disabled
   if (settings().accentHue != null && settings().accentHue !== 'auto') {
     setHue(settings().accentHue);
     return;
@@ -1649,44 +1690,40 @@ function applyAccent(thumb) {
   if (!thumb) { curAccThumb = null; setHue(ACC_DEFAULT_HUE); return; }
   curAccThumb = thumb;
   if (accCache.has(thumb)) { setHue(accCache.get(thumb) ?? ACC_DEFAULT_HUE); return; }
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
+
+  // Try drawing to canvas; if CORS taints it, retry with explicit crossOrigin + cache-bust
+  function tryDraw(src, crossOrigin) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      if (crossOrigin) img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = c.height = 32; // larger sample for better accuracy
+          const x = c.getContext('2d');
+          x.drawImage(img, 0, 0, 32, 32);
+          const d = x.getImageData(0, 0, 32, 32).data;
+          resolve(extractHueFromPixels(d));
+        } catch { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+
+  const run = async () => {
     if (curAccThumb !== thumb) return;
-    let hue = null;
-    try {
-      const c = document.createElement('canvas');
-      c.width = c.height = 24;
-      const x = c.getContext('2d');
-      x.drawImage(img, 0, 0, 24, 24);
-      const d = x.getImageData(0, 0, 24, 24).data;
-      const bins = new Array(24).fill(0);
-      let satWeight = 0;
-      for (let i = 0; i < d.length; i += 4) {
-        const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
-        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
-        const sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1) || 1);
-        if (sat < 0.2 || l < 0.07 || l > 0.93) continue;
-        let hh;
-        if (mx === r) hh = ((g - b) / (mx - mn)) * 60;
-        else if (mx === g) hh = 120 + ((b - r) / (mx - mn)) * 60;
-        else hh = 240 + ((r - g) / (mx - mn)) * 60;
-        if (hh < 0) hh += 360;
-        bins[Math.min(23, Math.floor(hh / 15))] += sat * sat * sat;
-        satWeight += sat;
-      }
-      let bi = -1, bv = 0;
-      bins.forEach((v, i) => { if (v > bv) { bv = v; bi = i; } });
-      if (bi >= 0 && satWeight > 0.9) hue = bi * 15 + 7.5;
-    } catch { hue = null; }
+    // First try without crossOrigin (fastest, works for cached images)
+    let hue = await tryDraw(thumb, false);
+    if (hue === null && curAccThumb === thumb) {
+      // Retry with crossOrigin + cache-bust to get past tainted-canvas
+      const bust = thumb + (thumb.includes('?') ? '&' : '?') + '_cb=' + Date.now();
+      hue = await tryDraw(bust, true);
+    }
     accCache.set(thumb, hue);
     if (curAccThumb === thumb) setHue(hue ?? ACC_DEFAULT_HUE);
   };
-  img.onerror = () => {
-    accCache.set(thumb, null);
-    if (curAccThumb === thumb) setHue(ACC_DEFAULT_HUE);
-  };
-  img.src = thumb;
+  run();
 }
 
 function setHue(h) {
@@ -2437,6 +2474,7 @@ function onClick(e) {
       const hue = el.dataset.hue === 'auto' ? 'auto' : +el.dataset.hue;
       settings().accentHue = hue;
       if (hue === 'auto') {
+        accCache.clear(); // flush so new extractor runs fresh
         const cur = curTrack();
         applyAccent(cur ? cur.thumb : null);
       } else {
@@ -3166,6 +3204,7 @@ function renderSettings(tok) {
   const curDim = s.wallpaperDim != null ? s.wallpaperDim : 60;
   const curHue = s.accentHue != null ? s.accentHue : 'auto';
   const closeToTray = !!s.closeToTray;
+  const ambientColors = s.ambientColors !== false;
 
   const wpCards = WALLPAPER_PRESETS.map(p => `
     <div class="wallpaper-thumb-card ${curWp === p.url ? 'active' : ''}"
@@ -3190,6 +3229,17 @@ function renderSettings(tok) {
 
       <div class="settings-card">
         <h3>${icon('palette')} Custom Appearance & Wallpaper</h3>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">${icon('radio')} Ambient Colors</span>
+            <span class="settings-desc">Theme and visualizer colors shift automatically to match each track's album art</span>
+          </div>
+          <label class="toggle-wrap" title="Ambient Colors">
+            <input type="checkbox" id="ambientColorsToggle" ${ambientColors ? 'checked' : ''}>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div style="height:1px;background:var(--line);margin:4px 0"></div>
         <div class="settings-row">
           <div class="settings-label">
             <span class="settings-title">Accent Color</span>
@@ -3302,6 +3352,25 @@ function renderSettings(tok) {
       settings().closeToTray = !!e.target.checked;
       mutate({ type: 'settings.set', patch: { closeToTray: settings().closeToTray } });
       toast('Close to tray ' + (settings().closeToTray ? 'enabled' : 'disabled'));
+    });
+  }
+
+  const ambientCheck = $('#ambientColorsToggle');
+  if (ambientCheck) {
+    ambientCheck.addEventListener('change', (e) => {
+      const on = !!e.target.checked;
+      settings().ambientColors = on;
+      mutate({ type: 'settings.set', patch: { ambientColors: on } });
+      accCache.clear();
+      if (on) {
+        const cur = curTrack();
+        applyAccent(cur ? cur.thumb : null);
+      } else {
+        const fixedHue = settings().accentHue !== 'auto' && settings().accentHue != null
+          ? settings().accentHue : ACC_DEFAULT_HUE;
+        setHue(fixedHue === 'auto' ? ACC_DEFAULT_HUE : fixedHue);
+      }
+      toast('Ambient colors ' + (on ? 'on' : 'off'));
     });
   }
 }
