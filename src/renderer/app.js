@@ -139,6 +139,9 @@ async function boot() {
     vizInit();
     applyWallpaper();
     applySpeedAndPitch();
+    const initHue = settings().accentHue !== 'auto' && settings().accentHue != null
+      ? settings().accentHue : ACC_DEFAULT_HUE;
+    setHue(initHue === 'auto' ? ACC_DEFAULT_HUE : initHue);
 
     if (window.api && window.api.on) {
       window.api.on('cmd:toggle', () => togglePlay());
@@ -1432,7 +1435,9 @@ const vizS = {
   mode: 'liquid', raf: 0, sim: false,
   actx: null, analyser: null, freq: null, stream: null,
   zeroFrames: 0, idleFrames: 0, w: 0, h: 0,
-  prev: new Float32Array(72), N: 72, hue: 258,
+  prev: new Float32Array(72), N: 72,
+  hue: 258, hueSecondary: 298,
+  targetHue: 258, targetHueSecondary: 298,
   caps: new Float32Array(72),
   droplets: [],
   particles: []
@@ -1580,6 +1585,20 @@ function vizFrame(ts) {
   bass /= 10;
   document.documentElement.style.setProperty('--bass', bass.toFixed(3));
 
+  // Smoothly interpolate visualizer palette towards song theme hues
+  if (vizS.targetHue != null) {
+    let diff = (vizS.targetHue - vizS.hue) % 360;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    vizS.hue = (vizS.hue + diff * 0.05 + 360) % 360;
+  }
+  if (vizS.targetHueSecondary != null) {
+    let diff2 = (vizS.targetHueSecondary - vizS.hueSecondary) % 360;
+    if (diff2 > 180) diff2 -= 360;
+    if (diff2 < -180) diff2 += 360;
+    vizS.hueSecondary = (vizS.hueSecondary + diff2 * 0.05 + 360) % 360;
+  }
+
   if (!playing) { if (++vizS.idleFrames > 90) { vizStop(); return; } }
   else vizS.idleFrames = 0;
 
@@ -1592,7 +1611,11 @@ function vizFrame(ts) {
   else if (vizS.mode === 'silk') drawSilk(w, h, t, bass);
 }
 
-const col = (a = 1, light = 62, dh = 0) => `hsla(${(vizS.hue + dh) % 360}, 80%, ${light}%, ${a})`;
+const col = (a = 1, light = 62, dh = 0) => `hsla(${(vizS.hue + dh + 360) % 360}, 80%, ${light}%, ${a})`;
+const col2 = (a = 1, light = 58, dh = 0) => {
+  const h2 = vizS.hueSecondary != null ? vizS.hueSecondary : (vizS.hue + 40);
+  return `hsla(${(h2 + dh + 360) % 360}, 78%, ${light}%, ${a})`;
+};
 
 function drawLiquid(w, h, t, bass) {
   const N = vizS.N, prev = vizS.prev;
@@ -1609,8 +1632,8 @@ function drawLiquid(w, h, t, bass) {
   vctx.lineTo(w, h);
   vctx.closePath();
   const g1 = vctx.createLinearGradient(0, h * 0.4, 0, h);
-  g1.addColorStop(0, col(0.28, 55, 35));
-  g1.addColorStop(1, col(0.04, 45, 35));
+  g1.addColorStop(0, col2(0.32, 54, 0));
+  g1.addColorStop(1, col(0.04, 45, 0));
   vctx.fillStyle = g1;
   vctx.fill();
 
@@ -1629,9 +1652,9 @@ function drawLiquid(w, h, t, bass) {
   vctx.closePath();
 
   const g2 = vctx.createLinearGradient(0, h * 0.3, 0, h);
-  g2.addColorStop(0, col(0.42, 66, -15));
-  g2.addColorStop(0.5, col(0.2, 58));
-  g2.addColorStop(1, col(0.02, 50));
+  g2.addColorStop(0, col(0.44, 66, -10));
+  g2.addColorStop(0.5, col(0.2, 58, 0));
+  g2.addColorStop(1, col2(0.03, 50, 0));
   vctx.fillStyle = g2;
   vctx.fill();
 
@@ -1643,7 +1666,11 @@ function drawLiquid(w, h, t, bass) {
     vctx.quadraticCurveTo(prevPt.x, prevPt.y, mx, my);
   }
   vctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-  vctx.strokeStyle = col(0.95, 78, 10);
+  const strokeGrad = vctx.createLinearGradient(0, 0, w, 0);
+  strokeGrad.addColorStop(0, col(0.95, 78, 0));
+  strokeGrad.addColorStop(0.5, col2(0.95, 74, 0));
+  strokeGrad.addColorStop(1, col(0.95, 78, 0));
+  vctx.strokeStyle = strokeGrad;
   vctx.lineWidth = 2.4;
   vctx.shadowColor = col(0.8, 68);
   vctx.shadowBlur = 14;
@@ -1678,7 +1705,7 @@ function drawLiquid(w, h, t, bass) {
     const dg = vctx.createRadialGradient(d.x - d.r * 0.3, d.y - d.r * 0.3, 0, d.x, d.y, d.r);
     dg.addColorStop(0, '#ffffff');
     dg.addColorStop(0.3, col(d.life * 0.9, 75));
-    dg.addColorStop(1, col(d.life * 0.4, 55));
+    dg.addColorStop(1, col2(d.life * 0.4, 55));
     vctx.fillStyle = dg;
     vctx.fill();
 
@@ -1717,7 +1744,7 @@ function drawOrbit(w, h, t, bass) {
     vctx.beginPath();
     vctx.moveTo(x1, y1);
     vctx.lineTo(x2, y2);
-    vctx.strokeStyle = col(0.7 + band * 0.3, 62 + band * 14, Math.floor(i * 3));
+    vctx.strokeStyle = (i % 2 === 0 ? col : col2)(0.7 + band * 0.3, 62 + band * 14, 0);
     vctx.lineWidth = Math.max(1.5, Math.min(3.2, band * 4));
     vctx.stroke();
 
@@ -1740,7 +1767,7 @@ function drawOrbit(w, h, t, bass) {
       const py = cy + Math.sin(pa) * ringR * 0.88;
       vctx.beginPath();
       vctx.arc(px, py, 1.8 + Math.sin(t * 3 + j) * 0.8, 0, Math.PI * 2);
-      vctx.fillStyle = col(0.65, 76, pass * 40);
+      vctx.fillStyle = (pass === 0 ? col : col2)(0.75, 76, 0);
       vctx.fill();
     }
   }
@@ -1758,8 +1785,8 @@ function drawBars(w, h) {
     const x = i * bw + bw / 2;
 
     const g = vctx.createLinearGradient(0, h, 0, h - bh);
-    g.addColorStop(0, col(0.95, 54, -25));
-    g.addColorStop(1, col(0.95, 68, 10));
+    g.addColorStop(0, col2(0.95, 52, 0));
+    g.addColorStop(1, col(0.95, 70, 0));
     vctx.strokeStyle = g;
     vctx.shadowColor = col(0.5, 64);
     vctx.shadowBlur = 10;
@@ -1785,9 +1812,9 @@ function drawBars(w, h) {
 function drawWave(w, h, t) {
   const N = vizS.N, prev = vizS.prev;
   const passes = [
-    { c: col(0.92, 68), lw: 3, sb: 16, ph: 0 },
-    { c: col(0.6, 62, 45), lw: 1.8, sb: 6, ph: 2.4 },
-    { c: col(0.45, 58, 90), lw: 1.4, sb: 4, ph: 4.8 }
+    { c: col(0.92, 70), lw: 3, sb: 16, ph: 0 },
+    { c: col2(0.72, 64), lw: 1.8, sb: 8, ph: 2.4 },
+    { c: col(0.48, 58, 60), lw: 1.4, sb: 4, ph: 4.8 }
   ];
   for (const p of passes) {
     vctx.beginPath();
@@ -1811,10 +1838,10 @@ function drawWave(w, h, t) {
 function drawSilk(w, h, t, bass) {
   const N = vizS.N, prev = vizS.prev;
   const ribbons = [
-    { dh: -25, lw: 2.6, yBase: 0.62, speed: 1.4, amp: 0.42 },
-    { dh: 15, lw: 3.2, yBase: 0.52, speed: 2.0, amp: 0.5 },
-    { dh: 55, lw: 2.2, yBase: 0.44, speed: 2.7, amp: 0.38 },
-    { dh: -55, lw: 2.0, yBase: 0.70, speed: 1.1, amp: 0.34 }
+    { colFn: col, dh: -15, lw: 2.6, yBase: 0.62, speed: 1.4, amp: 0.42 },
+    { colFn: col2, dh: 10, lw: 3.2, yBase: 0.52, speed: 2.0, amp: 0.5 },
+    { colFn: col, dh: 35, lw: 2.2, yBase: 0.44, speed: 2.7, amp: 0.38 },
+    { colFn: col2, dh: -35, lw: 2.0, yBase: 0.70, speed: 1.1, amp: 0.34 }
   ];
   for (let rIdx = 0; rIdx < ribbons.length; rIdx++) {
     const r = ribbons[rIdx];
@@ -1830,9 +1857,9 @@ function drawSilk(w, h, t, bass) {
       x0 = x1; y0 = y1;
     }
     vctx.lineTo(w, y0);
-    vctx.strokeStyle = col(0.85, 68, r.dh);
+    vctx.strokeStyle = r.colFn(0.85, 68, r.dh);
     vctx.lineWidth = r.lw;
-    vctx.shadowColor = col(0.6, 62, r.dh);
+    vctx.shadowColor = r.colFn(0.6, 62, r.dh);
     vctx.shadowBlur = 12;
     vctx.stroke();
   }
@@ -1964,6 +1991,7 @@ function fsVizFrame(ts) {
 
   ctx.clearRect(0, 0, w, h);
   const hue = (vizS.hue != null ? vizS.hue : 265);
+  const hue2 = (vizS.hueSecondary != null ? vizS.hueSecondary : (hue + 42) % 360);
 
   if (fsVizS.mode === 'bokeh') {
     // 1. Bokeh Orbs
@@ -1977,7 +2005,8 @@ function fsVizFrame(ts) {
 
       const curR = p.baseR * (1 + bass * 0.45);
       const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, curR);
-      const hColor = (hue + p.dh + 360) % 360;
+      const baseH = (i % 2 === 0 ? hue : hue2);
+      const hColor = (baseH + p.dh + 360) % 360;
       g.addColorStop(0, `hsla(${hColor}, 85%, 68%, ${p.alpha * (0.6 + bass * 0.5)})`);
       g.addColorStop(0.6, `hsla(${hColor}, 80%, 55%, ${p.alpha * 0.25})`);
       g.addColorStop(1, `hsla(${hColor}, 80%, 50%, 0)`);
@@ -2000,7 +2029,8 @@ function fsVizFrame(ts) {
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.angle);
-      const petalHColor = (hue + p.dh + 330) % 360;
+      const petalBaseH = (i % 2 === 0 ? hue : hue2);
+      const petalHColor = (petalBaseH + p.dh + 330) % 360;
       ctx.fillStyle = `hsla(${petalHColor}, 78%, 74%, ${p.alpha * (0.7 + mid * 0.4)})`;
       ctx.beginPath();
       ctx.moveTo(0, -p.size);
@@ -2012,9 +2042,9 @@ function fsVizFrame(ts) {
   } else if (fsVizS.mode === 'stardust') {
     // 1. Aurora waves
     const ribbons = [
-      { dh: -20, alpha: 0.16 + bass * 0.18, yBase: 0.35, speed: 0.9, amp: 55 },
-      { dh: 25, alpha: 0.13 + mid * 0.15, yBase: 0.50, speed: 1.3, amp: 70 },
-      { dh: 60, alpha: 0.11 + bass * 0.14, yBase: 0.65, speed: 1.8, amp: 45 }
+      { hBase: hue, dh: -15, alpha: 0.16 + bass * 0.18, yBase: 0.35, speed: 0.9, amp: 55 },
+      { hBase: hue2, dh: 20, alpha: 0.14 + mid * 0.15, yBase: 0.50, speed: 1.3, amp: 70 },
+      { hBase: hue, dh: 45, alpha: 0.12 + bass * 0.14, yBase: 0.65, speed: 1.8, amp: 45 }
     ];
     for (let r = 0; r < ribbons.length; r++) {
       const rb = ribbons[r];
@@ -2029,7 +2059,7 @@ function fsVizFrame(ts) {
       ctx.lineTo(w, h);
       ctx.closePath();
       const grad = ctx.createLinearGradient(0, h * rb.yBase - 80, 0, h);
-      const rHue = (hue + rb.dh + 360) % 360;
+      const rHue = (rb.hBase + rb.dh + 360) % 360;
       grad.addColorStop(0, `hsla(${rHue}, 85%, 65%, ${rb.alpha})`);
       grad.addColorStop(1, `hsla(${rHue}, 85%, 65%, 0)`);
       ctx.fillStyle = grad;
@@ -2042,7 +2072,8 @@ function fsVizFrame(ts) {
       const twinkle = s.baseAlpha * (0.3 + 0.7 * Math.sin(t * s.twinkleSpeed + s.twinklePhase) + treble * 0.5);
       if (twinkle <= 0.05) continue;
       const sR = s.size * (1 + treble * 0.8);
-      ctx.fillStyle = `hsla(${(hue + 40) % 360}, 90%, 85%, ${Math.min(1, twinkle)})`;
+      const starBaseH = (i % 2 === 0 ? hue : hue2);
+      ctx.fillStyle = `hsla(${(starBaseH + 30) % 360}, 90%, 85%, ${Math.min(1, twinkle)})`;
       ctx.beginPath();
       ctx.arc(s.x, s.y, sR, 0, Math.PI * 2);
       ctx.fill();
@@ -2057,7 +2088,8 @@ function fsVizFrame(ts) {
       else if (b.x > w + b.baseR) b.x = -b.baseR;
 
       const r = b.baseR * (1 + bass * 0.35) + Math.sin(t * b.wobbleSpeed + b.wobblePhase) * 2;
-      const bHue = (hue + b.dh + 360) % 360;
+      const bBaseH = (i % 2 === 0 ? hue : hue2);
+      const bHue = (bBaseH + b.dh + 360) % 360;
       ctx.strokeStyle = `hsla(${bHue}, 75%, 75%, ${b.alpha * (0.6 + bass * 0.4)})`;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -2075,9 +2107,9 @@ function fsVizFrame(ts) {
     }
   } else if (fsVizS.mode === 'waves') {
     const waveLayers = [
-      { dh: -30, speed: 1.2, yBase: 0.72, amp: 38, alpha: 0.22 + bass * 0.15 },
-      { dh: 0, speed: 1.7, yBase: 0.78, amp: 48, alpha: 0.26 + mid * 0.18 },
-      { dh: 35, speed: 2.3, yBase: 0.84, amp: 32, alpha: 0.32 + bass * 0.2 }
+      { hBase: hue, dh: -20, speed: 1.2, yBase: 0.72, amp: 38, alpha: 0.22 + bass * 0.15 },
+      { hBase: hue2, dh: 10, speed: 1.7, yBase: 0.78, amp: 48, alpha: 0.26 + mid * 0.18 },
+      { hBase: hue, dh: 30, speed: 2.3, yBase: 0.84, amp: 32, alpha: 0.32 + bass * 0.2 }
     ];
     for (let r = 0; r < waveLayers.length; r++) {
       const wl = waveLayers[r];
@@ -2091,7 +2123,7 @@ function fsVizFrame(ts) {
       ctx.lineTo(w, h);
       ctx.closePath();
       const wGrad = ctx.createLinearGradient(0, h * wl.yBase - 50, 0, h);
-      const wHue = (hue + wl.dh + 360) % 360;
+      const wHue = (wl.hBase + wl.dh + 360) % 360;
       wGrad.addColorStop(0, `hsla(${wHue}, 80%, 62%, ${wl.alpha})`);
       wGrad.addColorStop(1, `hsla(${wHue}, 80%, 55%, 0.05)`);
       ctx.fillStyle = wGrad;
@@ -2407,12 +2439,13 @@ function bindNowPlayingOverlayEvents() {
 function extractHueFromPixels(data) {
   const bins = new Array(24).fill(0);
   let satWeight = 0;
+  let count = 0;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
     const sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1) || 1);
-    // relax lightness floor from 0.07→0.04 to catch dark-but-colorful art
-    if (sat < 0.18 || l < 0.04 || l > 0.95) continue;
+    // catch dark-but-colorful and vibrant pixels
+    if (sat < 0.16 || l < 0.04 || l > 0.95) continue;
     let hh;
     if (mx === r) hh = ((g - b) / (mx - mn)) * 60;
     else if (mx === g) hh = 120 + ((b - r) / (mx - mn)) * 60;
@@ -2420,22 +2453,53 @@ function extractHueFromPixels(data) {
     if (hh < 0) hh += 360;
     bins[Math.min(23, Math.floor(hh / 15))] += sat * sat * sat;
     satWeight += sat;
+    count++;
   }
   let bi = -1, bv = 0;
   bins.forEach((v, i) => { if (v > bv) { bv = v; bi = i; } });
-  // satWeight > 0 means at least one colorful pixel contributed — that's enough
-  return (bi >= 0 && satWeight > 0) ? bi * 15 + 7.5 : null;
+  if (bi < 0 || satWeight <= 0) return null;
+  const primaryHue = Math.round(bi * 15 + 7.5);
+
+  let bi2 = -1, bv2 = 0;
+  bins.forEach((v, i) => {
+    const dist = Math.min(Math.abs(i - bi), 24 - Math.abs(i - bi));
+    if (dist >= 2 && v > bv2) {
+      bv2 = v;
+      bi2 = i;
+    }
+  });
+
+  const secondaryHue = (bi2 >= 0 && bv2 >= bv * 0.06)
+    ? Math.round(bi2 * 15 + 7.5)
+    : Math.round((primaryHue + 38) % 360);
+
+  const avgSat = count > 0 ? (satWeight / count) : 0.75;
+
+  return {
+    hue: primaryHue,
+    hueSecondary: secondaryHue,
+    sat: avgSat
+  };
 }
 
 function applyAccent(thumb) {
-  if (settings().ambientColors === false) return; // feature disabled
+  if (settings().ambientColors === false) {
+    const fixedHue = settings().accentHue !== 'auto' && settings().accentHue != null
+      ? settings().accentHue : ACC_DEFAULT_HUE;
+    setHue(fixedHue === 'auto' ? ACC_DEFAULT_HUE : fixedHue);
+    return;
+  }
   if (settings().accentHue != null && settings().accentHue !== 'auto') {
     setHue(settings().accentHue);
     return;
   }
   if (!thumb) { curAccThumb = null; setHue(ACC_DEFAULT_HUE); return; }
   curAccThumb = thumb;
-  if (accCache.has(thumb)) { setHue(accCache.get(thumb) ?? ACC_DEFAULT_HUE); return; }
+  if (accCache.has(thumb)) {
+    const cached = accCache.get(thumb);
+    setHue(cached ?? ACC_DEFAULT_HUE);
+    return;
+  }
 
   // Try drawing to canvas; if CORS taints it, retry with explicit crossOrigin + cache-bust
   function tryDraw(src, crossOrigin) {
@@ -2445,7 +2509,7 @@ function applyAccent(thumb) {
       img.onload = () => {
         try {
           const c = document.createElement('canvas');
-          c.width = c.height = 32; // larger sample for better accuracy
+          c.width = c.height = 32; // sample for accurate palette extraction
           const x = c.getContext('2d');
           x.drawImage(img, 0, 0, 32, 32);
           const d = x.getImageData(0, 0, 32, 32).data;
@@ -2460,30 +2524,77 @@ function applyAccent(thumb) {
   const run = async () => {
     if (curAccThumb !== thumb) return;
     // First try without crossOrigin (fastest, works for cached images)
-    let hue = await tryDraw(thumb, false);
-    if (hue === null && curAccThumb === thumb) {
+    let palette = await tryDraw(thumb, false);
+    if (palette === null && curAccThumb === thumb) {
       // Retry with crossOrigin + cache-bust to get past tainted-canvas
       const bust = thumb + (thumb.includes('?') ? '&' : '?') + '_cb=' + Date.now();
-      hue = await tryDraw(bust, true);
+      palette = await tryDraw(bust, true);
     }
-    accCache.set(thumb, hue);
-    if (curAccThumb === thumb) setHue(hue ?? ACC_DEFAULT_HUE);
+    accCache.set(thumb, palette);
+    if (curAccThumb === thumb) setHue(palette ?? ACC_DEFAULT_HUE);
   };
   run();
 }
 
-function setHue(h) {
-  vizS.hue = h;
+function setHue(input, secHue) {
+  let h, h2;
+  if (typeof input === 'object' && input !== null) {
+    h = input.hue;
+    h2 = input.hueSecondary;
+  } else {
+    h = input;
+    h2 = secHue;
+  }
+  if (h == null) h = ACC_DEFAULT_HUE;
+  if (h2 == null) h2 = (h + 38) % 360;
+
+  vizS.targetHue = h;
+  vizS.targetHueSecondary = h2;
+  if (!vizS.raf) {
+    vizS.hue = h;
+    vizS.hueSecondary = h2;
+  }
+
   const s = document.documentElement.style;
+  const isAmbient = settings().ambientColors !== false;
+
+  s.setProperty('--hue', h);
+  s.setProperty('--accent-hue', h);
+  s.setProperty('--hue-2', h2);
   s.setProperty('--accent', `hsl(${h}, 78%, 62%)`);
-  s.setProperty('--accent-2', `hsl(${(h + 42) % 360}, 72%, 52%)`);
+  s.setProperty('--accent-2', `hsl(${h2}, 72%, 52%)`);
   s.setProperty('--accent-3', `hsl(${(h + 120) % 360}, 80%, 58%)`);
   s.setProperty('--playing', `hsl(${h}, 85%, 72%)`);
   s.setProperty('--accent-soft', `hsla(${h}, 85%, 60%, 0.28)`);
   s.setProperty('--accent-glow', `hsla(${h}, 90%, 62%, 0.52)`);
-  s.setProperty('--accent-hue', h);
   s.setProperty('--glass-brd', `hsla(${h}, 50%, 80%, 0.12)`);
   s.setProperty('--glass-brd-hover', `hsla(${h}, 60%, 85%, 0.24)`);
+
+  if (isAmbient) {
+    // Dynamic background and surface theming derived from song cover art
+    s.setProperty('--bg', `hsl(${h}, 30%, 5.5%)`);
+    s.setProperty('--bg2', `hsl(${h}, 22%, 8.5%)`);
+    s.setProperty('--bg3', `hsla(${h}, 30%, 85%, 0.08)`);
+    s.setProperty('--panel', `hsla(${h}, 20%, 11%, 0.72)`);
+    s.setProperty('--panel-card', `hsla(${h}, 22%, 10%, 0.54)`);
+    s.setProperty('--panel-opaque', `hsla(${h}, 24%, 8%, 0.72)`);
+    s.setProperty('--sidebar-bg', `hsla(${h}, 25%, 7%, 0.68)`);
+    s.setProperty('--playerbar-bg', `hsla(${h}, 28%, 7%, 0.72)`);
+    s.setProperty('--ambient-wash', `hsla(${h}, 70%, 25%, 0.35)`);
+    s.setProperty('--ambient-wash-2', `hsla(${h2}, 65%, 20%, 0.25)`);
+  } else {
+    // Reset to neutral dark theme when ambient is off
+    s.setProperty('--bg', '#07090e');
+    s.setProperty('--bg2', '#0d1017');
+    s.setProperty('--bg3', 'rgba(255, 255, 255, 0.075)');
+    s.setProperty('--panel', 'rgba(14, 18, 28, 0.65)');
+    s.setProperty('--panel-card', 'rgba(14, 18, 28, 0.52)');
+    s.setProperty('--panel-opaque', 'rgba(11, 14, 22, 0.68)');
+    s.setProperty('--sidebar-bg', 'rgba(11, 14, 22, 0.62)');
+    s.setProperty('--playerbar-bg', 'rgba(10, 13, 20, 0.65)');
+    s.removeProperty('--ambient-wash');
+    s.removeProperty('--ambient-wash-2');
+  }
 }
 
 // ---------- Discord RPC & Mini mode ----------
