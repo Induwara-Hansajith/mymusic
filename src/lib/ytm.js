@@ -59,14 +59,37 @@ function payloadOf(t) {
   return (r && r.endpoint && r.endpoint.payload) || (t && t.endpoint && t.endpoint.payload) || null;
 }
 
+function upgradeThumbUrl(url, highRes = true) {
+  if (!url || typeof url !== 'string') return '';
+  // 1. Google User Content & GGPHT (YouTube Music album art, artist portraits, playlists)
+  if (/googleusercontent\.com|ggpht\.com/i.test(url)) {
+    if (/=w\d+-h\d+/i.test(url)) {
+      return url.replace(/=w\d+-h\d+[^?]*/i, highRes ? '=w1024-h1024-l90-rj' : '=w544-h544-l90-rj');
+    }
+    if (/=s\d+/i.test(url)) {
+      return url.replace(/=s\d+[^?]*/i, highRes ? '=s1024-l90-rj' : '=s544-l90-rj');
+    }
+    return url;
+  }
+  // 2. YouTube video thumbnails (i.ytimg.com / img.youtube.com)
+  if (/ytimg\.com|youtube\.com\/vi/i.test(url)) {
+    const clean = url.split('?')[0];
+    if (clean.includes('/default.jpg') || clean.includes('/mqdefault.jpg')) {
+      return clean.replace(/\/(?:default|mqdefault)\.jpg$/i, '/hqdefault.jpg');
+    }
+    return clean;
+  }
+  return url;
+}
+
 function lastThumb(thumb) {
   if (!thumb) return '';
-  if (typeof thumb === 'string') return thumb;
-  if (thumb.url && typeof thumb.url === 'string') return thumb.url;
+  if (typeof thumb === 'string') return upgradeThumbUrl(thumb);
+  if (thumb.url && typeof thumb.url === 'string') return upgradeThumbUrl(thumb.url);
   const arr = thumb && thumb.contents ? thumb.contents : (Array.isArray(thumb) ? thumb : []);
   if (!arr.length) return '';
   const last = arr[arr.length - 1];
-  return (last && last.url) || '';
+  return upgradeThumbUrl((last && last.url) || '');
 }
 
 const KIND_RE = /^(?:song|video|album|ep|single|playlist|artist|featured on|profile|podcast|episode|top result)$/i;
@@ -729,9 +752,7 @@ async function artistThumb(name, artistId) {
   }
 
   if (thumb) {
-    if (thumb.includes('=w60-h60')) {
-      thumb = thumb.replace('=w60-h60', '=w240-h240');
-    }
+    thumb = upgradeThumbUrl(thumb, true);
     const result = { thumb, id: resolvedId };
     artistThumbCache.set(normKey, result);
     if (name) artistThumbCache.set(name.trim().toLowerCase(), result);

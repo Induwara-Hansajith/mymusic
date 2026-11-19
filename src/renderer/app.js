@@ -1501,8 +1501,50 @@ function updatePlayBtn() {
   if (fsPlay) fsPlay.innerHTML = icon(S.playing ? 'pause' : 'play');
 }
 
+function upgradeThumbUrl(url, highRes = true) {
+  if (!url || typeof url !== 'string') return '';
+  // 1. Google User Content & GGPHT (YouTube Music album art, artist portraits, playlists)
+  if (/googleusercontent\.com|ggpht\.com/i.test(url)) {
+    if (/=w\d+-h\d+/i.test(url)) {
+      return url.replace(/=w\d+-h\d+[^?]*/i, highRes ? '=w1024-h1024-l90-rj' : '=w544-h544-l90-rj');
+    }
+    if (/=s\d+/i.test(url)) {
+      return url.replace(/=s\d+[^?]*/i, highRes ? '=s1024-l90-rj' : '=s544-l90-rj');
+    }
+    return url;
+  }
+  // 2. YouTube video thumbnails (i.ytimg.com / img.youtube.com)
+  if (/ytimg\.com|youtube\.com\/vi/i.test(url)) {
+    const clean = url.split('?')[0];
+    if (clean.includes('/default.jpg') || clean.includes('/mqdefault.jpg')) {
+      return clean.replace(/\/(?:default|mqdefault)\.jpg$/i, '/hqdefault.jpg');
+    }
+    return clean;
+  }
+  return url;
+}
+
+function getFullscreenThumbUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  // Google User Content (YTM album art): upgrade to maximum 1200x1200
+  if (/googleusercontent\.com|ggpht\.com/i.test(url)) {
+    if (/=w\d+-h\d+/i.test(url)) return url.replace(/=w\d+-h\d+[^?]*/i, '=w1200-h1200-l90-rj');
+    if (/=s\d+/i.test(url)) return url.replace(/=s\d+[^?]*/i, '=s1200-l90-rj');
+  }
+  // YouTube video thumb: try 1280x720 / 1080p maxresdefault
+  if (/ytimg\.com|youtube\.com\/vi/i.test(url)) {
+    const clean = url.split('?')[0];
+    const match = clean.match(/\/vi\/([a-zA-Z0-9_-]{11})\//);
+    if (match && match[1]) {
+      return `https://i.ytimg.com/vi/${match[1]}/maxresdefault.jpg`;
+    }
+  }
+  return upgradeThumbUrl(url, true);
+}
+
 function setNowPlaying(t, restoreOnly = false) {
   if (!t) return;
+  if (t.thumb) t.thumb = upgradeThumbUrl(t.thumb, true);
 
   const isTrackChange = S.lyricsId !== t.id;
   if (isTrackChange) {
@@ -2332,7 +2374,19 @@ function getContextTitle() {
 function updateFsNowPlaying(t) {
   if (!t) return;
   const thumb = $('#fs-thumb');
-  if (thumb) thumb.src = t.thumb || '';
+  if (thumb) {
+    const rawThumb = t.thumb || '';
+    const fsThumb = getFullscreenThumbUrl(rawThumb);
+    thumb.onerror = () => {
+      // If 1080p/720p maxresdefault 404s for an older video, smoothly fall back to hqdefault (uncompressed 480x360)
+      if (thumb.src && thumb.src.includes('maxresdefault.jpg')) {
+        thumb.src = thumb.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+      } else if (thumb.src !== rawThumb) {
+        thumb.src = rawThumb;
+      }
+    };
+    thumb.src = fsThumb;
+  }
   const title = $('#fs-title');
   if (title) title.textContent = t.title || 'My Music';
   const a = $('#fs-artist');
