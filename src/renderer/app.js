@@ -124,7 +124,8 @@ async function boot() {
       settings: {
         volume: 0.8, repeat: 'off', shuffle: false, viz: 'bars', radio: true,
         speed: 1.0, pitchLock: true, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], eqPreset: 'flat',
-        wallpaper: '', wallpaperDim: 60, accentHue: 'auto', closeToTray: false, ambientColors: true
+        wallpaper: '', wallpaperDim: 60, accentHue: 'auto', closeToTray: false, ambientColors: true,
+        lyricsStyle: 'cinematic'
       },
       lyricsOffsets: {},
       lastQueue: null,
@@ -334,18 +335,47 @@ function buildShell() {
           <section id="fs-view-lyrics" class="fs-tab-view">
             <div class="fs-lyrics-container">
               <div class="fs-lyrics-actions">
-                <div id="fs-lyrics-offset-bar" class="ly-offset-bar fs-ly-offset">
-                  <span class="ly-off-label">Sync Offset:</span>
-                  <button class="ly-off-btn fs-off-btn" data-dir="-1" title="-500ms">-0.5s</button>
-                  <span id="fs-ly-off-val" class="ly-off-val">0ms</span>
-                  <button class="ly-off-btn fs-off-btn" data-dir="1" title="+500ms">+0.5s</button>
-                  <button id="fs-ly-off-reset" class="ly-off-reset" title="Reset offset">Reset</button>
+                <div class="fs-lyrics-left-actions">
+                  <div class="fs-lyrics-style-picker" title="Select lyrics presentation style">
+                    <span class="fs-lyrics-style-label">${icon('lyrics')}</span>
+                    <select id="fs-lyrics-style-select" class="fs-select" title="Lyrics Style">
+                      <option value="cinematic">✨ Cinematic Story (SONARA)</option>
+                      <option value="apple-music">🎵 Apple Music Kinetic</option>
+                      <option value="karaoke">🎤 Classic Karaoke</option>
+                      <option value="minimal">📄 Minimalist</option>
+                    </select>
+                  </div>
+                  <div id="fs-cinematic-mood-badge" class="fs-mood-badge hidden" title="Detected Emotional Tone">
+                    <span class="mood-dot"></span> <span id="fs-mood-text">Dreaming</span>
+                  </div>
                 </div>
-                <button id="fs-lyrics-trans-btn" class="ghostbtn ly-trans-btn" title="Translate lyrics to English">
-                  ${icon('translate')} <span>Translate</span>
-                </button>
+
+                <div class="fs-lyrics-right-actions">
+                  <div id="fs-lyrics-offset-bar" class="ly-offset-bar fs-ly-offset">
+                    <span class="ly-off-label">Offset:</span>
+                    <button class="ly-off-btn fs-off-btn" data-dir="-1" title="-500ms">-0.5s</button>
+                    <span id="fs-ly-off-val" class="ly-off-val">0ms</span>
+                    <button class="ly-off-btn fs-off-btn" data-dir="1" title="+500ms">+0.5s</button>
+                    <button id="fs-ly-off-reset" class="ly-off-reset" title="Reset offset">Reset</button>
+                  </div>
+                  <button id="fs-lyrics-trans-btn" class="ghostbtn ly-trans-btn" title="Translate lyrics to English">
+                    ${icon('translate')} <span>Translate</span>
+                  </button>
+                </div>
               </div>
-              <div id="fs-lyrics-body" class="fs-lyrics-scroll-body">
+
+              <!-- SONARA Cinematic Lyric Animation Canvas Stage -->
+              <div id="fs-cinematic-stage" class="fs-cinematic-stage">
+                <canvas id="fs-cinematic-canvas"></canvas>
+                <div id="fs-cinematic-subtitles" class="fs-cinematic-subtitles">
+                  <div id="fs-cine-prev" class="cine-sub-line cine-prev" title="Previous line"></div>
+                  <div id="fs-cine-cur" class="cine-sub-line cine-cur" title="Current line">Listening to music…</div>
+                  <div id="fs-cine-next" class="cine-sub-line cine-next" title="Next line"></div>
+                </div>
+              </div>
+
+              <!-- Scrollable Lyrics Container for Apple Music, Karaoke, and Minimal -->
+              <div id="fs-lyrics-body" class="fs-lyrics-scroll-body hidden">
                 <div class="fs-lyrics-empty">No lyrics loaded</div>
               </div>
             </div>
@@ -2265,11 +2295,27 @@ function renderFsLyrics(t) {
   const curOff = (t && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[t.id]) || 0;
   if (offVal) offVal.textContent = (curOff > 0 ? '+' : '') + curOff + 'ms';
 
+  const curStyle = (settings().lyricsStyle) || 'cinematic';
+  const styleSel = $('#fs-lyrics-style-select');
+  if (styleSel) styleSel.value = curStyle;
+
+  // Feed SONARA Engine
+  if (typeof SonaraEngine !== 'undefined') {
+    SonaraEngine.setLyrics(r, t ? t.id : '');
+    const mood = SonaraEngine.getMood();
+    const moodBadge = $('#fs-cinematic-mood-badge');
+    if (moodBadge) {
+      moodBadge.classList.toggle('hidden', !r);
+      const moodText = $('#fs-mood-text');
+      if (moodText) moodText.textContent = `${mood.icon} ${mood.name}`;
+      moodBadge.style.color = mood.accent;
+      moodBadge.style.borderColor = mood.accent;
+    }
+  }
+
   if (!r) {
     body.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
-    return;
-  }
-  if (r.synced && r.synced.length) {
+  } else if (r.synced && r.synced.length) {
     body.innerHTML = r.synced.map(l =>
       `<div class="fs-ly-row" data-t="${l.t != null ? l.t : ''}">${esc(l.text)}</div>`
     ).join('');
@@ -2289,6 +2335,27 @@ function renderFsLyrics(t) {
       }
     });
   });
+
+  const cineStage = $('#fs-cinematic-stage');
+  if (curStyle === 'cinematic') {
+    cineStage?.classList.remove('hidden');
+    body.classList.add('hidden');
+    if (typeof SonaraEngine !== 'undefined') {
+      const c = $('#fs-cinematic-canvas');
+      if (c && (!SonaraEngine.canvas || SonaraEngine.canvas !== c)) {
+        SonaraEngine.init(c);
+        ensureTap();
+        if (vizS.analyser) SonaraEngine.setAudioSource(vizS.analyser);
+      }
+      SonaraEngine.resize();
+      SonaraEngine.start();
+    }
+  } else {
+    cineStage?.classList.add('hidden');
+    body.classList.remove('hidden');
+    if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
+    body.className = `fs-lyrics-scroll-body lyrics-style-${curStyle}`;
+  }
 
   highlightLyric(audio.currentTime);
 }
@@ -2375,6 +2442,7 @@ function closeNowPlayingOverlay() {
     overlay.classList.remove('fs-leaving');
     overlay.classList.add('hidden');
     fsVizStop();
+    if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
   }, 280);
 }
 
@@ -2383,7 +2451,11 @@ function switchFsTab(tabName) {
   $$('.fs-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
   $$('.fs-tab-view').forEach(v => v.classList.toggle('active', v.id === `fs-view-${tabName}`));
   const t = curTrack();
-  if (tabName === 'lyrics') renderFsLyrics(t);
+  if (tabName === 'lyrics') {
+    renderFsLyrics(t);
+  } else {
+    if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
+  }
   if (tabName === 'queue') renderFsQueue();
 }
 
@@ -2400,6 +2472,24 @@ function bindNowPlayingOverlayEvents() {
   // Lyrics card click switches to lyrics tab
   $('#fs-lyrics-card')?.addEventListener('click', () => {
     switchFsTab('lyrics');
+  });
+
+  // Lyrics style selector
+  $('#fs-lyrics-style-select')?.addEventListener('change', (e) => {
+    setLyricsStyle(e.target.value);
+  });
+
+  // Subtitle seeking in cinematic mode
+  $('#fs-cinematic-subtitles')?.addEventListener('click', (e) => {
+    const sub = e.target.closest('.cine-sub-line');
+    if (!sub || !sub.dataset.t) return;
+    const ts = parseFloat(sub.dataset.t);
+    const tTrack = curTrack();
+    const curOff = (tTrack && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[tTrack.id]) || 0;
+    if (!isNaN(ts)) {
+      audio.currentTime = Math.max(0, ts - (curOff / 1000));
+      syncPresence();
+    }
   });
 
   // Visualizer select
@@ -2882,8 +2972,13 @@ function renderLyricsHeader(t) {
   const head = $('#lyricsPanel .panel-head');
   if (!head) return;
   const hasLyrics = S.lyrics && (S.lyrics.synced?.length || S.lyrics.plain);
+  const mood = (typeof SonaraEngine !== 'undefined') ? SonaraEngine.getMood() : null;
+  const moodHtml = (mood && hasLyrics) ? `<span class="ly-mood-badge" style="color:${mood.accent};border-color:${mood.accent};">${mood.icon} ${mood.name}</span>` : '';
   head.innerHTML = `
-    <div class="ly-head-title">Lyrics</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="ly-head-title">Lyrics</div>
+      ${moodHtml}
+    </div>
     <div class="ly-head-actions">
       ${hasLyrics ? `<button id="btnTransLyrics" class="ghostbtn ly-trans-btn" title="Translate lyrics to English">${icon('translate')} <span>${S.showTranslated ? 'Original' : 'Translate'}</span></button>` : ''}
       <button class="iconbtn" data-action="panel-close" data-panel="lyricsPanel">${icon('close')}</button>
@@ -2895,6 +2990,13 @@ function renderLyricsContent(t) {
   S._lastLy = -1;
   const el = $('#lyricsBody');
   const r = (S.showTranslated && S.translatedLyrics.get(t.id)) ? S.translatedLyrics.get(t.id) : S.lyrics;
+  const curStyle = (settings().lyricsStyle) || 'cinematic';
+  if (el) el.className = 'panel-body lyrics-style-' + curStyle;
+
+  if (typeof SonaraEngine !== 'undefined' && r) {
+    SonaraEngine.setLyrics(r, t ? t.id : '');
+  }
+
   if (!r) {
     el.innerHTML = '<div class="ly-load">No lyrics found.</div>';
     return;
@@ -3019,6 +3121,32 @@ function highlightLyric(time) {
   const offsetMs = (tTrack && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[tTrack.id]) || 0;
   const adjustedTime = time + (offsetMs / 1000);
 
+  // Sync SONARA AI Engine
+  if (typeof SonaraEngine !== 'undefined') {
+    SonaraEngine.syncTime(adjustedTime);
+
+    // Update subtitles in cinematic stage
+    const cineCur = $('#fs-cine-cur');
+    if (cineCur && SonaraEngine.lineAnalysis.length) {
+      const cinePrev = $('#fs-cine-prev');
+      const cineNext = $('#fs-cine-next');
+      const lines = SonaraEngine.lineAnalysis;
+      const idx = SonaraEngine.activeLineIdx;
+      if (idx >= 0 && lines[idx]) {
+        if (cinePrev) {
+          cinePrev.textContent = idx > 0 ? (lines[idx - 1].raw || '') : '';
+          cinePrev.dataset.t = idx > 0 ? lines[idx - 1].t : '';
+        }
+        cineCur.textContent = lines[idx].raw || '…';
+        cineCur.dataset.t = lines[idx].t != null ? lines[idx].t : '';
+        if (cineNext) {
+          cineNext.textContent = idx < lines.length - 1 ? (lines[idx + 1].raw || '') : '';
+          cineNext.dataset.t = idx < lines.length - 1 ? lines[idx + 1].t : '';
+        }
+      }
+    }
+  }
+
   // Sidepanel lyrics
   const lines = $$('#lyricsBody .ly-line');
   if (lines.length) {
@@ -3030,7 +3158,7 @@ function highlightLyric(time) {
     lines.forEach((el, i) => el.classList.toggle('on', i === active));
     if (active >= 0 && active !== S._lastLy) {
       S._lastLy = active;
-      lines[active].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      lines[active].scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
   }
 
@@ -3054,6 +3182,8 @@ function highlightLyric(time) {
   if (prevText) {
     if (fsActive >= 0 && fsLines[fsActive]) {
       prevText.textContent = fsLines[fsActive].textContent;
+    } else if (typeof SonaraEngine !== 'undefined' && SonaraEngine.activeLineIdx >= 0 && SonaraEngine.lineAnalysis[SonaraEngine.activeLineIdx]) {
+      prevText.textContent = SonaraEngine.lineAnalysis[SonaraEngine.activeLineIdx].raw || '…';
     } else if (S.lyrics && S.lyrics.synced && S.lyrics.synced.length) {
       prevText.textContent = S.lyrics.synced[0].text || '…';
     } else if (S.lyrics && S.lyrics.plain) {
@@ -3062,6 +3192,29 @@ function highlightLyric(time) {
       prevText.textContent = 'No lyrics for this one yet';
     }
   }
+}
+
+function setLyricsStyle(style) {
+  if (!['cinematic', 'apple-music', 'karaoke', 'minimal'].includes(style)) return;
+  settings().lyricsStyle = style;
+  mutate({ type: 'settings.set', patch: { lyricsStyle: style } });
+
+  const styleSel = $('#fs-lyrics-style-select');
+  if (styleSel) styleSel.value = style;
+  const setSel = $('#settingLyricsStyle');
+  if (setSel) setSel.value = style;
+
+  const t = curTrack();
+  if (S.fsOpen && S.fsTab === 'lyrics') renderFsLyrics(t);
+  if (S.lyricsOpen && t) renderLyricsContent(t);
+
+  const labels = {
+    'cinematic': 'Cinematic Story (SONARA)',
+    'apple-music': 'Apple Music Kinetic Blur',
+    'karaoke': 'Classic Karaoke',
+    'minimal': 'Minimalist Clean'
+  };
+  toast('Lyrics Style: ' + (labels[style] || style));
 }
 
 // ---------- context menu ----------
@@ -4381,6 +4534,22 @@ function renderSettings(tok) {
       </div>
 
       <div class="settings-card">
+        <h3>${icon('lyrics')} Lyrics & Visual Animation</h3>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">Lyrics Animation Style</span>
+            <span class="settings-desc">Choose between the AI-powered cinematic canvas, Apple Music kinetic blur, classic karaoke, or minimalist</span>
+          </div>
+          <select id="settingLyricsStyle" class="fs-select" style="padding:7px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-weight:600">
+            <option value="cinematic" ${s.lyricsStyle === 'cinematic' ? 'selected' : ''}>✨ Cinematic Story (SONARA AI Engine)</option>
+            <option value="apple-music" ${s.lyricsStyle === 'apple-music' ? 'selected' : ''}>🎵 Apple Music Kinetic Blur</option>
+            <option value="karaoke" ${s.lyricsStyle === 'karaoke' ? 'selected' : ''}>🎤 Classic Karaoke</option>
+            <option value="minimal" ${s.lyricsStyle === 'minimal' ? 'selected' : ''}>📄 Minimalist Clean</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <h3>${icon('music')} Windows Integration</h3>
         <div class="settings-row">
           <div class="settings-label">
@@ -4473,6 +4642,13 @@ function renderSettings(tok) {
       mutate({ type: 'settings.set', patch: { autoUpdate: enabled } });
       toast(`Automatic update checks ${enabled ? 'enabled' : 'disabled'}`);
       if (enabled) call('updates:check', { manual: false }).catch((err) => console.warn('Update check failed:', err.message));
+    });
+  }
+
+  const lyricsStyleSel = $('#settingLyricsStyle');
+  if (lyricsStyleSel) {
+    lyricsStyleSel.addEventListener('change', (e) => {
+      setLyricsStyle(e.target.value);
     });
   }
 
