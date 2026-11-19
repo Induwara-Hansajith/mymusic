@@ -2288,8 +2288,16 @@ function updateFsLyricsPreview(t) {
 
 function renderFsLyrics(t) {
   t = t || curTrack();
+  S._lastFsLy = -1;
   const body = $('#fs-lyrics-body');
   if (!body) return;
+
+  if (!body._scrollBound) {
+    body._scrollBound = true;
+    body.addEventListener('wheel', () => { body._userScrolling = Date.now(); }, { passive: true });
+    body.addEventListener('touchstart', () => { body._userScrolling = Date.now(); }, { passive: true });
+  }
+
   const r = (S.showTranslated && t && S.translatedLyrics.get(t.id)) ? S.translatedLyrics.get(t.id) : S.lyrics;
   const offVal = $('#fs-ly-off-val');
   const curOff = (t && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[t.id]) || 0;
@@ -2330,8 +2338,9 @@ function renderFsLyrics(t) {
     row.addEventListener('click', () => {
       const ts = parseFloat(row.dataset.t);
       if (!isNaN(ts)) {
-        audio.currentTime = Math.max(0, ts - (curOff / 1000));
+        curAudio.currentTime = Math.max(0, ts - (curOff / 1000));
         syncPresence();
+        highlightLyric(curAudio.currentTime);
       }
     });
   });
@@ -2431,12 +2440,14 @@ function openNowPlayingOverlay() {
 
   fsVizResize();
   fsVizStart();
+  checkLyricsLoop();
 }
 
 function closeNowPlayingOverlay() {
   const overlay = $('#nowPlayingOverlay');
   if (!overlay || overlay.classList.contains('hidden')) return;
   S.fsOpen = false;
+  checkLyricsLoop();
   overlay.classList.add('fs-leaving');
   setTimeout(() => {
     overlay.classList.remove('fs-leaving');
@@ -2457,6 +2468,7 @@ function switchFsTab(tabName) {
     if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
   }
   if (tabName === 'queue') renderFsQueue();
+  checkLyricsLoop();
 }
 
 function bindNowPlayingOverlayEvents() {
@@ -2825,6 +2837,7 @@ function bindDeckEvents(deckEl) {
     vizStart();
     syncPresence();
     syncTaskbarTray();
+    checkLyricsLoop();
     const t = curTrack();
     if (t && !S.recorded.has(t.id)) {
       S.recorded.add(t.id);
@@ -2841,12 +2854,14 @@ function bindDeckEvents(deckEl) {
       updatePlayBtn();
       syncPresence();
       syncTaskbarTray();
+      checkLyricsLoop();
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     }
   });
 
   deckEl.addEventListener('ended', () => {
     if (deckEl !== curAudio) return;
+    checkLyricsLoop();
     const t = curTrack();
     if (t) recordListening(t, deckEl.duration || deckEl.currentTime);
     syncPresence();
@@ -2868,6 +2883,7 @@ function bindDeckEvents(deckEl) {
     S.playing = false;
     updatePlayBtn();
     syncPresence();
+    checkLyricsLoop();
     const token = S.playToken;
     const t = curTrack();
     if (t && S.order.length > 1 && ++S.errStreak <= 3) {
@@ -2877,7 +2893,17 @@ function bindDeckEvents(deckEl) {
   });
 
   deckEl.addEventListener('playing', () => {
-    if (deckEl === curAudio) S.errStreak = 0;
+    if (deckEl === curAudio) {
+      S.errStreak = 0;
+      checkLyricsLoop();
+    }
+  });
+
+  deckEl.addEventListener('seeked', () => {
+    if (deckEl === curAudio) {
+      highlightLyric(curAudio.currentTime);
+      checkLyricsLoop();
+    }
   });
 
   deckEl.addEventListener('timeupdate', () => {
@@ -2966,6 +2992,7 @@ function toggleLyrics(force) {
   $('#pb-lyrics').classList.toggle('on', S.lyricsOpen);
   const t = curTrack();
   if (S.lyricsOpen && t) loadLyrics(t);
+  checkLyricsLoop();
 }
 
 function renderLyricsHeader(t) {
@@ -2989,9 +3016,15 @@ function renderLyricsHeader(t) {
 function renderLyricsContent(t) {
   S._lastLy = -1;
   const el = $('#lyricsBody');
+  if (!el) return;
+  if (!el._scrollBound) {
+    el._scrollBound = true;
+    el.addEventListener('wheel', () => { el._userScrolling = Date.now(); }, { passive: true });
+    el.addEventListener('touchstart', () => { el._userScrolling = Date.now(); }, { passive: true });
+  }
   const r = (S.showTranslated && S.translatedLyrics.get(t.id)) ? S.translatedLyrics.get(t.id) : S.lyrics;
   const curStyle = (settings().lyricsStyle) || 'cinematic';
-  if (el) el.className = 'panel-body lyrics-style-' + curStyle;
+  el.className = 'panel-body lyrics-style-' + curStyle;
 
   if (typeof SonaraEngine !== 'undefined' && r) {
     SonaraEngine.setLyrics(r, t ? t.id : '');
@@ -3116,10 +3149,58 @@ async function loadLyrics(t) {
   }
 }
 
+function smoothScrollToCenter(container, targetEl, duration = 360) {
+  if (!container || !targetEl) return;
+  if (container._userScrolling && Date.now() - container._userScrolling < 2000) return;
+
+  const cRect = container.getBoundingClientRect();
+  const tRect = targetEl.getBoundingClientRect();
+  const targetTop = container.scrollTop + (tRect.top - cRect.top) - (cRect.height / 2) + (tRect.height / 2);
+  const startTop = container.scrollTop;
+  const distance = targetTop - startTop;
+  if (Math.abs(distance) < 2) return;
+
+  if (container._scrollRaf) cancelAnimationFrame(container._scrollRaf);
+  const startTime = performance.now();
+
+  function step(now) {
+    const elapsed = now - startTime;
+    const p = Math.min(elapsed / duration, 1);
+    const ease = 1 - Math.pow(1 - p, 5);
+    container.scrollTop = startTop + (distance * ease);
+    if (p < 1) {
+      container._scrollRaf = requestAnimationFrame(step);
+    } else {
+      container._scrollRaf = null;
+    }
+  }
+  container._scrollRaf = requestAnimationFrame(step);
+}
+
+let lyricsRafId = null;
+function checkLyricsLoop() {
+  const shouldRun = (S.lyricsOpen || S.fsOpen) && S.playing && curAudio && !curAudio.paused;
+  if (shouldRun && !lyricsRafId) {
+    function tick() {
+      if ((S.lyricsOpen || S.fsOpen) && S.playing && curAudio && !curAudio.paused) {
+        highlightLyric(curAudio.currentTime);
+        lyricsRafId = requestAnimationFrame(tick);
+      } else {
+        lyricsRafId = null;
+      }
+    }
+    lyricsRafId = requestAnimationFrame(tick);
+  } else if (!shouldRun && lyricsRafId) {
+    cancelAnimationFrame(lyricsRafId);
+    lyricsRafId = null;
+  }
+}
+
 function highlightLyric(time) {
   const tTrack = curTrack();
   const offsetMs = (tTrack && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[tTrack.id]) || 0;
-  const adjustedTime = time + (offsetMs / 1000);
+  const currentT = time != null ? time : (curAudio ? curAudio.currentTime : 0);
+  const adjustedTime = currentT + (offsetMs / 1000);
 
   // Sync SONARA AI Engine
   if (typeof SonaraEngine !== 'undefined') {
@@ -3148,40 +3229,55 @@ function highlightLyric(time) {
   }
 
   // Sidepanel lyrics
-  const lines = $$('#lyricsBody .ly-line');
-  if (lines.length) {
-    let active = -1;
-    for (let i = 0; i < lines.length; i++) {
-      const t = parseFloat(lines[i].dataset.t);
-      if (!isNaN(t) && t <= adjustedTime + 0.3) active = i;
-    }
-    lines.forEach((el, i) => el.classList.toggle('on', i === active));
-    if (active >= 0 && active !== S._lastLy) {
-      S._lastLy = active;
-      lines[active].scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const lyricsBody = $('#lyricsBody');
+  if (lyricsBody) {
+    const lines = lyricsBody.querySelectorAll('.ly-line');
+    if (lines.length) {
+      let active = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const t = parseFloat(lines[i].dataset.t);
+        if (!isNaN(t) && t <= adjustedTime) active = i;
+        else if (!isNaN(t) && t > adjustedTime) break;
+      }
+      if (active !== S._lastLy) {
+        if (S._lastLy >= 0 && lines[S._lastLy]) lines[S._lastLy].classList.remove('on');
+        if (active >= 0 && lines[active]) {
+          lines[active].classList.add('on');
+          smoothScrollToCenter(lyricsBody, lines[active]);
+        }
+        S._lastLy = active;
+      }
     }
   }
 
   // Full-screen overlay lyrics
-  const fsLines = $$('#fs-lyrics-body .fs-ly-row');
+  const fsBody = $('#fs-lyrics-body');
   let fsActive = -1;
-  if (fsLines.length) {
-    for (let i = 0; i < fsLines.length; i++) {
-      const t = parseFloat(fsLines[i].dataset.t);
-      if (!isNaN(t) && t <= adjustedTime + 0.3) fsActive = i;
-    }
-    fsLines.forEach((el, i) => el.classList.toggle('on', i === fsActive));
-    if (fsActive >= 0 && fsActive !== S._lastFsLy) {
-      S._lastFsLy = fsActive;
-      fsLines[fsActive].scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (fsBody) {
+    const fsLines = fsBody.querySelectorAll('.fs-ly-row');
+    if (fsLines.length) {
+      for (let i = 0; i < fsLines.length; i++) {
+        const t = parseFloat(fsLines[i].dataset.t);
+        if (!isNaN(t) && t <= adjustedTime) fsActive = i;
+        else if (!isNaN(t) && t > adjustedTime) break;
+      }
+      if (fsActive !== S._lastFsLy) {
+        if (S._lastFsLy >= 0 && fsLines[S._lastFsLy]) fsLines[S._lastFsLy].classList.remove('on');
+        if (fsActive >= 0 && fsLines[fsActive]) {
+          fsLines[fsActive].classList.add('on');
+          smoothScrollToCenter(fsBody, fsLines[fsActive]);
+        }
+        S._lastFsLy = fsActive;
+      }
     }
   }
 
   // Preview card text
   const prevText = $('#fs-ly-preview-text');
   if (prevText) {
-    if (fsActive >= 0 && fsLines[fsActive]) {
-      prevText.textContent = fsLines[fsActive].textContent;
+    if (fsActive >= 0) {
+      const fsLines = $$('#fs-lyrics-body .fs-ly-row');
+      if (fsLines[fsActive]) prevText.textContent = fsLines[fsActive].textContent;
     } else if (typeof SonaraEngine !== 'undefined' && SonaraEngine.activeLineIdx >= 0 && SonaraEngine.lineAnalysis[SonaraEngine.activeLineIdx]) {
       prevText.textContent = SonaraEngine.lineAnalysis[SonaraEngine.activeLineIdx].raw || '…';
     } else if (S.lyrics && S.lyrics.synced && S.lyrics.synced.length) {

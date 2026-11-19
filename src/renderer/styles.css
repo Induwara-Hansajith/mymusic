@@ -399,9 +399,13 @@ input { font: inherit; color: inherit; }
   padding: 8px 12px;
   border-radius: 8px;
   line-height: 1.45;
-  transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  font-size: 14.5px;
   user-select: text;
   cursor: pointer;
+  will-change: transform, opacity;
+  contain: layout style;
+  transform: translateZ(0);
+  transition: color 0.2s ease, background 0.2s ease, transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
   transform-origin: left center;
 }
 .ly-line:hover {
@@ -411,12 +415,12 @@ input { font: inherit; color: inherit; }
 .ly-line.on {
   color: #fff;
   font-weight: 700;
-  font-size: 15.5px;
   background: linear-gradient(90deg, var(--accent-soft), transparent 90%);
   border-left: 3px solid var(--accent);
   text-shadow: 0 0 16px var(--accent-glow);
   padding-left: 12px;
   border-radius: 0 8px 8px 0;
+  transform: scale(1.06) translateZ(0);
 }
 
 /* Sidepanel Apple Music Style */
@@ -428,25 +432,31 @@ input { font: inherit; color: inherit; }
   padding: 8px 12px;
   margin: 2px 0;
   border-radius: 8px;
-  transition: all 0.28s cubic-bezier(0.25, 1, 0.5, 1);
+  will-change: transform, opacity, filter;
+  contain: layout style;
+  transform: translateZ(0);
+  transition: filter 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.2s ease,
+              background 0.2s ease;
 }
 .lyrics-style-apple-music #lyricsBody .ly-line:hover {
   color: rgba(255, 255, 255, 0.88);
   filter: blur(0);
   background: rgba(255, 255, 255, 0.06);
-  transform: scale(1.02);
+  transform: scale(1.02) translateZ(0);
 }
 .lyrics-style-apple-music #lyricsBody .ly-line.on {
   color: #ffffff;
   font-weight: 800;
-  font-size: 17px;
   filter: blur(0) !important;
   opacity: 1 !important;
   background: linear-gradient(90deg, var(--accent-soft), transparent 95%);
   border-left: 3.5px solid var(--accent);
   text-shadow: 0 0 20px var(--accent-glow);
   padding-left: 14px;
-  transform: scale(1.04);
+  transform: scale(1.08) translateZ(0);
 }
 
 /* ---------- player bar ---------- */
@@ -1741,18 +1751,21 @@ body.mini-mode #pb-mini {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 30px 20px 80px 20px;
-  scroll-behavior: smooth;
   text-align: left;
 }
 .fs-ly-row {
-  font-size: 26px;
+  font-size: 28px;
+  line-height: 1.4;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.32);
   padding: 12px 18px;
   margin: 6px 0;
   border-radius: 12px;
   cursor: pointer;
-  transition: color 0.2s, background 0.2s, transform 0.2s, font-size 0.2s;
+  will-change: transform, opacity;
+  contain: layout style;
+  transform: translateZ(0);
+  transition: color 0.22s ease, background 0.22s ease, transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
   transform-origin: left center;
 }
 .fs-ly-row:hover {
@@ -1760,12 +1773,11 @@ body.mini-mode #pb-mini {
   background: rgba(255, 255, 255, 0.04);
 }
 .fs-ly-row.on {
-  font-size: 32px;
   font-weight: 800;
   color: #fff;
   background: rgba(255, 255, 255, 0.09);
   text-shadow: 0 0 24px var(--accent-glow);
-  transform: scale(1.03);
+  transform: scale(1.1) translateZ(0);
 }
 
 /* Apple Music Kinetic Blur Style */
@@ -1775,7 +1787,7 @@ body.mini-mode #pb-mini {
   padding: 90px 24px 160px 24px;
 }
 .lyrics-style-apple-music .fs-ly-row {
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 700;
   line-height: 1.35;
   letter-spacing: -0.3px;
@@ -1786,12 +1798,14 @@ body.mini-mode #pb-mini {
   margin: 6px 0;
   border-radius: 16px;
   cursor: pointer;
-  transition: filter 0.32s cubic-bezier(0.25, 1, 0.5, 1),
-              opacity 0.32s cubic-bezier(0.25, 1, 0.5, 1),
-              transform 0.32s cubic-bezier(0.25, 1, 0.5, 1),
-              font-size 0.32s cubic-bezier(0.25, 1, 0.5, 1),
-              color 0.2s ease,
-              background 0.2s ease;
+  will-change: transform, opacity, filter;
+  contain: layout style;
+  transform: translateZ(0);
+  transition: filter 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.22s ease,
+              background 0.22s ease;
   transform-origin: left center;
 }
 .lyrics-style-apple-music .fs-ly-row:hover {
@@ -1799,10 +1813,9 @@ body.mini-mode #pb-mini {
   filter: blur(0px);
   opacity: 0.9;
   background: rgba(255, 255, 255, 0.05);
-  transform: scale(1.02);
+  transform: scale(1.02) translateZ(0);
 }
 .lyrics-style-apple-music .fs-ly-row.on {
-  font-size: 38px;
   font-weight: 800;
   letter-spacing: -0.6px;
   color: #ffffff;
@@ -1811,7 +1824,7 @@ body.mini-mode #pb-mini {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02) 80%);
   border-left: 4.5px solid var(--accent);
   text-shadow: 0 0 32px var(--accent-glow), 0 2px 14px rgba(0, 0, 0, 0.5);
-  transform: scale(1.05) translateZ(0);
+  transform: scale(1.12) translateZ(0);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.28);
 }
 
@@ -1822,14 +1835,18 @@ body.mini-mode #pb-mini {
   color: rgba(255, 255, 255, 0.45);
   padding: 10px 16px;
   border-radius: 12px;
+  will-change: transform;
+  contain: layout style;
+  transform: translateZ(0);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease, background 0.2s ease;
+  transform-origin: left center;
 }
 .lyrics-style-karaoke .fs-ly-row.on {
-  font-size: 34px;
   font-weight: 800;
   background: var(--accent);
   color: #ffffff;
   text-shadow: 0 0 20px var(--accent-glow);
-  transform: scale(1.03);
+  transform: scale(1.08) translateZ(0);
 }
 
 /* Minimalist Style */
@@ -1838,15 +1855,20 @@ body.mini-mode #pb-mini {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.5);
   padding: 8px 12px;
+  will-change: transform;
+  contain: layout style;
+  transform: translateZ(0);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
+  transform-origin: left center;
 }
 .lyrics-style-minimal .fs-ly-row.on {
-  font-size: 26px;
   font-weight: 700;
   color: #fff;
   text-shadow: none;
   background: none;
   border-left: 2px solid var(--accent);
   padding-left: 14px;
+  transform: scale(1.04) translateZ(0);
 }
 
 .fs-lyrics-empty {
