@@ -462,6 +462,7 @@ input { font: inherit; color: inherit; }
 /* ---------- player bar ---------- */
 #playerbar {
   position: fixed; left: 0; right: 0; bottom: 0; height: 88px;
+  overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.015) 35%, rgba(255,255,255,0.04) 100%),
     var(--playerbar-bg, rgba(10, 13, 20, 0.65));
@@ -476,6 +477,20 @@ input { font: inherit; color: inherit; }
   align-items: center; gap: 12px; padding: 0 18px;
   z-index: 20;
   transition: background 0.8s ease, border-color 0.8s ease, box-shadow .15s ease-out;
+}
+.pb-liquid-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.88;
+}
+.pb-left, .pb-center, .pb-right {
+  position: relative;
+  z-index: 2;
 }
 .pb-left {
   display: flex;

@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Music — Liquid Player Bar Visualizer Preview</title>
+  <style>
+    :root {
+      --bg: #090b10;
+      --panel: rgba(15, 18, 28, 0.75);
+      --accent-hue: 258;
+      --accent-hue-2: 298;
+      --accent: hsl(var(--accent-hue), 85%, 68%);
+      --accent-2: hsl(var(--accent-hue-2), 85%, 65%);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --bass: 0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 20%, #151928 0%, #07090e 100%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+    header {
+      padding: 30px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 40%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--accent);
+      margin-left: 10px;
+      letter-spacing: 0.5px;
+    }
+    .demo-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      text-align: center;
+    }
+    .album-hero {
+      position: relative;
+      margin-bottom: 24px;
+    }
+    .album-img {
+      width: 220px;
+      height: 220px;
+      border-radius: 20px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 40px hsla(var(--accent-hue), 85%, 65%, 0.35);
+      object-fit: cover;
+      transition: transform 0.15s ease-out;
+      transform: scale(calc(1 + var(--bass) * 0.05));
+    }
+    .track-meta h2 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .track-meta p {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+    .controls-panel {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 12px 20px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+      margin-bottom: 30px;
+    }
+    .btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      transform: translateY(-1px);
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: #0b0d14;
+      border: none;
+      font-weight: 700;
+    }
+    .btn.primary:hover {
+      filter: brightness(1.1);
+    }
+    .color-dots {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 8px;
+    }
+    .dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.15s;
+    }
+    .dot:hover { transform: scale(1.25); }
+    .dot.active { border-color: #fff; transform: scale(1.15); }
+
+    /* ---------- The Glass Player Bar with Liquid Visualizer ---------- */
+    #playerbar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 92px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.015) 35%, rgba(255,255,255,0.04) 100%),
+        rgba(10, 13, 20, 0.65);
+      border-top: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow:
+        inset 0 1px 1px 0 rgba(255,255,255,0.2),
+        0 -20px 50px rgba(0,0,0,0.45),
+        0 0 35px hsla(var(--accent-hue), 85%, 65%, 0.25);
+      backdrop-filter: blur(36px) saturate(200%);
+      -webkit-backdrop-filter: blur(36px) saturate(200%);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 16px;
+      padding: 0 24px;
+      z-index: 20;
+    }
+    .pb-liquid-canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.9;
+    }
+    .pb-left, .pb-center, .pb-right {
+      position: relative;
+      z-index: 2;
+    }
+    .pb-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .pb-thumb {
+      width: 58px;
+      height: 58px;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 20px hsla(var(--accent-hue), 85%, 65%, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .pb-info h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 3px;
+    }
+    .pb-info p {
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+    .pb-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 480px;
+    }
+    .pb-buttons {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: #cbd5e1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, transform 0.15s;
+    }
+    .ctrl-btn:hover { color: #fff; transform: scale(1.1); }
+    .play-circle {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #0b0d14;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 4px 14px hsla(var(--accent-hue), 85%, 65%, 0.4);
+      transition: transform 0.15s;
+    }
+    .play-circle:hover { transform: scale(1.08); }
+    .pb-bar-wrap {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .progress-track {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .progress-fill {
+      width: 38%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-2), var(--accent));
+      border-radius: 999px;
+      box-shadow: 0 0 10px var(--accent);
+    }
+    .pb-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div style="display: flex; align-items: center;">
+      <h1>My Music</h1>
+      <span class="badge">Liquid Play Bar Visualizer</span>
+    </div>
+    <div style="font-size: 13px; color: var(--muted);">Interactive Desktop Preview</div>
+  </header>
+
+  <main class="demo-content">
+    <div class="album-hero">
+      <img src="https://i.ytimg.com/vi/4NRXx6U8ABQ/maxresdefault.jpg" alt="Artwork" class="album-img" id="heroArt" onerror="this.src='https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg'">
+    </div>
+    <div class="track-meta">
+      <h2 id="heroTitle">Blinding Lights</h2>
+      <p id="heroArtist">The Weeknd — After Hours</p>
+    </div>
+
+    <div class="controls-panel">
+      <button class="btn primary" id="togglePlayBtn">▶ Play Animation</button>
+      <button class="btn" id="bassKickBtn">💥 Beat Drop Pulse</button>
+      <div style="display: flex; align-items: center; gap: 8px; margin-left: 6px;">
+        <span style="font-size: 12px; color: var(--muted); font-weight: 600;">Theme:</span>
+        <div class="color-dots">
+          <div class="dot active" style="background: #818cf8;" data-hue="258" data-hue2="298" title="Indigo / Purple"></div>
+          <div class="dot" style="background: #06b6d4;" data-hue="188" data-hue2="228" title="Cyber Cyan"></div>
+          <div class="dot" style="background: #f43f5e;" data-hue="345" data-hue2="25" title="Sunset Rose"></div>
+          <div class="dot" style="background: #10b981;" data-hue="158" data-hue2="198" title="Emerald"></div>
+          <div class="dot" style="background: #f59e0b;" data-hue="42" data-hue2="80" title="Amber"></div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size: 12.5px; color: var(--muted); max-width: 480px; line-height: 1.5;">
+      Notice the multi-layered fluid wave flowing inside the bottom play bar: ambient fluid backdrop, reactive rhythm crest, glowing neon surface, and rising beat-reactive droplets.
+    </p>
+  </main>
+
+  <footer id="playerbar">
+    <canvas id="pb-liquid-canvas" class="pb-liquid-canvas"></canvas>
+
+    <div class="pb-left">
+      <img src="https://i.ytimg.com/vi/4NRXx6U8ABQ/maxresdefault.jpg" class="pb-thumb" alt="Thumb" onerror="this.src='https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg'">
+      <div class="pb-info">
+        <h4>Blinding Lights</h4>
+        <p>The Weeknd</p>
+      </div>
+    </div>
+
+    <div class="pb-center">
+      <div class="pb-buttons">
+        <button class="ctrl-btn" title="Shuffle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+        </button>
+        <button class="ctrl-btn" title="Previous">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button class="play-circle" id="pbPlayBtn" title="Play">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button class="ctrl-btn" title="Next">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button class="ctrl-btn" title="Repeat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+        </button>
+      </div>
+      <div class="pb-bar-wrap">
+        <span id="pbTimeCur">1:24</span>
+        <div class="progress-track"><div class="progress-fill" id="pbFill"></div></div>
+        <span>3:20</span>
+      </div>
+    </div>
+
+    <div class="pb-right">
+      <button class="ctrl-btn" title="Volume">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+      </button>
+      <div style="width: 80px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 999px;">
+        <div style="width: 75%; height: 100%; background: #fff; border-radius: 999px;"></div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const canvas = document.getElementById('pb-liquid-canvas');
+    const ctx = canvas.getContext('2d');
+    let isPlaying = true;
+    let bass = 0.25;
+    let targetBass = 0.25;
+    let hue = 258;
+    let hue2 = 298;
+    let targetHue = 258;
+    let targetHue2 = 298;
+    let w = 0, h = 0;
+    const droplets = [];
+    const N = 48;
+    const bands = new Float32Array(N);
+    const prev = new Float32Array(N);
+
+    function resize() {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = canvas.clientWidth || window.innerWidth;
+      h = canvas.clientHeight || 92;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Color picker
+    document.querySelectorAll('.dot').forEach(dot => {
+      dot.addEventListener('click', () => {
+        document.querySelectorAll('.dot').forEach(d => d.classList.remove('active'));
+        dot.classList.add('active');
+        targetHue = Number(dot.dataset.hue);
+        targetHue2 = Number(dot.dataset.hue2);
+        document.documentElement.style.setProperty('--accent-hue', targetHue);
+        document.documentElement.style.setProperty('--accent-hue-2', targetHue2);
+      });
+    });
+
+    // Controls
+    const togglePlay = () => {
+      isPlaying = !isPlaying;
+      document.getElementById('togglePlayBtn').textContent = isPlaying ? '⏸ Pause Animation' : '▶ Play Animation';
+      document.getElementById('playIcon').innerHTML = isPlaying
+        ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
+        : '<path d="M8 5v14l11-7z"/>';
+    };
+    document.getElementById('togglePlayBtn').addEventListener('click', togglePlay);
+    document.getElementById('pbPlayBtn').addEventListener('click', togglePlay);
+
+    document.getElementById('bassKickBtn').addEventListener('click', () => {
+      targetBass = 0.95;
+      setTimeout(() => { targetBass = 0.25; }, 180);
+    });
+
+    // Main animation loop
+    function loop(now) {
+      requestAnimationFrame(loop);
+      const t = now / 1000;
+
+      // Smooth bass and color interpolation
+      bass += (targetBass - bass) * 0.15;
+      document.documentElement.style.setProperty('--bass', bass.toFixed(3));
+
+      let diff = (targetHue - hue) % 360;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      hue = (hue + diff * 0.08 + 360) % 360;
+
+      let diff2 = (targetHue2 - hue2) % 360;
+      if (diff2 > 180) diff2 -= 360;
+      if (diff2 < -180) diff2 += 360;
+      hue2 = (hue2 + diff2 * 0.08 + 360) % 360;
+
+      // Simulate audio frequency spectrum
+      if (isPlaying) {
+        const beat = Math.pow(1 - ((t * 0.8) % 1), 3);
+        const beat2 = Math.pow(1 - ((t * 0.8 + 0.5) % 1), 5);
+        for (let i = 0; i < N; i++) {
+          const f = i / N;
+          const env = Math.pow(1 - f, 1.3) * (0.6 + 0.4 * Math.sin(t * (1.2 + f * 2.5) + i * 1.6));
+          let bEnergy = 0;
+          if (i < N * 0.18) bEnergy = (beat * 0.8 + bass * 0.5) * (1 - i / (N * 0.18));
+          else if (i < N * 0.35) bEnergy = beat2 * 0.4;
+          bands[i] = Math.max(0, Math.min(1, env * 0.6 + bEnergy));
+        }
+      } else {
+        bands.fill(0);
+      }
+
+      for (let i = 0; i < N; i++) {
+        prev[i] += (bands[i] - prev[i]) * (bands[i] > prev[i] ? 0.6 : 0.12);
+      }
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Layer 1: Ambient back wave
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      const steps1 = 32;
+      for (let i = 0; i <= steps1; i++) {
+        const f = i / steps1;
+        const bandIdx = Math.floor(f * N * 0.65);
+        const bVal = isPlaying ? prev[bandIdx] : 0;
+        const x = f * w;
+        const waveSin = Math.sin(t * 1.6 + f * 5.2);
+        const y = h * 0.58 - bVal * h * 0.38 - waveSin * (isPlaying ? 6 * (1 + bass * 0.5) : 3.5);
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+
+      const gradBack = ctx.createLinearGradient(0, h * 0.25, 0, h);
+      gradBack.addColorStop(0, `hsla(${hue2}, 85%, 58%, 0.22)`);
+      gradBack.addColorStop(0.5, `hsla(${hue2}, 75%, 45%, 0.10)`);
+      gradBack.addColorStop(1, `hsla(${hue}, 70%, 25%, 0.02)`);
+      ctx.fillStyle = gradBack;
+      ctx.fill();
+
+      // Layer 2: Dynamic front liquid wave
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      const steps2 = 48;
+      const pts = [];
+      for (let i = 0; i <= steps2; i++) {
+        const f = i / steps2;
+        const bandIdx = Math.floor(f * N * 0.9);
+        const bVal = isPlaying ? prev[bandIdx] : 0;
+        const x = f * w;
+        const waveSin = Math.sin(t * 2.4 + f * 7.5 + 1.2);
+        const waveCos = Math.cos(t * 1.3 - f * 3.8);
+        const y = h * 0.66 - bVal * h * 0.46 - (waveSin * 7 + waveCos * 4) * (isPlaying ? (1 + bass * 0.8) : 0.4);
+        pts.push({ x, y, bVal });
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+
+      const gradFront = ctx.createLinearGradient(0, h * 0.2, 0, h);
+      gradFront.addColorStop(0, `hsla(${hue}, 90%, 65%, 0.32)`);
+      gradFront.addColorStop(0.4, `hsla(${hue}, 80%, 50%, 0.16)`);
+      gradFront.addColorStop(1, `hsla(${hue2}, 75%, 35%, 0.03)`);
+      ctx.fillStyle = gradFront;
+      ctx.fill();
+
+      // Layer 3: Illuminated neon liquid crest with smooth bezier curve
+      if (pts.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          const prevPt = pts[i - 1], curPt = pts[i];
+          const mx = (prevPt.x + curPt.x) / 2, my = (prevPt.y + curPt.y) / 2;
+          ctx.quadraticCurveTo(prevPt.x, prevPt.y, mx, my);
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+        const crestGrad = ctx.createLinearGradient(0, 0, w, 0);
+        crestGrad.addColorStop(0, `hsla(${hue}, 95%, 72%, 0.8)`);
+        crestGrad.addColorStop(0.5, `hsla(${hue2}, 95%, 76%, 0.95)`);
+        crestGrad.addColorStop(1, `hsla(${hue}, 95%, 72%, 0.8)`);
+
+        ctx.strokeStyle = crestGrad;
+        ctx.lineWidth = 2.2;
+        ctx.shadowColor = `hsla(${hue}, 95%, 68%, 0.85)`;
+        ctx.shadowBlur = isPlaying ? (12 + bass * 14) : 7;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      // Layer 4: Rising liquid luminous bubbles on beat drops
+      if (isPlaying && bass > 0.32 && Math.random() < 0.45 && droplets.length < 28) {
+        const randPt = pts[Math.floor(Math.random() * (pts.length - 4)) + 2];
+        droplets.push({
+          x: randPt.x + (Math.random() - 0.5) * 14,
+          y: randPt.y - 2,
+          vx: (Math.random() - 0.5) * 1.6,
+          vy: -(1.6 + Math.random() * 2.8 * (1 + bass)),
+          r: 1.6 + Math.random() * 2.6,
+          life: 1.0,
+          decay: 0.02 + Math.random() * 0.03,
+          dHue: Math.random() > 0.5 ? hue : hue2
+        });
+      }
+
+      for (let i = droplets.length - 1; i >= 0; i--) {
+        const d = droplets[i];
+        d.x += d.vx;
+        d.y += d.vy;
+        d.life -= d.decay;
+        if (d.life <= 0 || d.y < 0) {
+          droplets.splice(i, 1);
+          continue;
+        }
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r * d.life, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${d.dHue}, 95%, 75%, ${d.life * 0.7})`;
+        ctx.shadowColor = `hsla(${d.dHue}, 95%, 70%, ${d.life * 0.85})`;
+        ctx.shadowBlur = 9;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

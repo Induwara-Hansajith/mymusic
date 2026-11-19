@@ -215,6 +215,7 @@ function buildShell() {
   $('#btnFwd').innerHTML = icon('fwd');
 
   $('#playerbar').innerHTML = `
+    <canvas id="pb-liquid-canvas" class="pb-liquid-canvas"></canvas>
     <div class="pb-left">
       <div class="np-thumb-wrap">
         <img id="np-thumb" src="" alt="">
@@ -1685,8 +1686,12 @@ function cycleViz() {
   const btn = $('#pb-viz');
   btn.title = 'Visualizer: ' + vizS.mode;
   btn.classList.toggle('on', vizS.mode !== 'off');
-  if (vizS.mode === 'off') vizStop();
-  else { vizResize(); vizStart(); }
+  if (vizS.mode === 'off') {
+    vctx.clearRect(0, 0, vizS.w, vizS.h);
+  } else {
+    vizResize();
+    vizStart();
+  }
   toast('Visualizer: ' + vizS.mode);
   saveSettings();
 }
@@ -1698,8 +1703,26 @@ function vizResize() {
   vizCanvas.width = Math.max(1, Math.round(vizS.w * dpr));
   vizCanvas.height = Math.max(1, Math.round(vizS.h * dpr));
   vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  pbVizResize();
 }
 window.addEventListener('resize', vizResize);
+
+let pbVizCanvas = null;
+let pbVizCtx = null;
+let pbVizW = 0, pbVizH = 0;
+const pbDroplets = [];
+
+function pbVizResize() {
+  if (!pbVizCanvas) pbVizCanvas = $('#pb-liquid-canvas');
+  if (!pbVizCanvas) return;
+  if (!pbVizCtx) pbVizCtx = pbVizCanvas.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  pbVizW = pbVizCanvas.clientWidth || window.innerWidth;
+  pbVizH = pbVizCanvas.clientHeight || 88;
+  pbVizCanvas.width = Math.max(1, Math.round(pbVizW * dpr));
+  pbVizCanvas.height = Math.max(1, Math.round(pbVizH * dpr));
+  pbVizCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
 
 // Taps the playing audio for spectrum data without ever routing the audible
 // signal through Web Audio — playback cannot be affected by this.
@@ -1735,7 +1758,7 @@ function ensureTap() {
 function resumeTap() { if (vizS.actx && vizS.actx.state === 'suspended') vizS.actx.resume().catch(() => {}); }
 
 function vizStart() {
-  if (vizS.raf || vizS.mode === 'off') return;
+  if (vizS.raf) return;
   vizS.idleFrames = 0;
   vizS.raf = requestAnimationFrame(vizFrame);
 }
@@ -1746,6 +1769,9 @@ function vizStop() {
   if (vizS.caps) vizS.caps.fill(0);
   if (vizS.droplets) vizS.droplets.length = 0;
   vctx.clearRect(0, 0, vizS.w, vizS.h);
+  if (pbVizCtx && pbVizCanvas) {
+    pbVizCtx.clearRect(0, 0, pbVizW, pbVizH);
+  }
   document.documentElement.style.setProperty('--bass', '0');
 }
 
@@ -1827,12 +1853,145 @@ function vizFrame(ts) {
   else vizS.idleFrames = 0;
 
   const w = vizS.w, h = vizS.h;
-  vctx.clearRect(0, 0, w, h);
-  if (vizS.mode === 'liquid') drawLiquid(w, h, t, bass);
-  else if (vizS.mode === 'orbit') drawOrbit(w, h, t, bass);
-  else if (vizS.mode === 'bars') drawBars(w, h);
-  else if (vizS.mode === 'wave') drawWave(w, h, t);
-  else if (vizS.mode === 'silk') drawSilk(w, h, t, bass);
+  if (vizS.mode !== 'off') {
+    vctx.clearRect(0, 0, w, h);
+    if (vizS.mode === 'liquid') drawLiquid(w, h, t, bass);
+    else if (vizS.mode === 'orbit') drawOrbit(w, h, t, bass);
+    else if (vizS.mode === 'bars') drawBars(w, h);
+    else if (vizS.mode === 'wave') drawWave(w, h, t);
+    else if (vizS.mode === 'silk') drawSilk(w, h, t, bass);
+  } else {
+    vctx.clearRect(0, 0, w, h);
+  }
+
+  drawPlayerbarLiquid(t, bass, playing);
+}
+
+function drawPlayerbarLiquid(t, bass, playing) {
+  if (!pbVizCanvas) pbVizCanvas = $('#pb-liquid-canvas');
+  if (!pbVizCanvas) return;
+  if (!pbVizCtx) pbVizCtx = pbVizCanvas.getContext('2d');
+
+  if (pbVizCanvas.clientWidth !== pbVizW || pbVizCanvas.clientHeight !== pbVizH) {
+    pbVizResize();
+  }
+
+  const w = pbVizW, h = pbVizH;
+  if (w <= 0 || h <= 0) return;
+
+  pbVizCtx.clearRect(0, 0, w, h);
+
+  const N = vizS.N || 72;
+  const prev = vizS.prev;
+  const h1 = vizS.hue != null ? vizS.hue : ACC_DEFAULT_HUE;
+  const h2 = vizS.hueSecondary != null ? vizS.hueSecondary : (h1 + 40);
+
+  // Layer 1: Ambient back wave (secondary hue, slower, wider undulating flow)
+  pbVizCtx.beginPath();
+  pbVizCtx.moveTo(0, h);
+  const steps1 = 32;
+  for (let i = 0; i <= steps1; i++) {
+    const f = i / steps1;
+    const bandIdx = Math.floor(f * N * 0.65);
+    const band = playing ? (prev[bandIdx] || 0) : 0;
+    const x = f * w;
+    const waveSin = Math.sin(t * 1.6 + f * 5.2);
+    const y = h * 0.58 - band * h * 0.38 - waveSin * (playing ? 6 * (1 + bass * 0.5) : 3.5);
+    pbVizCtx.lineTo(x, y);
+  }
+  pbVizCtx.lineTo(w, h);
+  pbVizCtx.closePath();
+
+  const gradBack = pbVizCtx.createLinearGradient(0, h * 0.25, 0, h);
+  gradBack.addColorStop(0, `hsla(${h2}, 85%, 58%, 0.18)`);
+  gradBack.addColorStop(0.5, `hsla(${h2}, 75%, 45%, 0.09)`);
+  gradBack.addColorStop(1, `hsla(${h1}, 70%, 25%, 0.02)`);
+  pbVizCtx.fillStyle = gradBack;
+  pbVizCtx.fill();
+
+  // Layer 2: Dynamic front liquid wave (primary hue, sharp reactive crest)
+  pbVizCtx.beginPath();
+  pbVizCtx.moveTo(0, h);
+  const steps2 = 48;
+  const pts = [];
+  for (let i = 0; i <= steps2; i++) {
+    const f = i / steps2;
+    const bandIdx = Math.floor(f * N * 0.9);
+    const band = playing ? (prev[bandIdx] || 0) : 0;
+    const x = f * w;
+    const waveSin = Math.sin(t * 2.4 + f * 7.5 + 1.2);
+    const waveCos = Math.cos(t * 1.3 - f * 3.8);
+    const y = h * 0.66 - band * h * 0.46 - (waveSin * 7 + waveCos * 4) * (playing ? (1 + bass * 0.8) : 0.4);
+    pts.push({ x, y, band });
+    pbVizCtx.lineTo(x, y);
+  }
+  pbVizCtx.lineTo(w, h);
+  pbVizCtx.closePath();
+
+  const gradFront = pbVizCtx.createLinearGradient(0, h * 0.2, 0, h);
+  gradFront.addColorStop(0, `hsla(${h1}, 90%, 65%, 0.28)`);
+  gradFront.addColorStop(0.4, `hsla(${h1}, 80%, 50%, 0.14)`);
+  gradFront.addColorStop(1, `hsla(${h2}, 75%, 35%, 0.03)`);
+  pbVizCtx.fillStyle = gradFront;
+  pbVizCtx.fill();
+
+  // Layer 3: Illuminated neon liquid crest with smooth quadratic curve & glow
+  if (pts.length > 1) {
+    pbVizCtx.beginPath();
+    pbVizCtx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      const prevPt = pts[i - 1], curPt = pts[i];
+      const mx = (prevPt.x + curPt.x) / 2, my = (prevPt.y + curPt.y) / 2;
+      pbVizCtx.quadraticCurveTo(prevPt.x, prevPt.y, mx, my);
+    }
+    pbVizCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+    const crestGrad = pbVizCtx.createLinearGradient(0, 0, w, 0);
+    crestGrad.addColorStop(0, `hsla(${h1}, 95%, 72%, 0.75)`);
+    crestGrad.addColorStop(0.5, `hsla(${h2}, 95%, 76%, 0.9)`);
+    crestGrad.addColorStop(1, `hsla(${h1}, 95%, 72%, 0.75)`);
+
+    pbVizCtx.strokeStyle = crestGrad;
+    pbVizCtx.lineWidth = 2.0;
+    pbVizCtx.shadowColor = `hsla(${h1}, 95%, 68%, 0.8)`;
+    pbVizCtx.shadowBlur = playing ? (10 + bass * 12) : 6;
+    pbVizCtx.stroke();
+    pbVizCtx.shadowBlur = 0;
+  }
+
+  // Layer 4: Rising liquid luminous bubbles / droplets on beats
+  if (playing && bass > 0.18 && Math.random() < 0.4 && pbDroplets.length < 24) {
+    const randPt = pts[Math.floor(Math.random() * (pts.length - 4)) + 2];
+    pbDroplets.push({
+      x: randPt.x + (Math.random() - 0.5) * 12,
+      y: randPt.y - 2,
+      vx: (Math.random() - 0.5) * 1.4,
+      vy: -(1.5 + Math.random() * 2.5 * (1 + bass)),
+      r: 1.5 + Math.random() * 2.5,
+      life: 1.0,
+      decay: 0.02 + Math.random() * 0.03,
+      hue: Math.random() > 0.5 ? h1 : h2
+    });
+  }
+
+  for (let i = pbDroplets.length - 1; i >= 0; i--) {
+    const d = pbDroplets[i];
+    d.x += d.vx;
+    d.y += d.vy;
+    d.life -= d.decay;
+    if (d.life <= 0 || d.y < 0) {
+      pbDroplets.splice(i, 1);
+      continue;
+    }
+    pbVizCtx.beginPath();
+    pbVizCtx.arc(d.x, d.y, d.r * d.life, 0, Math.PI * 2);
+    pbVizCtx.fillStyle = `hsla(${d.hue}, 95%, 75%, ${d.life * 0.65})`;
+    pbVizCtx.shadowColor = `hsla(${d.hue}, 95%, 70%, ${d.life * 0.8})`;
+    pbVizCtx.shadowBlur = 8;
+    pbVizCtx.fill();
+    pbVizCtx.shadowBlur = 0;
+  }
+}
 }
 
 const col = (a = 1, light = 62, dh = 0) => `hsla(${(vizS.hue + dh + 360) % 360}, 80%, ${light}%, ${a})`;
