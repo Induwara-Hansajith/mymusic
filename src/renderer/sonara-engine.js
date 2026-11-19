@@ -169,6 +169,8 @@
 
       // Lyrics state
       this.lyrics = null;
+      this.trackId = null;
+      this.statusText = 'Listening to music…';
       this.syncedLines = [];
       this.lineAnalysis = [];
       this.songMood = DEFAULT_MOOD;
@@ -252,27 +254,55 @@
     }
 
     /**
+     * Clear all lyric state and reset to clean listening atmosphere
+     */
+    clear() {
+      this.lyrics = null;
+      this.trackId = null;
+      this.syncedLines = [];
+      this.lineAnalysis = [];
+      this.songMood = DEFAULT_MOOD;
+      this.targetMood = DEFAULT_MOOD;
+      this.currentMood = DEFAULT_MOOD;
+      this.moodTransition = 1.0;
+      this.activeLineIdx = -1;
+      this.lineEnterTime = 0;
+      this.lastSampledTime = 0;
+      this.statusText = 'Loading lyrics…';
+      this.shockwaves = [];
+    }
+
+    /**
      * Analyze song lyrics and precompute scene transitions
      */
     setLyrics(lyricsObj, trackId = '') {
+      this.trackId = trackId || '';
       this.lyrics = lyricsObj;
-      this.syncedLines = (lyricsObj && lyricsObj.synced) ? lyricsObj.synced : [];
+      this.syncedLines = (lyricsObj && lyricsObj.synced && Array.isArray(lyricsObj.synced)) ? lyricsObj.synced : [];
       this.activeLineIdx = -1;
       this.lineEnterTime = 0;
 
-      if (!lyricsObj) {
-        this.lineAnalysis = [];
-        this.songMood = DEFAULT_MOOD;
-        this.targetMood = DEFAULT_MOOD;
+      const hasSynced = this.syncedLines.length > 0;
+      const hasPlain = !!(lyricsObj && typeof lyricsObj.plain === 'string' && lyricsObj.plain.trim().length > 0);
+
+      if (!lyricsObj || (!hasSynced && !hasPlain)) {
+        this.clear();
+        this.trackId = trackId || '';
+        this.statusText = lyricsObj === null ? 'Loading lyrics…' : 'No lyrics found for this track';
         return;
       }
 
-      const cacheKey = trackId || (this.syncedLines.length ? this.syncedLines[0].text : 'plain');
+      // Content-scoped cache key prevents stale lyric contamination across tracks
+      const firstText = hasSynced ? (this.syncedLines[0].text || '') : (lyricsObj.plain ? lyricsObj.plain.slice(0, 32) : '');
+      const count = hasSynced ? this.syncedLines.length : lyricsObj.plain.split('\n').length;
+      const cacheKey = `${trackId}:${count}:${firstText}`;
+
       if (analysisCache.has(cacheKey)) {
         const cached = analysisCache.get(cacheKey);
         this.lineAnalysis = cached.lines;
         this.songMood = cached.songMood;
         this.targetMood = cached.songMood;
+        this.statusText = '';
         return;
       }
 
@@ -281,6 +311,7 @@
       this.lineAnalysis = analyzed.lines;
       this.songMood = analyzed.songMood;
       this.targetMood = analyzed.songMood;
+      this.statusText = '';
     }
 
     /**
@@ -418,7 +449,10 @@
      */
     syncTime(currentTime) {
       this.lastSampledTime = currentTime;
-      if (!this.lineAnalysis.length) return;
+      if (!this.lineAnalysis.length) {
+        this.activeLineIdx = -1;
+        return;
+      }
 
       let foundIdx = -1;
       for (let i = 0; i < this.lineAnalysis.length; i++) {
@@ -438,7 +472,9 @@
             this.moodTransition = 0;
           }
         }
-        this.triggerShockwave();
+        if (foundIdx >= 0) {
+          this.triggerShockwave();
+        }
       }
     }
 
@@ -855,7 +891,10 @@
       ctx.font = '600 22px "Segoe UI Variable Display", system-ui, sans-serif';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.42)';
       ctx.shadowBlur = 0;
-      ctx.fillText('Listening to music…', w * 0.5, h * 0.5);
+      const text = (!this.lineAnalysis.length && this.statusText)
+        ? this.statusText
+        : (this.activeLineIdx === -1 && this.lineAnalysis.length > 0 ? '♪ Listening to music…' : 'Listening to music…');
+      ctx.fillText(text, w * 0.5, h * 0.5);
     }
 
     getMood() {

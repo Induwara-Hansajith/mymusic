@@ -1463,6 +1463,40 @@ function updatePlayBtn() {
 
 function setNowPlaying(t, restoreOnly = false) {
   if (!t) return;
+
+  const isTrackChange = S.lyricsId !== t.id;
+  if (isTrackChange) {
+    S.lyrics = null;
+    S.lyricsId = t.id;
+    S.showTranslated = false;
+    S._lastLy = -1;
+    S._lastFsLy = -1;
+
+    if (typeof SonaraEngine !== 'undefined') {
+      SonaraEngine.clear();
+      SonaraEngine.statusText = 'Loading lyrics…';
+    }
+
+    const cineCur = $('#fs-cine-cur');
+    if (cineCur) { cineCur.textContent = 'Loading lyrics…'; cineCur.dataset.t = ''; }
+    const cinePrev = $('#fs-cine-prev');
+    if (cinePrev) { cinePrev.textContent = ''; cinePrev.dataset.t = ''; }
+    const cineNext = $('#fs-cine-next');
+    if (cineNext) { cineNext.textContent = ''; cineNext.dataset.t = ''; }
+
+    const prevText = $('#fs-ly-preview-text');
+    if (prevText) prevText.textContent = 'Loading lyrics…';
+
+    const moodBadge = $('#fs-cinematic-mood-badge');
+    if (moodBadge) moodBadge.classList.add('hidden');
+
+    const lyBody = $('#lyricsBody');
+    if (lyBody) lyBody.innerHTML = '<div class="ly-load">Loading lyrics…</div>';
+
+    const fsBody = $('#fs-lyrics-body');
+    if (fsBody) fsBody.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
+  }
+
   const thumb = $('#np-thumb');
   if (thumb) thumb.src = t.thumb || '';
   applyAccent(t.thumb);
@@ -2281,6 +2315,8 @@ function updateFsLyricsPreview(t) {
     else prevText.textContent = S.lyrics.synced[0].text || '…';
   } else if (S.lyrics && S.lyrics.plain) {
     prevText.textContent = S.lyrics.plain.split('\n')[0] || '…';
+  } else if (S.lyrics === null) {
+    prevText.textContent = 'Loading lyrics…';
   } else {
     prevText.textContent = 'No lyrics for this one yet';
   }
@@ -2307,13 +2343,20 @@ function renderFsLyrics(t) {
   const styleSel = $('#fs-lyrics-style-select');
   if (styleSel) styleSel.value = curStyle;
 
+  const hasLyrics = !!(r && ((r.synced && r.synced.length) || (r.plain && typeof r.plain === 'string' && r.plain.trim().length > 0)));
+
   // Feed SONARA Engine
   if (typeof SonaraEngine !== 'undefined') {
-    SonaraEngine.setLyrics(r, t ? t.id : '');
+    if (hasLyrics) {
+      SonaraEngine.setLyrics(r, t ? t.id : '');
+    } else {
+      SonaraEngine.clear();
+      SonaraEngine.statusText = r === null ? 'Loading lyrics…' : 'No lyrics found for this track';
+    }
     const mood = SonaraEngine.getMood();
     const moodBadge = $('#fs-cinematic-mood-badge');
     if (moodBadge) {
-      moodBadge.classList.toggle('hidden', !r);
+      moodBadge.classList.toggle('hidden', !hasLyrics);
       const moodText = $('#fs-mood-text');
       if (moodText) moodText.textContent = `${mood.icon} ${mood.name}`;
       moodBadge.style.color = mood.accent;
@@ -2321,13 +2364,13 @@ function renderFsLyrics(t) {
     }
   }
 
-  if (!r) {
+  if (r === null) {
     body.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
-  } else if (r.synced && r.synced.length) {
+  } else if (hasLyrics && r.synced && r.synced.length) {
     body.innerHTML = r.synced.map(l =>
       `<div class="fs-ly-row" data-t="${l.t != null ? l.t : ''}">${esc(l.text)}</div>`
     ).join('');
-  } else if (r.plain) {
+  } else if (hasLyrics && r.plain) {
     body.innerHTML = `<div class="fs-lyrics-plain" style="font-size:22px;line-height:1.8;white-space:pre-wrap;color:rgba(255,255,255,0.85);">${esc(r.plain)}</div>`;
   } else {
     body.innerHTML = '<div class="fs-lyrics-empty">No lyrics found for this track</div>';
@@ -2432,6 +2475,11 @@ function openNowPlayingOverlay() {
 
   const t = curTrack();
   if (t) {
+    if (S.lyricsId !== t.id) {
+      S.lyrics = null;
+      S.lyricsId = t.id;
+      if (typeof SonaraEngine !== 'undefined') SonaraEngine.clear();
+    }
     updateFsNowPlaying(t);
     if (!S.lyrics || S.lyricsId !== t.id) {
       loadLyrics(t);
@@ -2501,6 +2549,7 @@ function bindNowPlayingOverlayEvents() {
     if (!isNaN(ts)) {
       audio.currentTime = Math.max(0, ts - (curOff / 1000));
       syncPresence();
+      highlightLyric(audio.currentTime);
     }
   });
 
@@ -3132,7 +3181,7 @@ async function loadLyrics(t) {
   if (el) el.innerHTML = '<div class="ly-load">Loading lyrics…</div>';
   try {
     const r = await call('ytm:lyrics', { track: t });
-    if (S.lyricsId !== t.id || (!S.lyricsOpen && !S.fsOpen)) return;
+    if (S.lyricsId !== t.id) return;
     S.lyrics = r;
     renderLyricsHeader(t);
     renderLyricsContent(t);
@@ -3140,7 +3189,11 @@ async function loadLyrics(t) {
     if (S.fsTab === 'lyrics') renderFsLyrics(t);
   } catch {
     if (S.lyricsId === t.id) {
-      S.lyrics = null;
+      S.lyrics = { synced: null, plain: null };
+      if (typeof SonaraEngine !== 'undefined') {
+        SonaraEngine.clear();
+        SonaraEngine.statusText = 'Lyrics unavailable';
+      }
       renderLyricsHeader(t);
       if (el) el.innerHTML = '<div class="ly-load">Lyrics unavailable.</div>';
       updateFsLyricsPreview(t);
@@ -3208,12 +3261,13 @@ function highlightLyric(time) {
 
     // Update subtitles in cinematic stage
     const cineCur = $('#fs-cine-cur');
-    if (cineCur && SonaraEngine.lineAnalysis.length) {
+    if (cineCur) {
       const cinePrev = $('#fs-cine-prev');
       const cineNext = $('#fs-cine-next');
       const lines = SonaraEngine.lineAnalysis;
       const idx = SonaraEngine.activeLineIdx;
-      if (idx >= 0 && lines[idx]) {
+
+      if (lines && lines.length && idx >= 0 && lines[idx]) {
         if (cinePrev) {
           cinePrev.textContent = idx > 0 ? (lines[idx - 1].raw || '') : '';
           cinePrev.dataset.t = idx > 0 ? lines[idx - 1].t : '';
@@ -3224,6 +3278,19 @@ function highlightLyric(time) {
           cineNext.textContent = idx < lines.length - 1 ? (lines[idx + 1].raw || '') : '';
           cineNext.dataset.t = idx < lines.length - 1 ? lines[idx + 1].t : '';
         }
+      } else if (lines && lines.length && idx === -1) {
+        if (cinePrev) { cinePrev.textContent = ''; cinePrev.dataset.t = ''; }
+        cineCur.textContent = '…';
+        cineCur.dataset.t = '';
+        if (cineNext) {
+          cineNext.textContent = lines[0] ? (lines[0].raw || '') : '';
+          cineNext.dataset.t = lines[0] && lines[0].t != null ? lines[0].t : '';
+        }
+      } else {
+        if (cinePrev) { cinePrev.textContent = ''; cinePrev.dataset.t = ''; }
+        cineCur.textContent = S.lyrics === null ? 'Loading lyrics…' : '…';
+        cineCur.dataset.t = '';
+        if (cineNext) { cineNext.textContent = ''; cineNext.dataset.t = ''; }
       }
     }
   }
