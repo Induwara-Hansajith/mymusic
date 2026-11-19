@@ -70,10 +70,11 @@
       "shortcutName": "My Music",
       "uninstallDisplayName": "My Music",
       "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "My.Music.Setup.${version}.${ext}"
     },
     "portable": {
-      "artifactName": "${productName} Portable ${version}.${ext}"
+      "artifactName": "My.Music.Portable.${version}.${ext}"
     }
   },
   "dependencies": {
