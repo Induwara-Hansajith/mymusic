@@ -558,6 +558,22 @@ input { font: inherit; color: inherit; }
   0%, 100% { filter: drop-shadow(0 0 3px var(--accent)); transform: scale(1); }
   50% { filter: drop-shadow(0 0 9px var(--accent)); transform: scale(1.14); }
 }
+.mixing-dissolve {
+  animation: mixThumbCrossDissolve 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes mixThumbCrossDissolve {
+  0% { opacity: 0.35; filter: blur(3px) scale(0.97); }
+  100% { opacity: 1; filter: blur(0px) scale(1); }
+}
+.q-automix-dur-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(var(--accent-rgb, 129, 140, 248), 0.2);
+  color: var(--accent);
+  margin-left: 3px;
+}
 .np-meta { min-width: 0; }
 .np-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
 .np-artist { color: var(--muted); font-size: 12.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }

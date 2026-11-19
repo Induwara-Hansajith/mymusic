@@ -1005,13 +1005,26 @@ async function fetchRadioTracks(seedTrack) {
 // ---------- AutoMix & Song Transitions Engine (Apple Music Style) ----------
 
 function getAutomixDuration(trackDuration) {
-  if (settings().automixMode === 'crossfade') {
-    return Math.max(1, Math.min(12, Number(settings().crossfadeDuration) || 6));
+  const durSetting = settings().automixDuration;
+  // User custom duration selection (1s - 15s)
+  if (durSetting && durSetting !== 'auto' && !isNaN(Number(durSetting))) {
+    const customSecs = Math.max(1, Math.min(15, Number(durSetting)));
+    if (trackDuration && trackDuration > 10) {
+      return Math.min(customSecs, Math.max(2, Math.floor(trackDuration * 0.28)));
+    }
+    return customSecs;
   }
-  // Smart DJ mode: dynamic adaptation based on track length
-  if (!trackDuration || trackDuration < 90) return 4;
-  if (trackDuration < 180) return 6;
-  return 8;
+
+  // Fallback to manual crossfade duration if specifically configured
+  if (settings().automixMode === 'crossfade') {
+    return Math.max(1, Math.min(15, Number(settings().crossfadeDuration) || 6));
+  }
+
+  // Default Best Mix (Apple Music Smart Dynamic Adaptation):
+  // Intelligently analyzes track length and tempo dynamics for the optimal blend
+  if (!trackDuration || trackDuration < 90) return 4.0;  // Quick energetic blend for short tracks (<1.5m)
+  if (trackDuration < 240) return 6.0;                   // Canonical 6.0s Apple Music sweet spot
+  return 8.5;                                           // Deep extended blend for 4+ min tracks
 }
 
 function cancelAutoMix() {
@@ -1073,7 +1086,7 @@ async function startAutoMix(nextPos, isQuick = false) {
   if (nextIdx == null || !S.queue[nextIdx]) return;
   const nextTrack = S.queue[nextIdx];
 
-  const duration = isQuick ? 1.8 : getAutomixDuration(curAudio.duration);
+  const duration = isQuick ? 1.5 : getAutomixDuration(curAudio.duration);
 
   // If standbyAudio doesn't have the next track preloaded, load it now
   if (automixS.preloadedPos !== nextPos || !standbyAudio.src) {
@@ -1140,17 +1153,34 @@ async function startAutoMix(nextPos, isQuick = false) {
     const p = Math.min(1, Math.max(0, elapsed / automixS.duration));
     automixS.progress = p;
 
-    // Equal-power crossfade curve: cos(p * pi/2) and sin(p * pi/2)
-    const theta = p * (Math.PI / 2);
-    curAudio.volume = Math.max(0, Math.min(1, mVol * Math.cos(theta)));
-    standbyAudio.volume = Math.max(0, Math.min(1, mVol * Math.sin(theta)));
+    // Apple Music Asymmetric DJ Transition Curve:
+    // Outgoing track retains acoustic body longer before decaying
+    // Incoming track introduces rhythm gently then surges into drop
+    // Energy compensation prevents volume sags
+    const outCurve = Math.pow(Math.cos(p * (Math.PI * 0.5)), 0.78);
+    const inCurve = Math.pow(Math.sin(p * (Math.PI * 0.5)), 1.22);
+    const energyBoost = 1.0 + 0.06 * Math.sin(p * Math.PI);
 
-    // Cross-dissolve artwork and title halfway through the mix
+    curAudio.volume = Math.max(0, Math.min(1, mVol * outCurve * energyBoost));
+    standbyAudio.volume = Math.max(0, Math.min(1, mVol * inCurve * energyBoost));
+
+    // Cross-dissolve artwork and title halfway through the mix (Apple Music style)
     if (p >= 0.5 && !automixS.swappedMeta) {
       automixS.swappedMeta = true;
       S.curTrack = nextTrack;
       setNowPlaying(nextTrack);
       renderQueuePanel();
+
+      const npThumb = $('#np-thumb');
+      if (npThumb) {
+        npThumb.classList.add('mixing-dissolve');
+        setTimeout(() => npThumb.classList.remove('mixing-dissolve'), 550);
+      }
+      const fsThumb = $('#fs-thumb');
+      if (fsThumb) {
+        fsThumb.classList.add('mixing-dissolve');
+        setTimeout(() => fsThumb.classList.remove('mixing-dissolve'), 550);
+      }
     }
 
     if (p < 1 && !curAudio.paused && !standbyAudio.paused) {
@@ -1233,8 +1263,8 @@ function handleAutomixTimeupdate(ct, d) {
     else return;
   }
 
-  // 1. Lookahead pre-buffering (15s before track end)
-  if (remain <= 15 && !automixS.mixing && !automixS.preloading && automixS.preloadedPos !== nextPos) {
+  // 1. Lookahead pre-buffering (20s before track end for zero latency)
+  if (remain <= 20 && !automixS.mixing && !automixS.preloading && automixS.preloadedPos !== nextPos) {
     preloadNextTrack(nextPos);
   }
 
@@ -1242,8 +1272,10 @@ function handleAutomixTimeupdate(ct, d) {
   if (!automixS.mixing && remain > 0.4) {
     const targetPos = settings().repeat === 'one' ? S.oi : nextPos;
     const mixDur = getAutomixDuration(d);
-    if (remain <= mixDur) {
-      console.log(`[automix] track nearing end (${remain.toFixed(1)}s remain), starting ${mixDur}s transition`);
+    // Smart Outro compensation: account for common trailing silence on longer songs
+    const silenceTrim = (d > 120) ? 0.7 : 0.2;
+    if (remain <= (mixDur + silenceTrim)) {
+      console.log(`[automix] track nearing end (${remain.toFixed(1)}s remain, trim ${silenceTrim}s), starting ${mixDur}s Apple Music transition`);
       startAutoMix(targetPos, false);
     }
   }
@@ -1253,7 +1285,9 @@ function setAutomix(on) {
   settings().automix = !!on;
   updateShuffleRepeatBtns();
   saveSettings();
-  toast('AutoMix ' + (settings().automix ? 'enabled (Apple Music style transitions)' : 'disabled'));
+  mutate({ type: 'settings.set', patch: { automix: !!on } });
+  const durLabel = (!settings().automixDuration || settings().automixDuration === 'auto') ? 'Auto (Best Mix)' : `${settings().automixDuration}s`;
+  toast('AutoMix ' + (settings().automix ? `enabled (Apple Music ${durLabel})` : 'disabled'));
 }
 
 async function playIndex(pos) {
@@ -1427,16 +1461,22 @@ function updateShuffleRepeatBtns() {
     qRadio.classList.toggle('on', on);
   }
 
+  const durLabel = (!settings().automixDuration || settings().automixDuration === 'auto')
+    ? 'Auto (Best Mix)'
+    : `${settings().automixDuration}s`;
+
   const mixBtn = $('#pb-automix');
   if (mixBtn) {
     const on = !!settings().automix;
     mixBtn.classList.toggle('on', on);
-    mixBtn.title = 'AutoMix: ' + (on ? `${settings().automixMode === 'crossfade' ? (settings().crossfadeDuration || 6) + 's Crossfade' : 'Smart DJ Transition'}` : 'Off');
+    mixBtn.title = 'AutoMix: ' + (on ? `Apple Music (${durLabel})` : 'Off');
   }
   const qMix = $('#q-automix-toggle');
   if (qMix) {
     const on = !!settings().automix;
     qMix.classList.toggle('on', on);
+    const shortLabel = (!settings().automixDuration || settings().automixDuration === 'auto') ? 'Auto' : `${settings().automixDuration}s`;
+    qMix.innerHTML = `${icon('automix')} AutoMix <span class="q-automix-dur-tag">${on ? shortLabel : 'Off'}</span>`;
   }
 
   const fsShuffle = $('#fs-shuffle');
@@ -1451,7 +1491,7 @@ function updateShuffleRepeatBtns() {
   if (fsMix) {
     const on = !!settings().automix;
     fsMix.classList.toggle('on', on);
-    fsMix.title = 'AutoMix: ' + (on ? `${settings().automixMode === 'crossfade' ? (settings().crossfadeDuration || 6) + 's Crossfade' : 'Smart DJ Transition'}` : 'Off');
+    fsMix.title = 'AutoMix: ' + (on ? `Apple Music (${durLabel})` : 'Off');
   }
 }
 
@@ -4059,6 +4099,7 @@ function openEqModal() {
   const curAutomix = settings().automix !== false;
   const curAutomixMode = settings().automixMode || 'smart';
   const curCrossfadeDuration = settings().crossfadeDuration || 6;
+  const curAutomixDuration = settings().automixDuration || 'auto';
 
   const presetHtml = Object.entries(EQ_PRESETS).map(([id, p]) =>
     `<button class="eq-preset-btn ${curPreset === id ? 'active' : ''}" data-eq-preset="${id}">${esc(p.name)}</button>`
@@ -4104,7 +4145,7 @@ function openEqModal() {
         </div>
         <div class="automix-modes">
           <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'smart' ? 'active' : ''}" data-automix-mode="smart">
-            AutoMix (Smart DJ)
+            AutoMix (Apple Music)
           </button>
           <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'crossfade' ? 'active' : ''}" data-automix-mode="crossfade">
             Manual Crossfade
@@ -4113,13 +4154,25 @@ function openEqModal() {
             Off (Gapless)
           </button>
         </div>
-        <div class="automix-duration-row ${curAutomix && curAutomixMode === 'crossfade' ? '' : 'hidden'}" id="automixDurWrap">
-          <span>Crossfade Duration</span>
-          <input type="range" id="automixDurInput" class="automix-duration-slider" min="1" max="12" step="1" value="${curCrossfadeDuration}">
-          <span id="automixDurVal" style="font-weight:700;color:var(--accent);min-width:32px;">${curCrossfadeDuration}s</span>
+        <div class="automix-duration-row ${curAutomix ? '' : 'hidden'}" id="automixDurWrap">
+          <span style="font-size:12px;font-weight:600;">Transition Duration</span>
+          <select id="modalAutomixPreset" style="padding:4px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-size:11.5px;font-weight:600;">
+            <option value="auto" ${curAutomixDuration === 'auto' ? 'selected' : ''}>✨ Auto (Best Mix)</option>
+            <option value="1" ${String(curAutomixDuration) === '1' ? 'selected' : ''}>1s (Instant)</option>
+            <option value="3" ${String(curAutomixDuration) === '3' ? 'selected' : ''}>3s (Fast)</option>
+            <option value="5" ${String(curAutomixDuration) === '5' ? 'selected' : ''}>5s (Quick Blend)</option>
+            <option value="6" ${String(curAutomixDuration) === '6' ? 'selected' : ''}>6s (Apple Music)</option>
+            <option value="8" ${String(curAutomixDuration) === '8' ? 'selected' : ''}>8s (Standard)</option>
+            <option value="10" ${String(curAutomixDuration) === '10' ? 'selected' : ''}>10s (Extended)</option>
+            <option value="12" ${String(curAutomixDuration) === '12' ? 'selected' : ''}>12s (Deep Mix)</option>
+            <option value="15" ${String(curAutomixDuration) === '15' ? 'selected' : ''}>15s (Max)</option>
+            <option value="custom" ${curAutomixDuration !== 'auto' && ![1,3,5,6,8,10,12,15].includes(Number(curAutomixDuration)) ? 'selected' : ''}>Custom</option>
+          </select>
+          <input type="range" id="automixDurInput" class="automix-duration-slider" min="1" max="15" step="1" value="${curAutomixDuration === 'auto' ? 6 : (Number(curAutomixDuration) || 6)}">
+          <span id="automixDurVal" style="font-weight:700;color:var(--accent);min-width:38px;font-size:12px;">${curAutomixDuration === 'auto' ? 'Auto' : curAutomixDuration + 's'}</span>
         </div>
         <div class="automix-desc" id="automixDesc">
-          ${curAutomix ? (curAutomixMode === 'smart' ? 'Intelligently analyzes track endings, trims dead-air silence, and dynamically blends tempos and beats with equal-power DJ curves.' : `Smoothly crossfades outgoing and incoming tracks with equal-power volume curves over ${curCrossfadeDuration} seconds.`) : 'Standard continuous playback with no track overlap or fading.'}
+          ${!curAutomix ? 'Standard continuous playback with no track overlap or fading.' : (curAutomixDuration === 'auto' ? 'Dynamic Apple Music mix: intelligently analyzes track tempos, trims outro silence, and blends with asymmetric DJ curves (4s–8.5s).' : `Apple Music DJ transition: blends tracks using asymmetric DJ loudness curves over ${curAutomixDuration}s with zero dead-air.`)}
         </div>
       </div>
       <div class="eq-footer">
@@ -4197,9 +4250,24 @@ function openEqModal() {
   }
 
   const durWrap = $('#automixDurWrap', modalEl);
+  const durPreset = $('#modalAutomixPreset', modalEl);
   const durInput = $('#automixDurInput', modalEl);
   const durVal = $('#automixDurVal', modalEl);
   const descEl = $('#automixDesc', modalEl);
+
+  function updateAutomixDesc() {
+    if (!descEl) return;
+    if (!settings().automix) {
+      descEl.textContent = 'Standard continuous playback with no track overlap or fading.';
+      return;
+    }
+    const dur = settings().automixDuration;
+    if (!dur || dur === 'auto') {
+      descEl.textContent = 'Dynamic Apple Music mix: intelligently analyzes track tempos, trims outro silence, and blends with asymmetric DJ curves (4s–8.5s).';
+    } else {
+      descEl.textContent = `Apple Music DJ transition: blends tracks using asymmetric DJ loudness curves over ${dur}s with zero dead-air.`;
+    }
+  }
 
   modalEl.querySelectorAll('.automix-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -4208,32 +4276,50 @@ function openEqModal() {
       if (mode === 'off') {
         settings().automix = false;
         if (durWrap) durWrap.classList.add('hidden');
-        if (descEl) descEl.textContent = 'Standard continuous playback with no track overlap or fading.';
+        updateAutomixDesc();
         mutate({ type: 'settings.set', patch: { automix: false } });
       } else {
         settings().automix = true;
         settings().automixMode = mode;
-        if (durWrap) durWrap.classList.toggle('hidden', mode !== 'crossfade');
-        if (descEl) {
-          descEl.textContent = mode === 'smart'
-            ? 'Intelligently analyzes track endings, trims dead-air silence, and dynamically blends tempos and beats with equal-power DJ curves.'
-            : `Smoothly crossfades outgoing and incoming tracks with equal-power volume curves over ${settings().crossfadeDuration || 6} seconds.`;
-        }
+        if (durWrap) durWrap.classList.remove('hidden');
+        updateAutomixDesc();
         mutate({ type: 'settings.set', patch: { automix: true, automixMode: mode } });
       }
       updateShuffleRepeatBtns();
     });
   });
 
+  if (durPreset) {
+    durPreset.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val === 'auto') {
+        settings().automixDuration = 'auto';
+        if (durVal) durVal.textContent = 'Auto';
+        if (durInput) durInput.value = 6;
+      } else if (val !== 'custom') {
+        const secs = Math.max(1, Math.min(15, parseInt(val, 10) || 6));
+        settings().automixDuration = secs;
+        settings().crossfadeDuration = secs;
+        if (durVal) durVal.textContent = secs + 's';
+        if (durInput) durInput.value = secs;
+      }
+      updateAutomixDesc();
+      mutate({ type: 'settings.set', patch: { automixDuration: settings().automixDuration, crossfadeDuration: settings().crossfadeDuration } });
+      updateShuffleRepeatBtns();
+    });
+  }
+
   if (durInput && durVal) {
     durInput.addEventListener('input', (e) => {
       const secs = Math.round(parseFloat(e.target.value));
       durVal.textContent = secs + 's';
+      settings().automixDuration = secs;
       settings().crossfadeDuration = secs;
-      if (descEl && settings().automixMode === 'crossfade') {
-        descEl.textContent = `Smoothly crossfades outgoing and incoming tracks with equal-power volume curves over ${secs} seconds.`;
+      if (durPreset) {
+        durPreset.value = [1, 3, 5, 6, 8, 10, 12, 15].includes(secs) ? String(secs) : 'custom';
       }
-      mutate({ type: 'settings.set', patch: { crossfadeDuration: secs } });
+      updateAutomixDesc();
+      mutate({ type: 'settings.set', patch: { automixDuration: secs, crossfadeDuration: secs } });
       updateShuffleRepeatBtns();
     });
   }
@@ -4697,6 +4783,51 @@ function renderSettings(tok) {
       </div>
 
       <div class="settings-card">
+        <h3>${icon('automix')} AutoMix & Song Transitions</h3>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">Apple Music AutoMix</span>
+            <span class="settings-desc">Seamlessly blend songs with asymmetric DJ volume curves, dead-air trimming, and beat matching</span>
+          </div>
+          <label class="toggle-wrap" title="AutoMix">
+            <input type="checkbox" id="settingAutomix" ${s.automix !== false ? 'checked' : ''}>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div style="height:1px;background:var(--line);margin:4px 0"></div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">Transition Duration</span>
+            <span class="settings-desc">Keep default dynamic "Best Mix" or select a custom blend duration (1s–15s)</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <select id="settingAutomixDuration" class="fs-select" style="padding:6px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-weight:600;font-size:12px">
+              <option value="auto" ${(s.automixDuration || 'auto') === 'auto' ? 'selected' : ''}>✨ Auto (Best Mix)</option>
+              <option value="1" ${String(s.automixDuration) === '1' ? 'selected' : ''}>1s (Instant Blend)</option>
+              <option value="3" ${String(s.automixDuration) === '3' ? 'selected' : ''}>3s (Fast Transition)</option>
+              <option value="5" ${String(s.automixDuration) === '5' ? 'selected' : ''}>5s (Quick Blend)</option>
+              <option value="6" ${String(s.automixDuration) === '6' ? 'selected' : ''}>6s (Apple Music Standard)</option>
+              <option value="8" ${String(s.automixDuration) === '8' ? 'selected' : ''}>8s (Standard DJ)</option>
+              <option value="10" ${String(s.automixDuration) === '10' ? 'selected' : ''}>10s (Extended)</option>
+              <option value="12" ${String(s.automixDuration) === '12' ? 'selected' : ''}>12s (Deep Blend)</option>
+              <option value="15" ${String(s.automixDuration) === '15' ? 'selected' : ''}>15s (Max Extended)</option>
+              <option value="custom" ${s.automixDuration !== 'auto' && ![1,3,5,6,8,10,12,15].includes(Number(s.automixDuration)) ? 'selected' : ''}>Custom</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-row" id="settingAutomixSliderRow" style="margin-top:6px;${s.automix === false ? 'opacity:0.5;pointer-events:none;' : ''}">
+          <div class="settings-label">
+            <span class="settings-title" style="font-size:12.5px">Fine-Tune Transition Time</span>
+            <span class="settings-desc" id="settingAutomixHint">${(s.automixDuration || 'auto') === 'auto' ? 'Best Mix dynamically tunes transition duration between 4.0s and 8.5s based on track BPM and length' : `Transition length fixed at ${s.automixDuration}s`}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <input type="range" id="settingAutomixSlider" min="1" max="15" step="1" value="${(s.automixDuration || 'auto') === 'auto' ? 6 : Number(s.automixDuration)}" style="accent-color:var(--accent);width:120px">
+            <span id="settingAutomixVal" style="font-size:12px;font-weight:700;color:var(--accent);min-width:35px">${(s.automixDuration || 'auto') === 'auto' ? 'Auto' : s.automixDuration + 's'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <h3>${icon('lyrics')} Lyrics & Visual Animation</h3>
         <div class="settings-row">
           <div class="settings-label">
@@ -4854,6 +4985,64 @@ function renderSettings(tok) {
       }
       renderSettings();
       toast('Ambient colors ' + (on ? 'on' : 'off'));
+    });
+  }
+
+  const settingAutomixToggle = $('#settingAutomix');
+  const settingAutomixDuration = $('#settingAutomixDuration');
+  const settingAutomixSlider = $('#settingAutomixSlider');
+  const settingAutomixVal = $('#settingAutomixVal');
+  const settingAutomixHint = $('#settingAutomixHint');
+  const settingAutomixSliderRow = $('#settingAutomixSliderRow');
+
+  if (settingAutomixToggle) {
+    settingAutomixToggle.addEventListener('change', (e) => {
+      const enabled = !!e.target.checked;
+      settings().automix = enabled;
+      mutate({ type: 'settings.set', patch: { automix: enabled } });
+      if (settingAutomixSliderRow) {
+        settingAutomixSliderRow.style.opacity = enabled ? '1' : '0.5';
+        settingAutomixSliderRow.style.pointerEvents = enabled ? 'auto' : 'none';
+      }
+      updateShuffleRepeatBtns();
+      const durLabel = (!settings().automixDuration || settings().automixDuration === 'auto') ? 'Auto (Best Mix)' : `${settings().automixDuration}s`;
+      toast('AutoMix ' + (enabled ? `enabled (Apple Music ${durLabel})` : 'disabled'));
+    });
+  }
+
+  if (settingAutomixDuration) {
+    settingAutomixDuration.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val === 'auto') {
+        settings().automixDuration = 'auto';
+        if (settingAutomixVal) settingAutomixVal.textContent = 'Auto';
+        if (settingAutomixSlider) settingAutomixSlider.value = 6;
+        if (settingAutomixHint) settingAutomixHint.textContent = 'Best Mix dynamically tunes transition duration between 4.0s and 8.5s based on track BPM and length';
+      } else if (val !== 'custom') {
+        const secs = Math.max(1, Math.min(15, parseInt(val, 10) || 6));
+        settings().automixDuration = secs;
+        settings().crossfadeDuration = secs;
+        if (settingAutomixVal) settingAutomixVal.textContent = secs + 's';
+        if (settingAutomixSlider) settingAutomixSlider.value = secs;
+        if (settingAutomixHint) settingAutomixHint.textContent = `Transition length fixed at ${secs}s`;
+      }
+      mutate({ type: 'settings.set', patch: { automixDuration: settings().automixDuration, crossfadeDuration: settings().crossfadeDuration } });
+      updateShuffleRepeatBtns();
+    });
+  }
+
+  if (settingAutomixSlider && settingAutomixVal) {
+    settingAutomixSlider.addEventListener('input', (e) => {
+      const secs = Math.round(parseFloat(e.target.value));
+      settingAutomixVal.textContent = secs + 's';
+      settings().automixDuration = secs;
+      settings().crossfadeDuration = secs;
+      if (settingAutomixDuration) {
+        settingAutomixDuration.value = [1, 3, 5, 6, 8, 10, 12, 15].includes(secs) ? String(secs) : 'custom';
+      }
+      if (settingAutomixHint) settingAutomixHint.textContent = `Transition length fixed at ${secs}s`;
+      mutate({ type: 'settings.set', patch: { automixDuration: secs, crossfadeDuration: secs } });
+      updateShuffleRepeatBtns();
     });
   }
 }

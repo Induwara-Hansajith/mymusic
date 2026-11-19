@@ -45,6 +45,7 @@ const DEFAULTS = () => ({
     closeToTray: true,
     automix: true,
     automixMode: 'smart',
+    automixDuration: 'auto',
     crossfadeDuration: 6,
     fsViz: 'bokeh',
     lyricsStyle: 'cinematic',
@@ -179,7 +180,18 @@ function mutate(p) {
       if ('closeToTray' in patch) d.settings.closeToTray = !!patch.closeToTray;
       if ('automix' in patch) d.settings.automix = !!patch.automix;
       if ('automixMode' in patch && ['smart', 'crossfade'].includes(patch.automixMode)) d.settings.automixMode = patch.automixMode;
-      if ('crossfadeDuration' in patch) d.settings.crossfadeDuration = Math.max(1, Math.min(12, Math.round(Number(patch.crossfadeDuration) || 6)));
+      if ('automixDuration' in patch) {
+        if (patch.automixDuration === 'auto' || patch.automixDuration === 'smart') {
+          d.settings.automixDuration = 'auto';
+        } else {
+          const num = Number(patch.automixDuration);
+          d.settings.automixDuration = isNaN(num) ? 'auto' : Math.max(1, Math.min(15, Math.round(num)));
+        }
+      }
+      if ('crossfadeDuration' in patch) {
+        const num = Number(patch.crossfadeDuration);
+        d.settings.crossfadeDuration = isNaN(num) ? 6 : Math.max(1, Math.min(15, Math.round(num)));
+      }
       if ('fsViz' in patch && ['bokeh', 'stardust', 'bubbles', 'waves', 'off'].includes(patch.fsViz)) d.settings.fsViz = patch.fsViz;
       if ('lyricsStyle' in patch && ['cinematic', 'apple-music', 'karaoke', 'minimal'].includes(patch.lyricsStyle)) d.settings.lyricsStyle = patch.lyricsStyle;
       if ('autoUpdate' in patch) d.settings.autoUpdate = !!patch.autoUpdate;
