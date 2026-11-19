@@ -371,7 +371,14 @@ function startUpdateChecker() {
   });
   autoUpdater.on('error', (error) => {
     updateCheckInProgress = false;
-    const message = String((error && error.message) || 'Update check failed').slice(0, 240);
+    let message = String((error && error.message) || 'Update check failed');
+    if (message.includes('Cannot find latest.yml') || message.includes('latest.yml') || message.includes('HttpError: 404')) {
+      message = 'Update error: release manifest (latest.yml) is missing from the GitHub release.';
+    } else if (message.includes('net::ERR_') || message.includes('ENOTFOUND') || message.includes('ETIMEDOUT')) {
+      message = 'Unable to reach update server. Check your connection.';
+    } else {
+      message = message.split('\n')[0].slice(0, 140);
+    }
     log('Auto-updater error:', message);
     sendUpdateEvent('updates:error', { message, manual: updateCheckIsManual || updateDownloadStarted });
     updateCheckIsManual = false;
