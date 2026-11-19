@@ -50,12 +50,13 @@ function loadThumbarIcons() {
   if (icons) return icons;
   try {
     const dir = path.join(__dirname, '..', 'build', 'thumbar');
-    icons = {
-      play: nativeImage.createFromPath(path.join(dir, 'play.png')),
-      pause: nativeImage.createFromPath(path.join(dir, 'pause.png')),
-      prev: nativeImage.createFromPath(path.join(dir, 'prev.png')),
-      next: nativeImage.createFromPath(path.join(dir, 'next.png'))
-    };
+    const playImg = nativeImage.createFromPath(path.join(dir, 'play.png'));
+    const pauseImg = nativeImage.createFromPath(path.join(dir, 'pause.png'));
+    const prevImg = nativeImage.createFromPath(path.join(dir, 'prev.png'));
+    const nextImg = nativeImage.createFromPath(path.join(dir, 'next.png'));
+    if (!playImg.isEmpty() && !pauseImg.isEmpty() && !prevImg.isEmpty() && !nextImg.isEmpty()) {
+      icons = { play: playImg, pause: pauseImg, prev: prevImg, next: nextImg };
+    }
   } catch (e) {
     log('Failed to load thumbar icons:', e.message);
   }
@@ -93,9 +94,17 @@ function createTray() {
   if (tray) return;
   try {
     const iconPath = path.join(__dirname, '..', 'build', 'icon.ico');
-    const trayIcon = fs.existsSync(iconPath)
-      ? nativeImage.createFromPath(iconPath)
-      : nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.png'));
+    const pngPath = path.join(__dirname, '..', 'build', 'icon.png');
+    let trayIcon = null;
+    if (fs.existsSync(iconPath)) {
+      trayIcon = nativeImage.createFromPath(iconPath);
+    } else if (fs.existsSync(pngPath)) {
+      trayIcon = nativeImage.createFromPath(pngPath);
+    }
+    if (!trayIcon || trayIcon.isEmpty()) {
+      log('Tray icon file missing or empty, skipping tray creation');
+      return;
+    }
     tray = new Tray(trayIcon);
     tray.setToolTip('My Music');
     updateTrayMenu();
@@ -180,7 +189,9 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: '#0b0d12',
     title: 'My Music',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: fs.existsSync(path.join(__dirname, '..', 'build', 'icon.png'))
+      ? path.join(__dirname, '..', 'build', 'icon.png')
+      : undefined,
     show: true,
     autoHideMenuBar: true,
     webPreferences: {

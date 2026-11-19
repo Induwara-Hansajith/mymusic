@@ -33,6 +33,7 @@
     },
     "files": [
       "src/**/*",
+      "build/**/*",
       "package.json"
     ],
     "asar": true,
