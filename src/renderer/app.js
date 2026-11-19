@@ -1992,7 +1992,6 @@ function drawPlayerbarLiquid(t, bass, playing) {
     pbVizCtx.shadowBlur = 0;
   }
 }
-}
 
 const col = (a = 1, light = 62, dh = 0) => `hsla(${(vizS.hue + dh + 360) % 360}, 80%, ${light}%, ${a})`;
 const col2 = (a = 1, light = 58, dh = 0) => {

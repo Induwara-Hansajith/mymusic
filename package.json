@@ -8,10 +8,11 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "check": "node -c src/main.js src/preload.js src/renderer/app.js src/renderer/sonara-engine.js",
     "smoke": "node test\\smoke.mjs",
     "test:e2e": "node test\\e2e-live.mjs",
-    "dist": "electron-builder --win --x64",
-    "dist:publish": "electron-builder --win --x64 --publish always"
+    "dist": "npm run check && electron-builder --win --x64",
+    "dist:publish": "npm run check && electron-builder --win --x64 --publish always"
   },
   "build": {
     "publish": [{
