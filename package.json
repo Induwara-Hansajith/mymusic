@@ -1,7 +1,7 @@
 {
   "name": "my-music",
   "productName": "My Music",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "My Music - a Spotify-style desktop player powered by YouTube Music",
   "main": "src/main.js",
   "author": "induw",
