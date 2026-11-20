@@ -344,6 +344,10 @@ function buildShell() {
                       <option value="apple-music">🎵 Apple Music Kinetic</option>
                       <option value="karaoke">🎤 Classic Karaoke</option>
                       <option value="minimal">📄 Minimalist</option>
+                      <option value="verci-chat">💬 iMessage Bubbles (Verci)</option>
+                      <option value="verci-fisheye">👁️ 3D Fisheye Lens (Verci)</option>
+                      <option value="verci-code">💻 Code Terminal & Cursor (Verci)</option>
+                      <option value="verci-constellation">✨ Constellation Nodes (Verci)</option>
                     </select>
                   </div>
                   <div id="fs-cinematic-mood-badge" class="fs-mood-badge hidden" title="Detected Emotional Tone">
@@ -2619,9 +2623,11 @@ function renderFsLyrics(t) {
   if (r === null) {
     body.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
   } else if (hasLyrics && r.synced && r.synced.length) {
-    body.innerHTML = r.synced.map(l =>
-      `<div class="fs-ly-row" data-t="${l.t != null ? l.t : ''}">${esc(l.text)}</div>`
-    ).join('');
+    body.innerHTML = r.synced.map((l, idx) => {
+      const words = esc(l.text).split(/(\s+)/).map(w => w.trim() ? `<span class="ly-w">${w}</span>` : w).join('');
+      const lineNum = String(idx + 1).padStart(2, '0');
+      return `<div class="fs-ly-row" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> <span class="code-kw">const</span> <span class="code-fn">verse_${lineNum}</span> = </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
+    }).join('');
   } else if (hasLyrics && r.plain) {
     body.innerHTML = `<div class="fs-lyrics-plain" style="font-size:22px;line-height:1.8;white-space:pre-wrap;color:rgba(255,255,255,0.85);">${esc(r.plain)}</div>`;
   } else {
@@ -3348,7 +3354,11 @@ function renderLyricsContent(t) {
       </div>`;
   }
   if (r.synced && r.synced.length) {
-    el.innerHTML = offsetBarHtml + r.synced.map(l => `<div class="ly-line" data-t="${l.t != null ? l.t : ''}">${esc(l.text)}</div>`).join('');
+    el.innerHTML = offsetBarHtml + r.synced.map((l, idx) => {
+      const words = esc(l.text).split(/(\s+)/).map(w => w.trim() ? `<span class="ly-w">${w}</span>` : w).join('');
+      const lineNum = String(idx + 1).padStart(2, '0');
+      return `<div class="ly-line" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
+    }).join('');
   } else if (r.plain) {
     el.innerHTML = `<div class="ly-plain">${esc(r.plain)}</div>`;
   } else {
@@ -3501,6 +3511,21 @@ function checkLyricsLoop() {
   }
 }
 
+function updateWordHighlight(rowEl, adjustedTime, nextTime) {
+  if (!rowEl) return;
+  const words = rowEl.querySelectorAll('.ly-w');
+  if (!words.length) return;
+  const startT = parseFloat(rowEl.dataset.t) || 0;
+  const dur = Math.max(0.6, (nextTime != null && !isNaN(nextTime) ? nextTime : (startT + 3.2)) - startT);
+  const elapsed = Math.max(0, adjustedTime - startT);
+  const pct = Math.min(1, elapsed / dur);
+  const count = words.length;
+  const litIdx = Math.floor(pct * count);
+  for (let i = 0; i < count; i++) {
+    words[i].classList.toggle('lit', i <= litIdx);
+  }
+}
+
 function highlightLyric(time) {
   const tTrack = curTrack();
   const offsetMs = (tTrack && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[tTrack.id]) || 0;
@@ -3564,7 +3589,24 @@ function highlightLyric(time) {
           lines[active].classList.add('on');
           smoothScrollToCenter(lyricsBody, lines[active]);
         }
+        for (let i = 0; i < lines.length; i++) {
+          const isPast = i < active;
+          lines[i].classList.toggle('ly-past', isPast);
+          lines[i].classList.toggle('ly-prev', i === active - 1);
+          lines[i].classList.toggle('ly-prev2', i === active - 2);
+          lines[i].classList.toggle('ly-next', i === active + 1);
+          lines[i].classList.toggle('ly-next2', i === active + 2);
+          if (isPast) {
+            lines[i].querySelectorAll('.ly-w').forEach(w => w.classList.add('lit'));
+          } else if (i > active) {
+            lines[i].querySelectorAll('.ly-w').forEach(w => w.classList.remove('lit'));
+          }
+        }
         S._lastLy = active;
+      }
+      if (active >= 0 && lines[active]) {
+        const nextT = (active < lines.length - 1) ? parseFloat(lines[active + 1].dataset.t) : null;
+        updateWordHighlight(lines[active], adjustedTime, nextT);
       }
     }
   }
@@ -3586,7 +3628,24 @@ function highlightLyric(time) {
           fsLines[fsActive].classList.add('on');
           smoothScrollToCenter(fsBody, fsLines[fsActive]);
         }
+        for (let i = 0; i < fsLines.length; i++) {
+          const isPast = i < fsActive;
+          fsLines[i].classList.toggle('ly-past', isPast);
+          fsLines[i].classList.toggle('ly-prev', i === fsActive - 1);
+          fsLines[i].classList.toggle('ly-prev2', i === fsActive - 2);
+          fsLines[i].classList.toggle('ly-next', i === fsActive + 1);
+          fsLines[i].classList.toggle('ly-next2', i === fsActive + 2);
+          if (isPast) {
+            fsLines[i].querySelectorAll('.ly-w').forEach(w => w.classList.add('lit'));
+          } else if (i > fsActive) {
+            fsLines[i].querySelectorAll('.ly-w').forEach(w => w.classList.remove('lit'));
+          }
+        }
         S._lastFsLy = fsActive;
+      }
+      if (fsActive >= 0 && fsLines[fsActive]) {
+        const nextT = (fsActive < fsLines.length - 1) ? parseFloat(fsLines[fsActive + 1].dataset.t) : null;
+        updateWordHighlight(fsLines[fsActive], adjustedTime, nextT);
       }
     }
   }
@@ -3610,7 +3669,8 @@ function highlightLyric(time) {
 }
 
 function setLyricsStyle(style) {
-  if (!['cinematic', 'apple-music', 'karaoke', 'minimal'].includes(style)) return;
+  const validStyles = ['cinematic', 'apple-music', 'karaoke', 'minimal', 'verci-chat', 'verci-fisheye', 'verci-code', 'verci-constellation'];
+  if (!validStyles.includes(style)) return;
   settings().lyricsStyle = style;
   mutate({ type: 'settings.set', patch: { lyricsStyle: style } });
 
@@ -3627,7 +3687,11 @@ function setLyricsStyle(style) {
     'cinematic': 'Cinematic Story (SONARA)',
     'apple-music': 'Apple Music Kinetic Blur',
     'karaoke': 'Classic Karaoke',
-    'minimal': 'Minimalist Clean'
+    'minimal': 'Minimalist Clean',
+    'verci-chat': 'iMessage Bubbles (Verci)',
+    'verci-fisheye': '3D Fisheye Lens Stack (Verci)',
+    'verci-code': 'Code Terminal & Cursor (Verci)',
+    'verci-constellation': 'Constellation Nodes (Verci)'
   };
   toast('Lyrics Style: ' + (labels[style] || style));
 }
@@ -5051,6 +5115,10 @@ function renderSettings(tok) {
             <option value="apple-music" ${s.lyricsStyle === 'apple-music' ? 'selected' : ''}>🎵 Apple Music Kinetic Blur</option>
             <option value="karaoke" ${s.lyricsStyle === 'karaoke' ? 'selected' : ''}>🎤 Classic Karaoke</option>
             <option value="minimal" ${s.lyricsStyle === 'minimal' ? 'selected' : ''}>📄 Minimalist Clean</option>
+            <option value="verci-chat" ${s.lyricsStyle === 'verci-chat' ? 'selected' : ''}>💬 iMessage Bubbles (Verci Style)</option>
+            <option value="verci-fisheye" ${s.lyricsStyle === 'verci-fisheye' ? 'selected' : ''}>👁️ 3D Fisheye Lens Stack (Verci Style)</option>
+            <option value="verci-code" ${s.lyricsStyle === 'verci-code' ? 'selected' : ''}>💻 Code Terminal & Cursor (Verci Style)</option>
+            <option value="verci-constellation" ${s.lyricsStyle === 'verci-constellation' ? 'selected' : ''}>✨ Constellation Star Nodes (Verci Style)</option>
           </select>
         </div>
       </div>

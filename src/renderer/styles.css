@@ -459,6 +459,121 @@ input { font: inherit; color: inherit; }
   transform: scale(1.08) translateZ(0);
 }
 
+/* Word-level timing tokens */
+.ly-w {
+  display: inline;
+  transition: opacity 0.18s ease, color 0.18s ease, text-shadow 0.18s ease;
+}
+.verci-code-prefix, .code-cursor, .verci-chat-tail {
+  display: none;
+}
+
+/* Sidepanel Verci iMessage Chat Style */
+.lyrics-style-verci-chat #lyricsBody .ly-line {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px 14px 14px 4px;
+  padding: 6px 12px;
+  margin: 4px 0;
+  max-width: 88%;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lyrics-style-verci-chat #lyricsBody .ly-line .ly-w {
+  opacity: 0.45;
+}
+.lyrics-style-verci-chat #lyricsBody .ly-line .ly-w.lit {
+  opacity: 1;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
+}
+.lyrics-style-verci-chat #lyricsBody .ly-line.on {
+  background: linear-gradient(135deg, #007aff 0%, #0056cc 100%);
+  color: #fff;
+  font-weight: 700;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 18px rgba(0, 122, 255, 0.45);
+  transform: scale(1.04);
+}
+.lyrics-style-verci-chat #lyricsBody .ly-line.ly-past {
+  opacity: 0.65;
+}
+
+/* Sidepanel Verci Fisheye Style */
+.lyrics-style-verci-fisheye #lyricsBody .ly-line {
+  text-align: center;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0.3;
+  transform: scale(0.88);
+}
+.lyrics-style-verci-fisheye #lyricsBody .ly-line.on {
+  opacity: 1;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  transform: scale(1.15);
+  text-shadow: 0 0 16px var(--accent-glow);
+}
+.lyrics-style-verci-fisheye #lyricsBody .ly-line.ly-prev,
+.lyrics-style-verci-fisheye #lyricsBody .ly-line.ly-next {
+  opacity: 0.55;
+  transform: scale(0.96);
+}
+
+/* Sidepanel Verci Code Terminal Style */
+.lyrics-style-verci-code #lyricsBody {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+.lyrics-style-verci-code #lyricsBody .ly-line {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.lyrics-style-verci-code #lyricsBody .verci-code-prefix {
+  display: inline;
+  color: #5c6370;
+  margin-right: 6px;
+}
+.lyrics-style-verci-code #lyricsBody .ly-line.on {
+  color: #98c379;
+  background: rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--accent);
+}
+.lyrics-style-verci-code #lyricsBody .ly-line.on .code-cursor {
+  display: inline;
+  color: var(--accent);
+  animation: blinkCursor 0.85s infinite;
+}
+
+/* Sidepanel Verci Constellation Style */
+.lyrics-style-verci-constellation #lyricsBody .ly-line {
+  position: relative;
+  padding-left: 20px;
+}
+.lyrics-style-verci-constellation #lyricsBody .ly-line::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transition: all 0.25s ease;
+}
+.lyrics-style-verci-constellation #lyricsBody .ly-line.on::before {
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+  transform: translateY(-50%) scale(1.6);
+}
+.lyrics-style-verci-constellation #lyricsBody .ly-line.on {
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 0 16px var(--accent-glow);
+}
+
 /* ---------- player bar ---------- */
 #playerbar {
   position: fixed; left: 0; right: 0; bottom: 0; height: 88px;
@@ -1902,6 +2017,295 @@ body.mini-mode #pb-mini {
   border-left: 2px solid var(--accent);
   padding-left: 14px;
   transform: scale(1.04) translateZ(0);
+}
+
+/* ========================================================
+   VERCI LYRICS ENGINES (Ark Curates Showcase Styles)
+   ======================================================== */
+
+/* 1. Verci iMessage Chat Bubbles (Native Design) */
+.lyrics-style-verci-chat {
+  display: flex !important;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 40px 10% !important;
+  gap: 16px;
+}
+.lyrics-style-verci-chat .fs-ly-row {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  max-width: 82%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-radius: 24px 24px 24px 6px;
+  padding: 14px 26px;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: all 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: left bottom;
+}
+.lyrics-style-verci-chat .fs-ly-row .ly-w {
+  opacity: 0.36;
+  transition: opacity 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
+}
+.lyrics-style-verci-chat .fs-ly-row .ly-w.lit {
+  opacity: 1;
+  color: #ffffff;
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.8);
+}
+.lyrics-style-verci-chat .fs-ly-row:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+  transform: scale(1.02);
+}
+.lyrics-style-verci-chat .fs-ly-row.on {
+  background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border-color: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 12px 36px rgba(0, 122, 255, 0.5), 0 0 24px rgba(0, 122, 255, 0.3);
+  transform: scale(1.07) translateY(-3px);
+  opacity: 1 !important;
+}
+.lyrics-style-verci-chat .fs-ly-row.on .ly-w {
+  opacity: 0.48;
+  color: rgba(255, 255, 255, 0.75);
+}
+.lyrics-style-verci-chat .fs-ly-row.on .ly-w.lit {
+  opacity: 1;
+  color: #ffffff;
+  font-weight: 800;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.95);
+}
+.lyrics-style-verci-chat .fs-ly-row.ly-past {
+  opacity: 0.65;
+  background: rgba(255, 255, 255, 0.05);
+}
+.lyrics-style-verci-chat .fs-ly-row.ly-past .ly-w {
+  opacity: 0.85;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 2. Verci 3D Fisheye Lens Stack (Kinetic Type) */
+.lyrics-style-verci-fisheye {
+  perspective: 900px;
+  perspective-origin: 50% 50%;
+  transform-style: preserve-3d;
+  text-align: center;
+  padding: 80px 0 !important;
+}
+.lyrics-style-verci-fisheye .fs-ly-row {
+  text-align: center;
+  font-size: 26px;
+  font-weight: 600;
+  margin: 10px 0;
+  padding: 8px 16px;
+  transform-origin: center center;
+  opacity: 0.2;
+  filter: blur(2.5px);
+  transform: scale(0.72) translateZ(-80px);
+  color: rgba(255, 255, 255, 0.3);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.25s ease;
+  contain: layout style;
+}
+.lyrics-style-verci-fisheye .fs-ly-row:hover {
+  opacity: 0.6;
+  filter: blur(0px);
+}
+.lyrics-style-verci-fisheye .fs-ly-row.on {
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: -0.8px;
+  color: #ffffff;
+  opacity: 1 !important;
+  filter: blur(0px) !important;
+  transform: scale(1.36) translateZ(80px);
+  text-shadow: 0 0 40px var(--accent-glow), 0 4px 25px rgba(0, 0, 0, 0.9);
+}
+.lyrics-style-verci-fisheye .fs-ly-row.on .ly-w {
+  opacity: 0.55;
+}
+.lyrics-style-verci-fisheye .fs-ly-row.on .ly-w.lit {
+  opacity: 1;
+  color: #ffffff;
+  text-shadow: 0 0 35px var(--accent-glow), 0 0 15px #ffffff;
+}
+.lyrics-style-verci-fisheye .fs-ly-row.ly-prev {
+  opacity: 0.65;
+  filter: blur(0.75px);
+  transform: rotateX(28deg) scale(0.92) translateZ(-20px) translateY(-12px);
+  color: rgba(255, 255, 255, 0.68);
+}
+.lyrics-style-verci-fisheye .fs-ly-row.ly-next {
+  opacity: 0.65;
+  filter: blur(0.75px);
+  transform: rotateX(-28deg) scale(0.92) translateZ(-20px) translateY(12px);
+  color: rgba(255, 255, 255, 0.68);
+}
+.lyrics-style-verci-fisheye .fs-ly-row.ly-prev2,
+.lyrics-style-verci-fisheye .fs-ly-row.ly-next2 {
+  opacity: 0.35;
+  filter: blur(1.8px);
+  transform: scale(0.8) translateZ(-50px);
+}
+
+/* 3. Verci Code Terminal & Cursor (Codestyle) */
+.lyrics-style-verci-code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  background: rgba(10, 13, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 36px 32px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.lyrics-style-verci-code .fs-ly-row {
+  display: flex;
+  align-items: center;
+  font-size: 22px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.48);
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+.lyrics-style-verci-code .verci-code-prefix {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.88em;
+  margin-right: 12px;
+  user-select: none;
+}
+.lyrics-style-verci-code .code-ln {
+  color: #5c6370;
+  margin-right: 14px;
+  font-size: 0.85em;
+  width: 28px;
+  display: inline-block;
+  text-align: right;
+}
+.lyrics-style-verci-code .code-kw {
+  color: #e06c75;
+  font-weight: 700;
+  margin-right: 8px;
+}
+.lyrics-style-verci-code .code-fn {
+  color: #61afef;
+  margin-right: 8px;
+}
+.lyrics-style-verci-code .code-cursor {
+  display: none;
+}
+.lyrics-style-verci-code .fs-ly-row.on {
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 3.5px solid var(--accent);
+  color: #98c379;
+  text-shadow: 0 0 16px rgba(152, 195, 121, 0.4);
+  transform: translateX(4px);
+}
+.lyrics-style-verci-code .fs-ly-row.on .code-cursor {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--accent);
+  animation: blinkCursor 0.85s infinite;
+}
+.lyrics-style-verci-code .fs-ly-row.on .ly-w {
+  opacity: 0.6;
+}
+.lyrics-style-verci-code .fs-ly-row.on .ly-w.lit {
+  opacity: 1;
+  color: #ffffff;
+  font-weight: 700;
+  text-shadow: 0 0 16px var(--accent-glow);
+}
+
+/* 4. Verci Constellation Nodes (Motion Scenes) */
+.lyrics-style-verci-constellation {
+  position: relative;
+  padding: 40px 10% 40px 14% !important;
+}
+.lyrics-style-verci-constellation .fs-ly-row {
+  position: relative;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 16px 0;
+  padding: 10px 16px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lyrics-style-verci-constellation .fs-ly-row::before {
+  content: '';
+  position: absolute;
+  left: -28px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
+  transition: all 0.3s ease;
+}
+.lyrics-style-verci-constellation .fs-ly-row::after {
+  content: '';
+  position: absolute;
+  left: -24px;
+  top: -24px;
+  bottom: 50%;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.15));
+}
+.lyrics-style-verci-constellation .fs-ly-row.on {
+  color: #ffffff;
+  font-weight: 800;
+  transform: scale(1.08) translateX(10px);
+  text-shadow: 0 0 28px var(--accent-glow), 0 0 45px rgba(255, 255, 255, 0.4);
+}
+.lyrics-style-verci-constellation .fs-ly-row.on::before {
+  width: 16px;
+  height: 16px;
+  left: -31px;
+  background: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 0 22px var(--accent), 0 0 40px var(--accent-glow);
+  animation: starPulse 1.8s infinite ease-in-out;
+}
+.lyrics-style-verci-constellation .fs-ly-row.on .ly-w {
+  opacity: 0.5;
+}
+.lyrics-style-verci-constellation .fs-ly-row.on .ly-w.lit {
+  opacity: 1;
+  color: #ffffff;
+  text-shadow: 0 0 24px var(--accent-glow), 0 0 10px #ffffff;
+}
+
+@keyframes blinkCursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes starPulse {
+  0%, 100% {
+    transform: translateY(-50%) scale(1);
+    box-shadow: 0 0 16px var(--accent), 0 0 30px var(--accent-glow);
+  }
+  50% {
+    transform: translateY(-50%) scale(1.35);
+    box-shadow: 0 0 28px var(--accent), 0 0 50px var(--accent-glow);
+  }
 }
 
 .fs-lyrics-empty {
