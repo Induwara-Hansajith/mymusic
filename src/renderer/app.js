@@ -342,12 +342,14 @@ function buildShell() {
                     <select id="fs-lyrics-style-select" class="fs-select" title="Lyrics Style">
                       <option value="cinematic">✨ Cinematic Story (SONARA)</option>
                       <option value="apple-music">🎵 Apple Music Kinetic</option>
+                      <option value="verci-visual">✨ Verci Visual (with Emojis)</option>
+                      <option value="verci-chat">💬 Verci iMessage Chat</option>
+                      <option value="verci-notifications">📱 Verci iOS Notifications</option>
+                      <option value="verci-fisheye">👁️ Verci 3D Fisheye Lens</option>
+                      <option value="verci-code">💻 Verci Code Terminal</option>
+                      <option value="verci-constellation">🌌 Verci Constellation Nodes</option>
                       <option value="karaoke">🎤 Classic Karaoke</option>
-                      <option value="minimal">📄 Minimalist</option>
-                      <option value="verci-chat">💬 iMessage Bubbles (Verci)</option>
-                      <option value="verci-fisheye">👁️ 3D Fisheye Lens (Verci)</option>
-                      <option value="verci-code">💻 Code Terminal & Cursor (Verci)</option>
-                      <option value="verci-constellation">✨ Constellation Nodes (Verci)</option>
+                      <option value="minimal">📄 Minimalist Clean</option>
                     </select>
                   </div>
                   <div id="fs-cinematic-mood-badge" class="fs-mood-badge hidden" title="Detected Emotional Tone">
@@ -2578,6 +2580,38 @@ function updateFsLyricsPreview(t) {
   }
 }
 
+const LYRIC_ICONS = {
+  heart: '❤️', hearts: '💕', love: '💖', baby: '👶', kiss: '💋', lips: '💋',
+  sun: '☀️', sunshine: '☀️', morning: '🌅', day: '☀️', light: '💡', lights: '💡',
+  night: '🌙', midnight: '🌙', dark: '🌑', moon: '🌕',
+  star: '⭐', stars: '✨', sky: '🌌', space: '🪐',
+  rain: '🌧️', rainy: '🌧️', tear: '💧', tears: '💧', cry: '😢', crying: '😭', ocean: '🌊', sea: '🌊',
+  fire: '🔥', flame: '🔥', burn: '🔥', burning: '🔥', hot: '🔥', smoke: '💨',
+  car: '🚗', drive: '🏎️', driving: '🚘', ride: '🚗', road: '🛣️', fast: '⚡',
+  money: '💵', cash: '💰', rich: '💎', diamond: '💎', gold: '🏆', dollar: '💵',
+  phone: '📱', call: '📞', calling: '📞', ring: '💍',
+  time: '⏳', clock: '⏰', hours: '⌛', forever: '♾️', wait: '⏳',
+  eye: '👁️', eyes: '👀', see: '👁️', look: '👀', watch: '👀',
+  home: '🏠', house: '🏡', city: '🏙️', town: '🏘️', street: '🛣️',
+  music: '🎵', song: '🎶', dance: '💃', dancing: '🕺', sing: '🎤', sound: '🔊',
+  alone: '🥀', lonely: '🥀', rose: '🌹', flower: '🌸', dead: '💀', die: '💀', death: '💀',
+  dream: '💭', dreaming: '💭', sleep: '💤', wake: '⏰', bed: '🛏️',
+  friend: '🤝', friends: '🤝', girl: '👧', boy: '👦', man: '👨',
+  mind: '🧠', head: '👤', thought: '💭', thoughts: '💭', soul: '✨',
+  run: '🏃', running: '🏃', fly: '🕊️', flying: '✈️', fall: '🍂', falling: '🍂',
+  king: '👑', queen: '👑', crown: '👑', angel: '👼', devil: '😈', god: '✨'
+};
+
+function formatLyricWords(text) {
+  return esc(text).split(/(\s+)/).map(w => {
+    if (!w.trim()) return w;
+    const clean = w.toLowerCase().replace(/[^a-z]/g, '');
+    const icon = LYRIC_ICONS[clean];
+    const iconHtml = icon ? `<span class="ly-float-icon">${icon}</span>` : '';
+    return `<span class="ly-w ${icon ? 'has-icon' : ''}" data-word="${clean}">${w}${iconHtml}</span>`;
+  }).join('');
+}
+
 function renderFsLyrics(t) {
   t = t || curTrack();
   S._lastFsLy = -1;
@@ -2624,9 +2658,10 @@ function renderFsLyrics(t) {
     body.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
   } else if (hasLyrics && r.synced && r.synced.length) {
     body.innerHTML = r.synced.map((l, idx) => {
-      const words = esc(l.text).split(/(\s+)/).map(w => w.trim() ? `<span class="ly-w">${w}</span>` : w).join('');
+      const words = formatLyricWords(l.text);
       const lineNum = String(idx + 1).padStart(2, '0');
-      return `<div class="fs-ly-row" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> <span class="code-kw">const</span> <span class="code-fn">verse_${lineNum}</span> = </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
+      const isAlt = idx % 2 === 1;
+      return `<div class="fs-ly-row ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><div class="verci-notif-header"><div class="notif-left"><span class="notif-icon">🎵</span> <span class="notif-title">MY MUSIC</span></div><span class="notif-time">now</span></div><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> <span class="code-kw">const</span> <span class="code-fn">verse_${lineNum}</span> = </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div><div class="verci-chat-receipt">Delivered</div></div>`;
     }).join('');
   } else if (hasLyrics && r.plain) {
     body.innerHTML = `<div class="fs-lyrics-plain" style="font-size:22px;line-height:1.8;white-space:pre-wrap;color:rgba(255,255,255,0.85);">${esc(r.plain)}</div>`;
@@ -3355,9 +3390,10 @@ function renderLyricsContent(t) {
   }
   if (r.synced && r.synced.length) {
     el.innerHTML = offsetBarHtml + r.synced.map((l, idx) => {
-      const words = esc(l.text).split(/(\s+)/).map(w => w.trim() ? `<span class="ly-w">${w}</span>` : w).join('');
+      const words = formatLyricWords(l.text);
       const lineNum = String(idx + 1).padStart(2, '0');
-      return `<div class="ly-line" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
+      const isAlt = idx % 2 === 1;
+      return `<div class="ly-line ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div><div class="verci-chat-receipt">Delivered</div></div>`;
     }).join('');
   } else if (r.plain) {
     el.innerHTML = `<div class="ly-plain">${esc(r.plain)}</div>`;
@@ -3669,7 +3705,10 @@ function highlightLyric(time) {
 }
 
 function setLyricsStyle(style) {
-  const validStyles = ['cinematic', 'apple-music', 'karaoke', 'minimal', 'verci-chat', 'verci-fisheye', 'verci-code', 'verci-constellation'];
+  const validStyles = [
+    'cinematic', 'apple-music', 'verci-visual', 'verci-chat', 'verci-notifications',
+    'verci-fisheye', 'verci-code', 'verci-constellation', 'karaoke', 'minimal'
+  ];
   if (!validStyles.includes(style)) return;
   settings().lyricsStyle = style;
   mutate({ type: 'settings.set', patch: { lyricsStyle: style } });
@@ -3686,12 +3725,14 @@ function setLyricsStyle(style) {
   const labels = {
     'cinematic': 'Cinematic Story (SONARA)',
     'apple-music': 'Apple Music Kinetic Blur',
+    'verci-visual': 'Verci Visual (Animated Emojis)',
+    'verci-chat': 'Verci iMessage Conversation',
+    'verci-notifications': 'Verci iOS Lock-Screen Notifications',
+    'verci-fisheye': 'Verci 3D Fisheye Lens Stack',
+    'verci-code': 'Verci Code Terminal & Cursor',
+    'verci-constellation': 'Verci Constellation Star Nodes',
     'karaoke': 'Classic Karaoke',
-    'minimal': 'Minimalist Clean',
-    'verci-chat': 'iMessage Bubbles (Verci)',
-    'verci-fisheye': '3D Fisheye Lens Stack (Verci)',
-    'verci-code': 'Code Terminal & Cursor (Verci)',
-    'verci-constellation': 'Constellation Nodes (Verci)'
+    'minimal': 'Minimalist Clean'
   };
   toast('Lyrics Style: ' + (labels[style] || style));
 }
@@ -5113,12 +5154,14 @@ function renderSettings(tok) {
           <select id="settingLyricsStyle" class="fs-select" style="padding:7px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-weight:600">
             <option value="cinematic" ${s.lyricsStyle === 'cinematic' ? 'selected' : ''}>✨ Cinematic Story (SONARA AI Engine)</option>
             <option value="apple-music" ${s.lyricsStyle === 'apple-music' ? 'selected' : ''}>🎵 Apple Music Kinetic Blur</option>
+            <option value="verci-visual" ${s.lyricsStyle === 'verci-visual' ? 'selected' : ''}>✨ Verci Visual (with Animated Emojis)</option>
+            <option value="verci-chat" ${s.lyricsStyle === 'verci-chat' ? 'selected' : ''}>💬 Verci iMessage Chat (iOS Bubbles)</option>
+            <option value="verci-notifications" ${s.lyricsStyle === 'verci-notifications' ? 'selected' : ''}>📱 Verci iOS Lock-Screen Notifications</option>
+            <option value="verci-fisheye" ${s.lyricsStyle === 'verci-fisheye' ? 'selected' : ''}>👁️ Verci 3D Fisheye Lens Stack</option>
+            <option value="verci-code" ${s.lyricsStyle === 'verci-code' ? 'selected' : ''}>💻 Verci Code Terminal & Cursor</option>
+            <option value="verci-constellation" ${s.lyricsStyle === 'verci-constellation' ? 'selected' : ''}>🌌 Verci Constellation Star Nodes</option>
             <option value="karaoke" ${s.lyricsStyle === 'karaoke' ? 'selected' : ''}>🎤 Classic Karaoke</option>
             <option value="minimal" ${s.lyricsStyle === 'minimal' ? 'selected' : ''}>📄 Minimalist Clean</option>
-            <option value="verci-chat" ${s.lyricsStyle === 'verci-chat' ? 'selected' : ''}>💬 iMessage Bubbles (Verci Style)</option>
-            <option value="verci-fisheye" ${s.lyricsStyle === 'verci-fisheye' ? 'selected' : ''}>👁️ 3D Fisheye Lens Stack (Verci Style)</option>
-            <option value="verci-code" ${s.lyricsStyle === 'verci-code' ? 'selected' : ''}>💻 Code Terminal & Cursor (Verci Style)</option>
-            <option value="verci-constellation" ${s.lyricsStyle === 'verci-constellation' ? 'selected' : ''}>✨ Constellation Star Nodes (Verci Style)</option>
           </select>
         </div>
       </div>
