@@ -48,7 +48,7 @@ const DEFAULTS = () => ({
     automixDuration: 'auto',
     crossfadeDuration: 6,
     fsViz: 'bokeh',
-    lyricsStyle: 'cinematic',
+    lyricsStyle: 'random',
     autoUpdate: true,
     updateDeferredVersion: ''
   },
@@ -193,7 +193,10 @@ function mutate(p) {
         d.settings.crossfadeDuration = isNaN(num) ? 6 : Math.max(1, Math.min(15, Math.round(num)));
       }
       if ('fsViz' in patch && ['bokeh', 'stardust', 'bubbles', 'waves', 'off'].includes(patch.fsViz)) d.settings.fsViz = patch.fsViz;
-      if ('lyricsStyle' in patch && ['cinematic', 'apple-music', 'karaoke', 'minimal'].includes(patch.lyricsStyle)) d.settings.lyricsStyle = patch.lyricsStyle;
+      if ('lyricsStyle' in patch && [
+        'random', 'cinematic', 'apple-music', 'verci-visual', 'verci-chat', 'verci-notifications',
+        'verci-fisheye', 'verci-code', 'verci-constellation', 'karaoke', 'minimal'
+      ].includes(patch.lyricsStyle)) d.settings.lyricsStyle = patch.lyricsStyle;
       if ('autoUpdate' in patch) d.settings.autoUpdate = !!patch.autoUpdate;
       if ('updateDeferredVersion' in patch && typeof patch.updateDeferredVersion === 'string') d.settings.updateDeferredVersion = patch.updateDeferredVersion.slice(0, 32);
       break;

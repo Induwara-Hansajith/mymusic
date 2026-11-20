@@ -125,7 +125,7 @@ async function boot() {
         volume: 0.8, repeat: 'off', shuffle: false, viz: 'bars', radio: true,
         speed: 1.0, pitchLock: true, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], eqPreset: 'flat',
         wallpaper: '', wallpaperDim: 60, accentHue: 'auto', closeToTray: false, ambientColors: true,
-        lyricsStyle: 'cinematic'
+        lyricsStyle: 'random'
       },
       lyricsOffsets: {},
       lastQueue: null,
@@ -340,6 +340,7 @@ function buildShell() {
                   <div class="fs-lyrics-style-picker" title="Select lyrics presentation style">
                     <span class="fs-lyrics-style-label">${icon('lyrics')}</span>
                     <select id="fs-lyrics-style-select" class="fs-select" title="Lyrics Style">
+                      <option value="random">🔀 Auto-Randomize per Song</option>
                       <option value="cinematic">✨ Cinematic Story (SONARA)</option>
                       <option value="apple-music">🎵 Apple Music Kinetic</option>
                       <option value="verci-visual">✨ Verci Visual (with Emojis)</option>
@@ -2613,6 +2614,51 @@ function formatLyricWords(text) {
   }).join('');
 }
 
+const LYRIC_STYLE_POOL = [
+  'cinematic',
+  'apple-music',
+  'verci-visual',
+  'verci-chat',
+  'verci-notifications',
+  'verci-fisheye',
+  'verci-code',
+  'verci-constellation'
+];
+
+const LYRIC_STYLE_LABELS = {
+  'random': 'Auto-Randomize per Song',
+  'cinematic': 'Cinematic Story (SONARA)',
+  'apple-music': 'Apple Music Kinetic Blur',
+  'verci-visual': 'Verci Visual (Animated Emojis)',
+  'verci-chat': 'Verci iMessage Conversation',
+  'verci-notifications': 'Verci iOS Lock-Screen Notifications',
+  'verci-fisheye': 'Verci 3D Fisheye Lens Stack',
+  'verci-code': 'Verci Code Terminal & Cursor',
+  'verci-constellation': 'Verci Constellation Star Nodes',
+  'karaoke': 'Classic Karaoke',
+  'minimal': 'Minimalist Clean'
+};
+
+function getEffectiveLyricsStyle(t) {
+  const pref = (settings().lyricsStyle) || 'random';
+  if (pref === 'random') {
+    if (!S.trackLyricStyles) S.trackLyricStyles = new Map();
+    const trackId = (t && t.id) || (curTrack() && curTrack().id) || 'curr';
+    if (!S.trackLyricStyles.has(trackId)) {
+      const pool = LYRIC_STYLE_POOL.filter(s => s !== S._lastRandomLyricStyle);
+      const chosen = pool[Math.floor(Math.random() * pool.length)] || LYRIC_STYLE_POOL[0];
+      S._lastRandomLyricStyle = chosen;
+      S.trackLyricStyles.set(trackId, chosen);
+      if (S.trackLyricStyles.size > 100) {
+        const firstKey = S.trackLyricStyles.keys().next().value;
+        S.trackLyricStyles.delete(firstKey);
+      }
+    }
+    return S.trackLyricStyles.get(trackId);
+  }
+  return pref;
+}
+
 function renderFsLyrics(t) {
   t = t || curTrack();
   S._lastFsLy = -1;
@@ -2630,9 +2676,17 @@ function renderFsLyrics(t) {
   const curOff = (t && S.store && S.store.lyricsOffsets && S.store.lyricsOffsets[t.id]) || 0;
   if (offVal) offVal.textContent = (curOff > 0 ? '+' : '') + curOff + 'ms';
 
-  const curStyle = (settings().lyricsStyle) || 'cinematic';
+  const isRandom = (settings().lyricsStyle || 'random') === 'random';
+  const curStyle = getEffectiveLyricsStyle(t);
   const styleSel = $('#fs-lyrics-style-select');
-  if (styleSel) styleSel.value = curStyle;
+  if (styleSel) {
+    const randomOpt = styleSel.querySelector('option[value="random"]');
+    if (randomOpt) {
+      const activeLabel = LYRIC_STYLE_LABELS[curStyle] || curStyle;
+      randomOpt.textContent = isRandom ? `🔀 Auto-Randomize (${activeLabel})` : '🔀 Auto-Randomize per Song';
+    }
+    styleSel.value = isRandom ? 'random' : curStyle;
+  }
 
   const hasLyrics = !!(r && ((r.synced && r.synced.length) || (r.plain && typeof r.plain === 'string' && r.plain.trim().length > 0)));
 
@@ -3328,7 +3382,7 @@ document.addEventListener('visibilitychange', () => {
       fsVizS._wasRunning = false;
       fsVizStart();
     }
-    if (typeof SonaraEngine !== 'undefined' && SonaraEngine._wasRunning && S.fsOpen && S.fsTab === 'lyrics' && (settings().lyricsStyle || 'cinematic') === 'cinematic') {
+    if (typeof SonaraEngine !== 'undefined' && SonaraEngine._wasRunning && S.fsOpen && S.fsTab === 'lyrics' && getEffectiveLyricsStyle(curTrack()) === 'cinematic') {
       SonaraEngine._wasRunning = false;
       SonaraEngine.start();
     }
@@ -3412,7 +3466,7 @@ function renderLyricsContent(t) {
     el.addEventListener('touchstart', () => { el._userScrolling = Date.now(); }, { passive: true });
   }
   const r = (S.showTranslated && S.translatedLyrics.get(t.id)) ? S.translatedLyrics.get(t.id) : S.lyrics;
-  const curStyle = (settings().lyricsStyle) || 'cinematic';
+  const curStyle = getEffectiveLyricsStyle(t);
   el.className = 'panel-body lyrics-style-' + curStyle;
 
   if (typeof SonaraEngine !== 'undefined' && r) {
@@ -3755,35 +3809,36 @@ function highlightLyric(time) {
 
 function setLyricsStyle(style) {
   const validStyles = [
-    'cinematic', 'apple-music', 'verci-visual', 'verci-chat', 'verci-notifications',
+    'random', 'cinematic', 'apple-music', 'verci-visual', 'verci-chat', 'verci-notifications',
     'verci-fisheye', 'verci-code', 'verci-constellation', 'karaoke', 'minimal'
   ];
   if (!validStyles.includes(style)) return;
   settings().lyricsStyle = style;
   mutate({ type: 'settings.set', patch: { lyricsStyle: style } });
 
+  const t = curTrack();
+  if (style === 'random' && t && S.trackLyricStyles) {
+    S.trackLyricStyles.delete(t.id);
+  }
+  const effective = getEffectiveLyricsStyle(t);
+
   const styleSel = $('#fs-lyrics-style-select');
-  if (styleSel) styleSel.value = style;
+  if (styleSel) {
+    const randomOpt = styleSel.querySelector('option[value="random"]');
+    if (randomOpt) {
+      const activeLabel = LYRIC_STYLE_LABELS[effective] || effective;
+      randomOpt.textContent = style === 'random' ? `🔀 Auto-Randomize (${activeLabel})` : '🔀 Auto-Randomize per Song';
+    }
+    styleSel.value = style;
+  }
   const setSel = $('#settingLyricsStyle');
   if (setSel) setSel.value = style;
 
-  const t = curTrack();
   if (S.fsOpen && S.fsTab === 'lyrics') renderFsLyrics(t);
   if (S.lyricsOpen && t) renderLyricsContent(t);
 
-  const labels = {
-    'cinematic': 'Cinematic Story (SONARA)',
-    'apple-music': 'Apple Music Kinetic Blur',
-    'verci-visual': 'Verci Visual (Animated Emojis)',
-    'verci-chat': 'Verci iMessage Conversation',
-    'verci-notifications': 'Verci iOS Lock-Screen Notifications',
-    'verci-fisheye': 'Verci 3D Fisheye Lens Stack',
-    'verci-code': 'Verci Code Terminal & Cursor',
-    'verci-constellation': 'Verci Constellation Star Nodes',
-    'karaoke': 'Classic Karaoke',
-    'minimal': 'Minimalist Clean'
-  };
-  toast('Lyrics Style: ' + (labels[style] || style));
+  const activeLabel = style === 'random' ? `Auto-Randomize (${LYRIC_STYLE_LABELS[effective] || effective})` : (LYRIC_STYLE_LABELS[style] || style);
+  toast('Lyrics Style: ' + activeLabel);
 }
 
 // ---------- context menu ----------
@@ -5201,6 +5256,7 @@ function renderSettings(tok) {
             <span class="settings-desc">Choose between the AI-powered cinematic canvas, Apple Music kinetic blur, classic karaoke, or minimalist</span>
           </div>
           <select id="settingLyricsStyle" class="fs-select" style="padding:7px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-weight:600">
+            <option value="random" ${(!s.lyricsStyle || s.lyricsStyle === 'random') ? 'selected' : ''}>🔀 Auto-Randomize per Song</option>
             <option value="cinematic" ${s.lyricsStyle === 'cinematic' ? 'selected' : ''}>✨ Cinematic Story (SONARA AI Engine)</option>
             <option value="apple-music" ${s.lyricsStyle === 'apple-music' ? 'selected' : ''}>🎵 Apple Music Kinetic Blur</option>
             <option value="verci-visual" ${s.lyricsStyle === 'verci-visual' ? 'selected' : ''}>✨ Verci Visual (with Animated Emojis)</option>
