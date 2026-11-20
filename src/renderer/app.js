@@ -74,8 +74,32 @@ const automixS = {
   duration: 6,
   progress: 0,
   swappedMeta: false,
-  quick: false
+  quick: false,
+  curMeta: null,
+  preloadedMeta: null,
+  preloadedLyrics: null
 };
+
+let autoMixEngine = null;
+let autoMixAnalyzer = null;
+
+function initAutoMixEngine() {
+  if (typeof AutoMix === 'undefined') return;
+  if (!autoMixEngine) {
+    autoMixAnalyzer = new AutoMix.AutoMixAnalyzer();
+    autoMixEngine = new AutoMix.AutoMixEngine(deckA, deckB, {
+      enabled: settings().automix !== false,
+      defaultDurationSec: settings().crossfadeDuration || 6,
+      bassCutFrequencyHz: 200,
+      bassCutMaxDb: -24,
+      preferWebAudio: true
+    });
+    const analyserNode = autoMixEngine.getAnalyser();
+    if (analyserNode && typeof SonaraEngine !== 'undefined') {
+      SonaraEngine.setAudioSource(analyserNode);
+    }
+  }
+}
 
 let lastQueueSave = 0, lastPresenceSave = 0;
 
@@ -1044,6 +1068,10 @@ function cancelAutoMix() {
     standbyAudio.src = '';
     standbyAudio.volume = 0;
   } catch {}
+  if (autoMixEngine) autoMixEngine.resetDeckDsp();
+  automixS.preloadedMeta = null;
+  automixS.preloadedLyrics = null;
+
   const mVol = Math.min(1, Math.max(0, settings().volume ?? 0.8));
   curAudio.volume = mVol;
   const badge = $('#np-mixing-badge');
@@ -1080,6 +1108,21 @@ async function preloadNextTrack(nextPos) {
       automixS.preloadedPos = nextPos;
       automixS.preloadedId = t.id;
       console.log('[automix] pre-buffered next track on standby deck:', t.title);
+
+      // Pre-analyze DSP & pre-fetch lyrics in memory
+      if (typeof AutoMix !== 'undefined') {
+        initAutoMixEngine();
+        autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, streamUrl: url, localPath: t.localPath, durationSec: t.duration || 180 })
+          .then(meta => { automixS.preloadedMeta = meta; })
+          .catch(() => {});
+        call('ytm:lyrics', { track: t })
+          .then(res => {
+            if (res && (res.synced || res.plain)) {
+              automixS.preloadedLyrics = res;
+            }
+          })
+          .catch(() => {});
+      }
     }
   } catch (err) {
     console.log('[automix] preload error:', (err && err.message) || err);
@@ -1093,8 +1136,9 @@ async function startAutoMix(nextPos, isQuick = false) {
   const nextIdx = S.order[nextPos];
   if (nextIdx == null || !S.queue[nextIdx]) return;
   const nextTrack = S.queue[nextIdx];
+  const curT = curTrack();
 
-  const duration = isQuick ? 1.5 : getAutomixDuration(curAudio.duration);
+  initAutoMixEngine();
 
   // If standbyAudio doesn't have the next track preloaded, load it now
   if (automixS.preloadedPos !== nextPos || !standbyAudio.src) {
@@ -1119,6 +1163,25 @@ async function startAutoMix(nextPos, isQuick = false) {
     }
   }
 
+  // Determine mix decision: sequential album vs beat-match vs equal-power crossfade
+  const isSequential = !!(curT && nextTrack && curT.album && nextTrack.album &&
+    curT.album.toLowerCase() === nextTrack.album.toLowerCase() &&
+    curT.albumIndex != null && nextTrack.albumIndex != null &&
+    nextTrack.albumIndex === curT.albumIndex + 1);
+
+  let decision = null;
+  if (autoMixEngine && !isQuick) {
+    decision = autoMixEngine.makeMixDecision(
+      curT ? { id: curT.id, title: curT.title, artist: curT.artist, album: curT.album, durationSec: curAudio.duration || 180 } : null,
+      { id: nextTrack.id, title: nextTrack.title, artist: nextTrack.artist, album: nextTrack.album, durationSec: nextTrack.duration || 180 },
+      automixS.curMeta || null,
+      automixS.preloadedMeta || null,
+      isSequential
+    );
+  }
+
+  const duration = isQuick ? 1.5 : (decision ? decision.durationSec : getAutomixDuration(curAudio.duration));
+
   automixS.mixing = true;
   automixS.startTime = performance.now();
   automixS.duration = duration;
@@ -1126,10 +1189,11 @@ async function startAutoMix(nextPos, isQuick = false) {
   automixS.swappedMeta = false;
   automixS.quick = isQuick;
 
-  // Apply speed, pitch lock and zero initial volume
-  standbyAudio.playbackRate = curAudio.playbackRate || 1.0;
-  standbyAudio.preservesPitch = curAudio.preservesPitch !== false;
-  standbyAudio.currentTime = 0;
+  // Apply speed, pitch lock and cue in
+  const targetRate = (decision && decision.tempoRatio) ? decision.tempoRatio : (curAudio.playbackRate || 1.0);
+  standbyAudio.playbackRate = targetRate;
+  standbyAudio.preservesPitch = true;
+  standbyAudio.currentTime = (decision && decision.cueInSec) ? decision.cueInSec : 0;
   standbyAudio.volume = 0;
 
   try {
@@ -1161,18 +1225,21 @@ async function startAutoMix(nextPos, isQuick = false) {
     const p = Math.min(1, Math.max(0, elapsed / automixS.duration));
     automixS.progress = p;
 
-    // Apple Music Asymmetric DJ Transition Curve:
-    // Outgoing track retains acoustic body longer before decaying
-    // Incoming track introduces rhythm gently then surges into drop
-    // Energy compensation prevents volume sags
-    const outCurve = Math.pow(Math.cos(p * (Math.PI * 0.5)), 0.78);
-    const inCurve = Math.pow(Math.sin(p * (Math.PI * 0.5)), 1.22);
-    const energyBoost = 1.0 + 0.06 * Math.sin(p * Math.PI);
+    // Apply DSP transition step (bass swap, equal-power curve, tempo normalization)
+    const curDeckId = (curAudio === deckA) ? 'deckA' : 'deckB';
+    const standbyDeckId = (standbyAudio === deckA) ? 'deckA' : 'deckB';
 
-    curAudio.volume = Math.max(0, Math.min(1, mVol * outCurve * energyBoost));
-    standbyAudio.volume = Math.max(0, Math.min(1, mVol * inCurve * energyBoost));
+    if (autoMixEngine && decision) {
+      autoMixEngine.applyTransitionStep(curDeckId, standbyDeckId, p, decision, mVol);
+    } else {
+      const outCurve = Math.pow(Math.cos(p * (Math.PI * 0.5)), 0.78);
+      const inCurve = Math.pow(Math.sin(p * (Math.PI * 0.5)), 1.22);
+      const energyBoost = 1.0 + 0.06 * Math.sin(p * Math.PI);
+      curAudio.volume = Math.max(0, Math.min(1, mVol * outCurve * energyBoost));
+      standbyAudio.volume = Math.max(0, Math.min(1, mVol * inCurve * energyBoost));
+    }
 
-    // Cross-dissolve artwork and title halfway through the mix (Apple Music style)
+    // Cross-dissolve artwork, title, and swap lyrics model at midpoint (t = 0.5)
     if (p >= 0.5 && !automixS.swappedMeta) {
       automixS.swappedMeta = true;
       S.curTrack = nextTrack;
@@ -1188,6 +1255,14 @@ async function startAutoMix(nextPos, isQuick = false) {
       if (fsThumb) {
         fsThumb.classList.add('mixing-dissolve');
         setTimeout(() => fsThumb.classList.remove('mixing-dissolve'), 550);
+      }
+
+      // Midpoint lyrics swap: swap active lyrics to nextTrack preloaded lyrics
+      if (automixS.preloadedLyrics) {
+        S.lyrics = automixS.preloadedLyrics;
+        S.lyricsId = nextTrack.id;
+        if (S.fsOpen && S.fsTab === 'lyrics') renderFsLyrics(nextTrack);
+        if (S.lyricsOpen) renderLyricsContent(nextTrack);
       }
     }
 
@@ -1220,8 +1295,11 @@ function finishAutoMix(nextPos, nextTrack) {
   standbyAudio = oldActive;
   audio = curAudio;
 
-  // Ensure incoming deck is at full master volume
+  // Ensure incoming deck is at full master volume and neutral DSP
   curAudio.volume = mVol;
+  if (autoMixEngine) {
+    autoMixEngine.resetDeckDsp();
+  }
 
   // Update playback state
   S.oi = nextPos;
@@ -1249,9 +1327,12 @@ function finishAutoMix(nextPos, nextTrack) {
   // Re-tap spectrum tap for visualizers on the new active deck
   ensureTap();
 
-  // Reset preload state for the *next* track
+  // Reset preload state for the next track
+  automixS.curMeta = automixS.preloadedMeta;
   automixS.preloadedPos = -1;
   automixS.preloadedId = null;
+  automixS.preloadedMeta = null;
+  automixS.preloadedLyrics = null;
 
   // If nearing the end of the queue, prefetch radio
   if (settings().repeat === 'off' && settings().radio && S.oi >= S.order.length - 1 && radioFailStreak < 3) {
@@ -1311,6 +1392,13 @@ async function playIndex(pos) {
   setNowPlaying(t);
   renderQueuePanel();
   saveLastQueue();
+
+  if (typeof AutoMix !== 'undefined') {
+    initAutoMixEngine();
+    autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, localPath: t.localPath, durationSec: t.duration || 180 })
+      .then(meta => { automixS.curMeta = meta; })
+      .catch(() => {});
+  }
 
   // Prefetch radio tracks in the background if nearing the queue end
   if (settings().repeat === 'off' && settings().radio && pos >= S.order.length - 1 && radioFailStreak < 3) {
