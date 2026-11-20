@@ -578,8 +578,8 @@
 
       const grad = ctx.createRadialGradient(cx, cy, 15, cx, cy, radius);
       grad.addColorStop(0, moodDef.colors.bgGlow);
-      grad.addColorStop(0.55, 'rgba(6, 9, 15, 0.25)');
-      grad.addColorStop(1, 'rgba(5, 7, 12, 0.72)');
+      grad.addColorStop(0.55, 'rgba(6, 9, 15, 0.15)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);

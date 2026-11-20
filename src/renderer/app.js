@@ -2661,7 +2661,7 @@ function renderFsLyrics(t) {
       const words = formatLyricWords(l.text);
       const lineNum = String(idx + 1).padStart(2, '0');
       const isAlt = idx % 2 === 1;
-      return `<div class="fs-ly-row ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><div class="verci-notif-header"><div class="notif-left"><span class="notif-icon">🎵</span> <span class="notif-title">MY MUSIC</span></div><span class="notif-time">now</span></div><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> <span class="code-kw">const</span> <span class="code-fn">verse_${lineNum}</span> = </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div><div class="verci-chat-receipt">Delivered</div></div>`;
+      return `<div class="fs-ly-row ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> <span class="code-kw">const</span> <span class="code-fn">verse_${lineNum}</span> = </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
     }).join('');
   } else if (hasLyrics && r.plain) {
     body.innerHTML = `<div class="fs-lyrics-plain" style="font-size:22px;line-height:1.8;white-space:pre-wrap;color:rgba(255,255,255,0.85);">${esc(r.plain)}</div>`;
@@ -3393,7 +3393,7 @@ function renderLyricsContent(t) {
       const words = formatLyricWords(l.text);
       const lineNum = String(idx + 1).padStart(2, '0');
       const isAlt = idx % 2 === 1;
-      return `<div class="ly-line ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div><div class="verci-chat-receipt">Delivered</div></div>`;
+      return `<div class="ly-line ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
     }).join('');
   } else if (r.plain) {
     el.innerHTML = `<div class="ly-plain">${esc(r.plain)}</div>`;
@@ -3500,7 +3500,7 @@ async function loadLyrics(t) {
   }
 }
 
-function smoothScrollToCenter(container, targetEl, duration = 360) {
+function smoothScrollToCenter(container, targetEl, duration = 420) {
   if (!container || !targetEl) return;
   if (container._userScrolling && Date.now() - container._userScrolling < 2000) return;
 
@@ -3517,7 +3517,8 @@ function smoothScrollToCenter(container, targetEl, duration = 360) {
   function step(now) {
     const elapsed = now - startTime;
     const p = Math.min(elapsed / duration, 1);
-    const ease = 1 - Math.pow(1 - p, 5);
+    // Smooth easeInOutSine for natural, fluid acceleration and deceleration
+    const ease = 0.5 * (1 - Math.cos(Math.PI * p));
     container.scrollTop = startTop + (distance * ease);
     if (p < 1) {
       container._scrollRaf = requestAnimationFrame(step);
