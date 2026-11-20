@@ -545,7 +545,7 @@ function trackRow(t, listKey, i, opts = {}) {
   const playing = cur && cur.id === t.id && (audio.src || S.playing);
   return `<div class="trow ${playing ? 'playing' : ''}" data-list="${esc(listKey)}" data-idx="${i}" data-tid="${esc(t.id)}">
     <button class="rownum" data-action="row-play" title="Play">${i + 1}</button>
-    <img class="rthumb" src="${esc(t.thumb)}" alt="">
+    <img class="rthumb" src="${esc(t.thumb)}" alt="" loading="lazy" decoding="async">
     <div class="rmeta">
       <div class="rtitle">${esc(t.title)}</div>
       <div class="rartist">${t.artistId ? `<a data-action="artist" data-id="${esc(t.artistId)}">${esc(t.artist)}</a>` : esc(t.artist)}</div>
@@ -563,7 +563,7 @@ function card(item, action, round = false) {
   const label = item.title || item.name || '';
   const sub = item.artist || item.owner || item.subscribers || '';
   return `<button class="card ${round ? 'round' : ''}" data-action="${action}" data-id="${esc(item.id)}">
-    <div class="card-thumb"><img src="${esc(item.thumb)}" alt=""></div>
+    <div class="card-thumb"><img src="${esc(item.thumb)}" alt="" loading="lazy" decoding="async"></div>
     <div class="card-title">${esc(label)}</div>
     <div class="card-sub">${esc(sub)}</div>
   </button>`;
@@ -573,7 +573,7 @@ const cardsBlock = (items, action, round = false) => `<div class="grid">${items.
 
 function ctxHeader({ type, title, meta, thumb, round = false, listKey, extraActions = '' }) {
   return `<div class="ctx-head">
-    ${thumb ? `<img class="ctximg ${round ? 'round' : ''}" src="${esc(thumb)}" alt="">` : ''}
+    ${thumb ? `<img class="ctximg ${round ? 'round' : ''}" src="${esc(thumb)}" alt="" loading="lazy" decoding="async">` : ''}
     <div class="ctx-info">
       <div class="ctx-type">${esc(type)}</div>
       <div class="ctx-title">${esc(title)}</div>
@@ -1299,6 +1299,7 @@ function setAutomix(on) {
 
 async function playIndex(pos) {
   cancelAutoMix();
+  S._prewarmedId = null;
   const idx = S.order[pos];
   if (idx == null || !S.queue[idx]) return;
   S.oi = pos;
@@ -2656,6 +2657,7 @@ function renderFsLyrics(t) {
 
   if (r === null) {
     body.innerHTML = '<div class="fs-lyrics-empty">Loading lyrics…</div>';
+    S._fsLines = [];
   } else if (hasLyrics && r.synced && r.synced.length) {
     body.innerHTML = r.synced.map((l, idx) => {
       const words = formatLyricWords(l.text);
@@ -2663,18 +2665,25 @@ function renderFsLyrics(t) {
       const isAlt = idx % 2 === 1;
       return `<div class="fs-ly-row ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> <span class="code-kw">const</span> <span class="code-fn">verse_${lineNum}</span> = </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
     }).join('');
+    S._fsLines = Array.from(body.querySelectorAll('.fs-ly-row')).map(row => ({
+      el: row,
+      t: parseFloat(row.dataset.t) || 0,
+      words: Array.from(row.querySelectorAll('.ly-w')),
+      lastLit: -1
+    }));
   } else if (hasLyrics && r.plain) {
     body.innerHTML = `<div class="fs-lyrics-plain" style="font-size:22px;line-height:1.8;white-space:pre-wrap;color:rgba(255,255,255,0.85);">${esc(r.plain)}</div>`;
+    S._fsLines = [];
   } else {
     body.innerHTML = '<div class="fs-lyrics-empty">No lyrics found for this track</div>';
+    S._fsLines = [];
   }
 
   // Seeking on lyric click
-  body.querySelectorAll('.fs-ly-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const ts = parseFloat(row.dataset.t);
-      if (!isNaN(ts)) {
-        curAudio.currentTime = Math.max(0, ts - (curOff / 1000));
+  (S._fsLines || []).forEach(item => {
+    item.el.addEventListener('click', () => {
+      if (!isNaN(item.t)) {
+        curAudio.currentTime = Math.max(0, item.t - (curOff / 1000));
         syncPresence();
         highlightLyric(curAudio.currentTime);
       }
@@ -2719,7 +2728,7 @@ function renderFsQueue() {
     html += `
       <div style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;">Now Playing</div>
       <div class="fs-queue-row playing" data-action="fs-q-jump" data-idx="-1">
-        <img class="fs-queue-thumb" src="${esc(cur.thumb || '')}" alt="">
+        <img class="fs-queue-thumb" src="${esc(cur.thumb || '')}" alt="" loading="lazy" decoding="async">
         <div class="fs-queue-meta">
           <div class="fs-queue-title">${esc(cur.title)}</div>
           <div class="fs-queue-artist">${esc(cur.artist || 'Unknown')}</div>
@@ -2732,7 +2741,7 @@ function renderFsQueue() {
   if (upcoming.length) {
     html += upcoming.map(item => `
       <div class="fs-queue-row" data-action="fs-q-jump" data-idx="${item.index}">
-        <img class="fs-queue-thumb" src="${esc(item.track.thumb || '')}" alt="">
+        <img class="fs-queue-thumb" src="${esc(item.track.thumb || '')}" alt="" loading="lazy" decoding="async">
         <div class="fs-queue-meta">
           <div class="fs-queue-title">${esc(item.track.title)}</div>
           <div class="fs-queue-artist">${esc(item.track.artist || 'Unknown')}</div>
@@ -2804,9 +2813,15 @@ function switchFsTab(tabName) {
   $$('.fs-tab-view').forEach(v => v.classList.toggle('active', v.id === `fs-view-${tabName}`));
   const t = curTrack();
   if (tabName === 'lyrics') {
+    fsVizStop();
     renderFsLyrics(t);
   } else {
     if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
+    if (tabName === 'nowplaying') {
+      fsVizStart();
+    } else {
+      fsVizStop();
+    }
   }
   if (tabName === 'queue') renderFsQueue();
   checkLyricsLoop();
@@ -3281,12 +3296,44 @@ function bindDeckEvents(deckEl) {
     if (now - lastQueueSave > 10000 && deckEl.src) { lastQueueSave = now; saveLastQueue(); }
     if (now - lastPresenceSave > 15000 && deckEl.src) { lastPresenceSave = now; syncPresence(); }
 
+    // Pre-warm next track audio stream when within 30s of track completion
+    if (d && (d - ct) <= 30 && S.order && S.oi < S.order.length - 1) {
+      const nextIdx = S.order[S.oi + 1];
+      const nextTrack = S.queue[nextIdx];
+      if (nextTrack && nextTrack.id && !nextTrack.localPath && S._prewarmedId !== nextTrack.id) {
+        S._prewarmedId = nextTrack.id;
+        call('ytm:stream', { id: nextTrack.id }).catch(() => {});
+      }
+    }
+
     handleAutomixTimeupdate(ct, d);
   });
 }
 
 bindDeckEvents(deckA);
 bindDeckEvents(deckB);
+
+// Throttle visualizers and animations when window is minimized or hidden
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (vizS.raf) { cancelAnimationFrame(vizS.raf); vizS.raf = 0; vizS._wasRunning = true; }
+    if (fsVizS.raf) { cancelAnimationFrame(fsVizS.raf); fsVizS.raf = 0; fsVizS._wasRunning = true; }
+    if (typeof SonaraEngine !== 'undefined' && SonaraEngine.running) {
+      SonaraEngine.stop();
+      SonaraEngine._wasRunning = true;
+    }
+  } else {
+    if (vizS._wasRunning) { vizS._wasRunning = false; vizStart(); }
+    if (fsVizS._wasRunning && S.fsOpen && fsVizS.mode !== 'off' && S.fsTab === 'nowplaying') {
+      fsVizS._wasRunning = false;
+      fsVizStart();
+    }
+    if (typeof SonaraEngine !== 'undefined' && SonaraEngine._wasRunning && S.fsOpen && S.fsTab === 'lyrics' && (settings().lyricsStyle || 'cinematic') === 'cinematic') {
+      SonaraEngine._wasRunning = false;
+      SonaraEngine.start();
+    }
+  }
+});
 
 // ---------- queue panel ----------
 function renderQueuePanel() {
@@ -3303,7 +3350,7 @@ function renderQueuePanel() {
 
 function qRow(t, cls, i) {
   return `<div class="qrow ${cls}" data-q="${i}">
-    <img src="${esc(t.thumb)}" alt="">
+    <img src="${esc(t.thumb)}" alt="" loading="lazy" decoding="async">
     <div class="qmeta">
       <div class="qtitle">${esc(t.title)}</div>
       <div class="qsub">${esc(t.artist)}</div>
@@ -3395,10 +3442,18 @@ function renderLyricsContent(t) {
       const isAlt = idx % 2 === 1;
       return `<div class="ly-line ${isAlt ? 'bubble-out' : 'bubble-in'}" data-t="${l.t != null ? l.t : ''}" data-idx="${idx}"><span class="verci-code-prefix"><span class="code-ln">${lineNum}</span> </span><span class="ly-text-content">${words}</span><span class="code-cursor">█</span><div class="verci-chat-tail"></div></div>`;
     }).join('');
+    S._spLines = Array.from(el.querySelectorAll('.ly-line')).map(row => ({
+      el: row,
+      t: parseFloat(row.dataset.t) || 0,
+      words: Array.from(row.querySelectorAll('.ly-w')),
+      lastLit: -1
+    }));
   } else if (r.plain) {
     el.innerHTML = `<div class="ly-plain">${esc(r.plain)}</div>`;
+    S._spLines = [];
   } else {
     el.innerHTML = '<div class="ly-load">No lyrics found for this track.</div>';
+    S._spLines = [];
   }
 
   el.querySelectorAll('.ly-off-btn').forEach(btn => {
@@ -3548,16 +3603,32 @@ function checkLyricsLoop() {
   }
 }
 
-function updateWordHighlight(rowEl, adjustedTime, nextTime) {
-  if (!rowEl) return;
-  const words = rowEl.querySelectorAll('.ly-w');
-  if (!words.length) return;
-  const startT = parseFloat(rowEl.dataset.t) || 0;
+function findActiveLyricIndex(cachedLines, adjustedTime) {
+  if (!cachedLines || !cachedLines.length) return -1;
+  let low = 0, high = cachedLines.length - 1, best = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (cachedLines[mid].t <= adjustedTime) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
+}
+
+function updateWordHighlight(cachedLine, adjustedTime, nextTime) {
+  if (!cachedLine || !cachedLine.words || !cachedLine.words.length) return;
+  const words = cachedLine.words;
+  const startT = cachedLine.t;
   const dur = Math.max(0.6, (nextTime != null && !isNaN(nextTime) ? nextTime : (startT + 3.2)) - startT);
   const elapsed = Math.max(0, adjustedTime - startT);
   const pct = Math.min(1, elapsed / dur);
   const count = words.length;
   const litIdx = Math.floor(pct * count);
+  if (cachedLine.lastLit === litIdx) return;
+  cachedLine.lastLit = litIdx;
   for (let i = 0; i < count; i++) {
     words[i].classList.toggle('lit', i <= litIdx);
   }
@@ -3609,98 +3680,75 @@ function highlightLyric(time) {
     }
   }
 
-  // Sidepanel lyrics
-  const lyricsBody = $('#lyricsBody');
-  if (lyricsBody) {
-    const lines = lyricsBody.querySelectorAll('.ly-line');
-    if (lines.length) {
-      let active = -1;
-      for (let i = 0; i < lines.length; i++) {
-        const t = parseFloat(lines[i].dataset.t);
-        if (!isNaN(t) && t <= adjustedTime) active = i;
-        else if (!isNaN(t) && t > adjustedTime) break;
+  // Sidepanel lyrics (high-performance cached loop)
+  if (S.lyricsOpen && S._spLines && S._spLines.length) {
+    const active = findActiveLyricIndex(S._spLines, adjustedTime);
+    if (active !== S._lastLy) {
+      if (S._lastLy >= 0 && S._spLines[S._lastLy]) S._spLines[S._lastLy].el.classList.remove('on');
+      if (active >= 0 && S._spLines[active]) {
+        S._spLines[active].el.classList.add('on');
+        smoothScrollToCenter($('#lyricsBody'), S._spLines[active].el);
       }
-      if (active !== S._lastLy) {
-        if (S._lastLy >= 0 && lines[S._lastLy]) lines[S._lastLy].classList.remove('on');
-        if (active >= 0 && lines[active]) {
-          lines[active].classList.add('on');
-          smoothScrollToCenter(lyricsBody, lines[active]);
+      for (let i = 0; i < S._spLines.length; i++) {
+        const item = S._spLines[i];
+        const isPast = i < active;
+        item.el.classList.toggle('ly-past', isPast);
+        item.el.classList.toggle('ly-prev', i === active - 1);
+        item.el.classList.toggle('ly-prev2', i === active - 2);
+        item.el.classList.toggle('ly-next', i === active + 1);
+        item.el.classList.toggle('ly-next2', i === active + 2);
+        if (isPast && item.lastLit !== item.words.length) {
+          item.lastLit = item.words.length;
+          item.words.forEach(w => w.classList.add('lit'));
+        } else if (i > active && item.lastLit !== -1) {
+          item.lastLit = -1;
+          item.words.forEach(w => w.classList.remove('lit'));
         }
-        for (let i = 0; i < lines.length; i++) {
-          const isPast = i < active;
-          lines[i].classList.toggle('ly-past', isPast);
-          lines[i].classList.toggle('ly-prev', i === active - 1);
-          lines[i].classList.toggle('ly-prev2', i === active - 2);
-          lines[i].classList.toggle('ly-next', i === active + 1);
-          lines[i].classList.toggle('ly-next2', i === active + 2);
-          if (isPast) {
-            lines[i].querySelectorAll('.ly-w').forEach(w => w.classList.add('lit'));
-          } else if (i > active) {
-            lines[i].querySelectorAll('.ly-w').forEach(w => w.classList.remove('lit'));
-          }
-        }
-        S._lastLy = active;
       }
-      if (active >= 0 && lines[active]) {
-        const nextT = (active < lines.length - 1) ? parseFloat(lines[active + 1].dataset.t) : null;
-        updateWordHighlight(lines[active], adjustedTime, nextT);
-      }
+      S._lastLy = active;
+    }
+    if (active >= 0 && S._spLines[active]) {
+      const nextT = (active < S._spLines.length - 1) ? S._spLines[active + 1].t : null;
+      updateWordHighlight(S._spLines[active], adjustedTime, nextT);
     }
   }
 
-  // Full-screen overlay lyrics
-  const fsBody = $('#fs-lyrics-body');
+  // Full-screen overlay lyrics (high-performance cached loop)
   let fsActive = -1;
-  if (fsBody) {
-    const fsLines = fsBody.querySelectorAll('.fs-ly-row');
-    if (fsLines.length) {
-      for (let i = 0; i < fsLines.length; i++) {
-        const t = parseFloat(fsLines[i].dataset.t);
-        if (!isNaN(t) && t <= adjustedTime) fsActive = i;
-        else if (!isNaN(t) && t > adjustedTime) break;
+  if (S.fsOpen && S._fsLines && S._fsLines.length) {
+    fsActive = findActiveLyricIndex(S._fsLines, adjustedTime);
+    if (fsActive !== S._lastFsLy) {
+      if (S._lastFsLy >= 0 && S._fsLines[S._lastFsLy]) S._fsLines[S._lastFsLy].el.classList.remove('on');
+      if (fsActive >= 0 && S._fsLines[fsActive]) {
+        S._fsLines[fsActive].el.classList.add('on');
+        smoothScrollToCenter($('#fs-lyrics-body'), S._fsLines[fsActive].el);
       }
-      if (fsActive !== S._lastFsLy) {
-        if (S._lastFsLy >= 0 && fsLines[S._lastFsLy]) fsLines[S._lastFsLy].classList.remove('on');
-        if (fsActive >= 0 && fsLines[fsActive]) {
-          fsLines[fsActive].classList.add('on');
-          smoothScrollToCenter(fsBody, fsLines[fsActive]);
+      for (let i = 0; i < S._fsLines.length; i++) {
+        const item = S._fsLines[i];
+        const isPast = i < fsActive;
+        item.el.classList.toggle('ly-past', isPast);
+        item.el.classList.toggle('ly-prev', i === fsActive - 1);
+        item.el.classList.toggle('ly-prev2', i === fsActive - 2);
+        item.el.classList.toggle('ly-next', i === fsActive + 1);
+        item.el.classList.toggle('ly-next2', i === fsActive + 2);
+        if (isPast && item.lastLit !== item.words.length) {
+          item.lastLit = item.words.length;
+          item.words.forEach(w => w.classList.add('lit'));
+        } else if (i > fsActive && item.lastLit !== -1) {
+          item.lastLit = -1;
+          item.words.forEach(w => w.classList.remove('lit'));
         }
-        for (let i = 0; i < fsLines.length; i++) {
-          const isPast = i < fsActive;
-          fsLines[i].classList.toggle('ly-past', isPast);
-          fsLines[i].classList.toggle('ly-prev', i === fsActive - 1);
-          fsLines[i].classList.toggle('ly-prev2', i === fsActive - 2);
-          fsLines[i].classList.toggle('ly-next', i === fsActive + 1);
-          fsLines[i].classList.toggle('ly-next2', i === fsActive + 2);
-          if (isPast) {
-            fsLines[i].querySelectorAll('.ly-w').forEach(w => w.classList.add('lit'));
-          } else if (i > fsActive) {
-            fsLines[i].querySelectorAll('.ly-w').forEach(w => w.classList.remove('lit'));
-          }
-        }
-        S._lastFsLy = fsActive;
       }
-      if (fsActive >= 0 && fsLines[fsActive]) {
-        const nextT = (fsActive < fsLines.length - 1) ? parseFloat(fsLines[fsActive + 1].dataset.t) : null;
-        updateWordHighlight(fsLines[fsActive], adjustedTime, nextT);
+      // Update preview card text ONLY when active line changes
+      const prevText = $('#fs-ly-preview-text');
+      if (prevText && fsActive >= 0 && S._fsLines[fsActive]) {
+        prevText.textContent = S._fsLines[fsActive].el.textContent;
       }
+      S._lastFsLy = fsActive;
     }
-  }
-
-  // Preview card text
-  const prevText = $('#fs-ly-preview-text');
-  if (prevText) {
-    if (fsActive >= 0) {
-      const fsLines = $$('#fs-lyrics-body .fs-ly-row');
-      if (fsLines[fsActive]) prevText.textContent = fsLines[fsActive].textContent;
-    } else if (typeof SonaraEngine !== 'undefined' && SonaraEngine.activeLineIdx >= 0 && SonaraEngine.lineAnalysis[SonaraEngine.activeLineIdx]) {
-      prevText.textContent = SonaraEngine.lineAnalysis[SonaraEngine.activeLineIdx].raw || '…';
-    } else if (S.lyrics && S.lyrics.synced && S.lyrics.synced.length) {
-      prevText.textContent = S.lyrics.synced[0].text || '…';
-    } else if (S.lyrics && S.lyrics.plain) {
-      prevText.textContent = S.lyrics.plain.split('\n')[0] || '…';
-    } else {
-      prevText.textContent = 'No lyrics for this one yet';
+    if (fsActive >= 0 && S._fsLines[fsActive]) {
+      const nextT = (fsActive < S._fsLines.length - 1) ? S._fsLines[fsActive + 1].t : null;
+      updateWordHighlight(S._fsLines[fsActive], adjustedTime, nextT);
     }
   }
 }
