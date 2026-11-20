@@ -1800,6 +1800,7 @@ function vizResize() {
   vizCanvas.height = Math.max(1, Math.round(vizS.h * dpr));
   vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   pbVizResize();
+  if (S.fsOpen) fsVizResize();
 }
 window.addEventListener('resize', vizResize);
 
@@ -2423,7 +2424,9 @@ function fsVizResize() {
 }
 
 function fsVizStart() {
-  if (fsVizS.raf || !S.fsOpen || fsVizS.mode === 'off') return;
+  if (!S.fsOpen || fsVizS.mode === 'off') return;
+  vizStart();
+  if (fsVizS.raf) return;
   fsVizResize();
   fsVizS.raf = requestAnimationFrame(fsVizFrame);
 }
@@ -2448,6 +2451,10 @@ function fsVizFrame(ts) {
   if (!c) return;
   const ctx = c.getContext('2d');
   if (!ctx) return;
+
+  if (c.clientWidth !== fsVizS.w || c.clientHeight !== fsVizS.h) {
+    fsVizResize();
+  }
 
   const w = fsVizS.w || c.clientWidth;
   const h = fsVizS.h || c.clientHeight;
@@ -2836,6 +2843,7 @@ function renderFsLyrics(t) {
   if (curStyle === 'cinematic') {
     cineStage?.classList.remove('hidden');
     body.classList.add('hidden');
+    fsVizStop();
     if (typeof SonaraEngine !== 'undefined') {
       const c = $('#fs-cinematic-canvas');
       if (c && (!SonaraEngine.canvas || SonaraEngine.canvas !== c)) {
@@ -2851,6 +2859,9 @@ function renderFsLyrics(t) {
     body.classList.remove('hidden');
     if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
     body.className = `fs-lyrics-scroll-body lyrics-style-${curStyle}`;
+    if (S.fsOpen && fsVizS.mode !== 'off') {
+      fsVizStart();
+    }
   }
 
   highlightLyric(audio.currentTime);
@@ -2955,14 +2966,11 @@ function switchFsTab(tabName) {
   $$('.fs-tab-view').forEach(v => v.classList.toggle('active', v.id === `fs-view-${tabName}`));
   const t = curTrack();
   if (tabName === 'lyrics') {
-    fsVizStop();
     renderFsLyrics(t);
   } else {
     if (typeof SonaraEngine !== 'undefined') SonaraEngine.stop();
-    if (tabName === 'nowplaying') {
+    if (fsVizS.mode !== 'off') {
       fsVizStart();
-    } else {
-      fsVizStop();
     }
   }
   if (tabName === 'queue') renderFsQueue();
@@ -3334,6 +3342,12 @@ function bindDeckEvents(deckEl) {
     ensureDspGraph();
     applySpeedAndPitch();
     vizStart();
+    if (S.fsOpen && fsVizS.mode !== 'off') {
+      const curStyle = getEffectiveLyricsStyle(curTrack());
+      if (S.fsTab !== 'lyrics' || curStyle !== 'cinematic') {
+        fsVizStart();
+      }
+    }
     syncPresence();
     syncTaskbarTray();
     checkLyricsLoop();
@@ -3466,9 +3480,12 @@ document.addEventListener('visibilitychange', () => {
     }
   } else {
     if (vizS._wasRunning) { vizS._wasRunning = false; vizStart(); }
-    if (fsVizS._wasRunning && S.fsOpen && fsVizS.mode !== 'off' && S.fsTab === 'nowplaying') {
-      fsVizS._wasRunning = false;
-      fsVizStart();
+    if (fsVizS._wasRunning && S.fsOpen && fsVizS.mode !== 'off') {
+      const curStyle = getEffectiveLyricsStyle(curTrack());
+      if (S.fsTab !== 'lyrics' || curStyle !== 'cinematic') {
+        fsVizS._wasRunning = false;
+        fsVizStart();
+      }
     }
     if (typeof SonaraEngine !== 'undefined' && SonaraEngine._wasRunning && S.fsOpen && S.fsTab === 'lyrics' && getEffectiveLyricsStyle(curTrack()) === 'cinematic') {
       SonaraEngine._wasRunning = false;
