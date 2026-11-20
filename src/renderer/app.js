@@ -4665,7 +4665,7 @@ function openEqModal() {
         </div>
         <div class="automix-duration-row ${curAutomix ? '' : 'hidden'}" id="automixDurWrap">
           <span style="font-size:12px;font-weight:600;">Transition Duration</span>
-          <select id="modalAutomixPreset" style="padding:4px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-size:11.5px;font-weight:600;">
+          <select id="modalAutomixPreset" class="fs-select" style="padding:4px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-size:11.5px;font-weight:600;color-scheme:dark;">
             <option value="auto" ${curAutomixDuration === 'auto' ? 'selected' : ''}>✨ Auto (Best Mix)</option>
             <option value="1" ${String(curAutomixDuration) === '1' ? 'selected' : ''}>1s (Instant)</option>
             <option value="3" ${String(curAutomixDuration) === '3' ? 'selected' : ''}>3s (Fast)</option>
