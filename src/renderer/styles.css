@@ -2132,18 +2132,20 @@ select option:hover, .fs-select option:hover {
   line-height: 1.55;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.35);
-  margin: 16px auto;
-  padding: 10px 24px;
+  margin: 14px auto;
+  padding: 8px 20px;
   border-radius: 14px;
   background: transparent !important;
   box-shadow: none !important;
   border: none !important;
   cursor: pointer;
-  max-width: min(1000px, 84%);
-  width: fit-content;
+  max-width: min(840px, 80%);
+  width: 100%;
   box-sizing: border-box;
   overflow-wrap: break-word;
-  word-break: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
   transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: center center;
 }
@@ -2295,7 +2297,7 @@ select option:hover, .fs-select option:hover {
   perspective-origin: 50% 50%;
   transform-style: preserve-3d;
   width: 100% !important;
-  padding: 90px 24px 220px 24px !important;
+  padding: 90px 48px 220px 48px !important;
   text-align: center;
   overflow-x: hidden !important;
   background: transparent !important;
@@ -2306,13 +2308,15 @@ select option:hover, .fs-select option:hover {
   text-align: center;
   justify-content: center;
   align-items: center;
-  margin: 14px auto;
-  padding: 8px 18px;
-  max-width: min(920px, 82%);
-  width: fit-content;
+  margin: 12px auto;
+  padding: 8px 24px;
+  max-width: min(820px, 78%);
+  width: 100%;
   box-sizing: border-box;
   overflow-wrap: break-word;
-  word-break: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
   background: transparent !important;
   box-shadow: none !important;
   border: none !important;
@@ -2350,16 +2354,16 @@ select option:hover, .fs-select option:hover {
   color: rgba(255, 255, 255, 0.72);
 }
 .lyrics-style-verci-fisheye .fs-ly-row.on {
-  font-size: clamp(26px, 3.4vw, 40px);
+  font-size: clamp(24px, 3.2vw, 36px);
   font-weight: 900;
-  line-height: 1.3;
-  letter-spacing: -0.5px;
+  line-height: 1.35;
+  letter-spacing: -0.4px;
   color: #ffffff;
   opacity: 1 !important;
   filter: blur(0px) !important;
   background: transparent !important;
   box-shadow: none !important;
-  transform: rotateX(0deg) scale(1.08) translateZ(40px);
+  transform: rotateX(0deg) scale(1.05) translateZ(24px);
   text-shadow: 0 0 45px var(--accent-glow), 0 0 18px #ffffff, 0 8px 30px rgba(0, 0, 0, 0.8);
   z-index: 3;
 }
@@ -2772,5 +2776,434 @@ select option:hover, .fs-select option:hover {
   border-radius: 50%;
   background: #fff;
   cursor: pointer;
+}
+
+/* ==========================================================================
+   Live DJ Studio & 8D Spatial Audio Modal Styling
+   ========================================================================== */
+.ly-text-content {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+.dj-box {
+  width: 740px !important;
+  max-width: 96vw !important;
+  max-height: 92vh;
+  overflow-y: auto;
+  border-radius: 20px !important;
+  border: 1px solid rgba(139, 92, 246, 0.28) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 35px rgba(139, 92, 246, 0.15) !important;
+}
+.dj-modal-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dj-modal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #a78bfa;
+  width: fit-content;
+}
+.dj-modal-badge .ic {
+  width: 14px;
+  height: 14px;
+}
+.dj-tabs-nav {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+}
+.dj-tab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.dj-tab-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.dj-tab-item.active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(99, 102, 241, 0.15));
+  border-color: rgba(139, 92, 246, 0.45);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.25);
+}
+.dj-tab-item .ic {
+  width: 15px;
+  height: 15px;
+}
+.dj-tab-page {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+.dj-tab-page.active {
+  display: flex;
+}
+
+/* Master Top Bar */
+.dj-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.dj-deck-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dj-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: djDotPulse 2s infinite ease-in-out;
+}
+@keyframes djDotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+.dj-deck-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.dj-vu-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 160px;
+}
+.dj-vu-channel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dj-vu-ch-label {
+  font-size: 9px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.4);
+  width: 8px;
+}
+.dj-vu-bar {
+  flex: 1;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.dj-vu-level {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #10b981 0%, #3b82f6 55%, #8b5cf6 80%, #ef4444 100%);
+  border-radius: 3px;
+  transition: width 0.06s linear;
+}
+.dj-azimuth-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #a78bfa;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 3px 10px;
+  border-radius: 999px;
+  min-width: 120px;
+  text-align: center;
+}
+
+/* Main DJ Layout */
+.dj-main-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 680px) {
+  .dj-main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.dj-radar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.dj-radar-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.dj-radar-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #fff;
+}
+.dj-radar-sub {
+  font-size: 10px;
+  color: var(--muted);
+}
+.dj-canvas-wrap {
+  width: 210px;
+  height: 210px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.dj-canvas-wrap:active {
+  cursor: grabbing;
+}
+#djRadarCanvas {
+  width: 210px;
+  height: 210px;
+  border-radius: 50%;
+  display: block;
+}
+.dj-orbit-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
+}
+.dj-orbit-btn {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.dj-orbit-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+.dj-orbit-btn.active {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+}
+
+/* Controls Column */
+.dj-controls-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dj-ctrl-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.dj-ctrl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dj-ctrl-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dj-ctrl-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.dj-ctrl-badge {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #a78bfa;
+  background: rgba(139, 92, 246, 0.14);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.dj-ctrl-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: #a78bfa;
+}
+.dj-stereo-pills, .dj-reverb-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dj-pill {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.dj-pill:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+.dj-pill.active {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: #8b5cf6;
+  color: #ffffff;
+}
+.dj-slider {
+  width: 100%;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+.dj-bipolar-slider {
+  accent-color: #ec4899;
+}
+.dj-bipolar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.dj-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dj-mini-btn {
+  padding: 2px 7px !important;
+  font-size: 10.5px !important;
+  border-radius: 6px !important;
+}
+.dj-ctrl-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.dj-ctrl-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.dj-punch-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+.dj-punch-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.dj-punch-btn.active {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(139, 92, 246, 0.2));
+  border-color: #ec4899;
+  box-shadow: 0 0 16px rgba(236, 72, 153, 0.35);
+}
+.dj-punch-icon {
+  font-size: 18px;
+}
+.dj-punch-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.dj-punch-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.dj-punch-sub {
+  font-size: 10px;
+  color: var(--muted);
+}
+.dj-punch-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
+}
+.dj-punch-led.on {
+  background: #ec4899;
+  box-shadow: 0 0 8px #ec4899;
+}
+.dj-reverb-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Player Bar DJ Active Badge */
+#pb-eq {
+  position: relative;
+}
+#pb-eq.dj-active {
+  color: #a78bfa;
+}
+.pb-eq-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  font-size: 8px;
+  font-weight: 900;
+  background: #8b5cf6;
+  color: #ffffff;
+  padding: 1px 3px;
+  border-radius: 4px;
+  line-height: 1;
+  box-shadow: 0 0 6px #8b5cf6;
 }
 

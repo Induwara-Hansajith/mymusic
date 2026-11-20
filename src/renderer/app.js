@@ -51,7 +51,9 @@ const I = {
   automix: '<path d="M3 17h4l4-10h6M17 4l4 3-4 3M3 7h4l1.5 3.5M14.5 13.5L16 17h5M17 14l4 3-4 3"/>',
   chevronDown: '<path d="M6 9l6 6 6-6"/>',
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
-  contract: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/>'
+  contract: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/>',
+  headphones: '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
+  dj: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M6 9a6 6 0 0 1 12 0v6a6 6 0 0 1-12 0z"/><path d="M2 12h1M21 12h1M9 12h6"/>'
 };
 const FILLED = new Set(['play', 'pause', 'next', 'prev']);
 const icon = (n, cls = '') =>
@@ -164,6 +166,7 @@ async function boot() {
     vizInit();
     applyWallpaper();
     applySpeedAndPitch();
+    updateEqBadge();
     if (settings().ambientColors !== false && (settings().accentHue == null || settings().accentHue === 0)) {
       settings().accentHue = 'auto';
     }
@@ -4560,19 +4563,16 @@ const EQ_PRESETS = {
 let dspCtx = null;
 let dspSource = null;
 let dspFilters = [];
+let dspEqFilters = [];
 let dspActive = false;
+let liveDjStudioInstance = null;
+let modalVuRaf = 0;
 
-function ensureDspGraph() {
-  if (dspActive) return;
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    dspCtx = new AC();
-    audio.crossOrigin = 'anonymous';
-    dspSource = dspCtx.createMediaElementSource(audio);
-
-    dspFilters = EQ_FREQS.map((freq, i) => {
-      const f = dspCtx.createBiquadFilter();
+window.getDspEqChain = function(ctx) {
+  if (!ctx) return null;
+  if (!dspEqFilters || !dspEqFilters.length || dspEqFilters[0].context !== ctx) {
+    dspEqFilters = EQ_FREQS.map((freq, i) => {
+      const f = ctx.createBiquadFilter();
       if (i === 0) f.type = 'lowshelf';
       else if (i === EQ_FREQS.length - 1) f.type = 'highshelf';
       else { f.type = 'peaking'; f.Q.value = 1.4; }
@@ -4581,26 +4581,109 @@ function ensureDspGraph() {
       f.gain.value = g;
       return f;
     });
-
-    let prevNode = dspSource;
-    for (const f of dspFilters) {
-      prevNode.connect(f);
-      prevNode = f;
+    for (let i = 0; i < dspEqFilters.length - 1; i++) {
+      dspEqFilters[i].connect(dspEqFilters[i + 1]);
     }
-    prevNode.connect(dspCtx.destination);
+    dspFilters = dspEqFilters;
+  }
+  return {
+    in: dspEqFilters[0],
+    out: dspEqFilters[dspEqFilters.length - 1]
+  };
+};
+
+function getLiveDjStudio() {
+  if (liveDjStudioInstance && liveDjStudioInstance.initialized) return liveDjStudioInstance;
+  initAutoMixEngine();
+  const ctx = (autoMixEngine && autoMixEngine.audioCtx) || dspCtx;
+  if (!ctx || typeof LiveDJStudio === 'undefined') return null;
+  const s = settings();
+  liveDjStudioInstance = new LiveDJStudio(ctx, {
+    orbitMode: s.dj8DMode || 'off',
+    stereoWidth: s.djStereoWidth != null ? s.djStereoWidth : 1.0,
+    djFilter: s.djFilter || 0.0,
+    bassPunch: !!s.djBassPunch,
+    reverbPreset: s.djReverbPreset || 'off',
+    reverbLevel: s.djReverbLevel != null ? s.djReverbLevel : 0.25
+  });
+  liveDjStudioInstance.init();
+  window.liveDjStudioInstance = liveDjStudioInstance;
+  if (autoMixEngine && typeof autoMixEngine.relinkMasterDsp === 'function') {
+    autoMixEngine.relinkMasterDsp();
+  }
+  return liveDjStudioInstance;
+}
+
+function updateEqBadge() {
+  const btn = $('#pb-eq');
+  if (!btn) return;
+  const dj = window.liveDjStudioInstance;
+  const is8d = dj && dj.is8DActive();
+  const isDj = dj && dj.isDjActive();
+
+  let badge = btn.querySelector('.pb-eq-badge');
+  if (is8d || isDj) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'pb-eq-badge';
+      btn.appendChild(badge);
+    }
+    badge.textContent = is8d ? '8D' : 'DJ';
+    btn.classList.add('dj-active');
+    btn.title = is8d ? 'Live DJ Studio: 8D Spatial Audio Active' : 'Live DJ Studio: DSP Active';
+  } else {
+    if (badge) badge.remove();
+    btn.classList.remove('dj-active');
+    btn.title = 'Equalizer & Live DJ Studio';
+  }
+}
+
+function ensureDspGraph() {
+  if (dspActive) return;
+  initAutoMixEngine();
+  if (autoMixEngine && autoMixEngine.audioCtx) {
+    dspCtx = autoMixEngine.audioCtx;
+    getLiveDjStudio();
     dspActive = true;
-    console.log('[dsp] Web Audio equalizer graph connected');
+    updateEqBadge();
+    return;
+  }
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    dspCtx = new AC();
+    audio.crossOrigin = 'anonymous';
+    dspSource = dspCtx.createMediaElementSource(audio);
+
+    const eqChain = window.getDspEqChain(dspCtx);
+    let prevNode = dspSource;
+    if (eqChain) {
+      prevNode.connect(eqChain.in);
+      prevNode = eqChain.out;
+    }
+
+    const dj = getLiveDjStudio();
+    if (dj && dj.initialized) {
+      prevNode.connect(dj.inputNode);
+      dj.outputNode.connect(dspCtx.destination);
+    } else {
+      prevNode.connect(dspCtx.destination);
+    }
+    dspActive = true;
+    updateEqBadge();
+    console.log('[dsp] Web Audio equalizer & Live DJ Studio graph connected');
   } catch (e) {
-    console.log('[dsp] Web Audio graph skipped (direct output):', (e && e.message) || e);
+    console.log('[dsp] Web Audio graph fallback:', (e && e.message) || e);
   }
 }
 
 function applyEqGains(gains) {
   ensureDspGraph();
-  if (dspFilters && dspFilters.length) {
-    for (let i = 0; i < dspFilters.length; i++) {
-      if (dspFilters[i] && dspFilters[i].gain) {
-        dspFilters[i].gain.value = gains[i] != null ? gains[i] : 0;
+  const filters = dspEqFilters && dspEqFilters.length ? dspEqFilters : dspFilters;
+  if (filters && filters.length) {
+    for (let i = 0; i < filters.length; i++) {
+      if (filters[i] && filters[i].gain) {
+        filters[i].gain.value = gains[i] != null ? gains[i] : 0;
       }
     }
   }
@@ -4618,6 +4701,7 @@ function openEqModal() {
   if (!modalEl) return;
   ensureDspGraph();
 
+  const dj = getLiveDjStudio();
   const curPreset = settings().eqPreset || 'flat';
   const curEq = settings().eq || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const curSpeed = settings().speed || 1.0;
@@ -4626,6 +4710,16 @@ function openEqModal() {
   const curAutomixMode = settings().automixMode || 'smart';
   const curCrossfadeDuration = settings().crossfadeDuration || 6;
   const curAutomixDuration = settings().automixDuration || 'auto';
+
+  // DJ State
+  const cur8D = dj ? dj.orbitMode : (settings().dj8DMode || 'off');
+  const curWidth = dj ? dj.stereoWidth : (settings().djStereoWidth != null ? settings().djStereoWidth : 1.0);
+  const curFilter = dj ? dj.djFilter : (settings().djFilter || 0.0);
+  const curBassPunch = dj ? dj.bassPunch : !!settings().djBassPunch;
+  const curReverb = dj ? dj.reverbPreset : (settings().djReverbPreset || 'off');
+  const curAzimuth = cur8D === 'off' ? 'FRONT • 0° (CENTER)' : 'ORBIT ACTIVE';
+
+  let curTab = settings().eqModalTab || 'dj';
 
   const presetHtml = Object.entries(EQ_PRESETS).map(([id, p]) =>
     `<button class="eq-preset-btn ${curPreset === id ? 'active' : ''}" data-eq-preset="${id}">${esc(p.name)}</button>`
@@ -4643,72 +4737,352 @@ function openEqModal() {
   `).join('');
 
   modalEl.innerHTML = `
-    <div class="eq-box">
+    <div class="eq-box dj-box">
       <div class="eq-header">
-        <h3>${icon('eq')} 10-Band Graphic Equalizer & DSP</h3>
+        <div class="dj-modal-title-group">
+          <div class="dj-modal-badge">${icon('dj')} LIVE DJ STUDIO</div>
+          <h3>Spatial 8D Audio, Equalizer &amp; Mix Deck</h3>
+        </div>
         <button class="iconbtn" data-action="eq-close">${icon('close')}</button>
       </div>
-      <div class="eq-presets">${presetHtml}</div>
-      <div class="eq-sliders">${slidersHtml}</div>
-      <div class="eq-dsp-row">
-        <div class="eq-dsp-group">
-          <span class="eq-dsp-label">Playback Speed</span>
-          <input type="range" id="eqSpeedInput" class="eq-speed-slider" min="0.5" max="2.0" step="0.05" value="${curSpeed}">
-          <span id="eqSpeedVal" class="eq-dsp-val">${curSpeed.toFixed(2)}x</span>
-          <button id="eqSpeedReset" class="ghostbtn" style="padding:4px 8px;font-size:11px;">1.0x</button>
-        </div>
-        <label class="eq-checkbox-label">
-          <input type="checkbox" id="eqPitchLock" ${curPitchLock ? 'checked' : ''}>
-          <span>Lock Pitch (Timestretch)</span>
-        </label>
+
+      <div class="dj-tabs-nav">
+        <button class="dj-tab-item ${curTab === 'dj' ? 'active' : ''}" data-tab="dj">${icon('headphones')} Live DJ &amp; 8D Studio</button>
+        <button class="dj-tab-item ${curTab === 'eq' ? 'active' : ''}" data-tab="eq">${icon('eq')} 10-Band EQ &amp; Speed</button>
+        <button class="dj-tab-item ${curTab === 'automix' ? 'active' : ''}" data-tab="automix">${icon('automix')} Song Transitions</button>
       </div>
-      <div class="automix-section">
-        <div class="automix-header">
-          <div class="automix-title">
-            ${icon('automix')} Song Transitions & AutoMix
-            <span class="automix-badge">Apple Music Style</span>
+
+      <!-- TAB 1: LIVE DJ & 8D STUDIO -->
+      <div class="dj-tab-page ${curTab === 'dj' ? 'active' : ''}" id="tabDjPage">
+        <!-- Master Deck Status Bar -->
+        <div class="dj-top-bar">
+          <div class="dj-deck-pill">
+            <span class="dj-live-dot"></span>
+            <span class="dj-deck-title">MASTER DECK DSP</span>
+          </div>
+          <div class="dj-vu-wrap" title="Real-time Stereo Output VU Meter">
+            <div class="dj-vu-channel">
+              <span class="dj-vu-ch-label">L</span>
+              <div class="dj-vu-bar"><div class="dj-vu-level" id="djVuL" style="width:0%"></div></div>
+            </div>
+            <div class="dj-vu-channel">
+              <span class="dj-vu-ch-label">R</span>
+              <div class="dj-vu-bar"><div class="dj-vu-level" id="djVuR" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div class="dj-azimuth-badge" id="djAzimuthText">${curAzimuth}</div>
+        </div>
+
+        <div class="dj-main-layout">
+          <!-- Left Column: 360° Holographic Interactive Radar Canvas -->
+          <div class="dj-radar-col">
+            <div class="dj-radar-header">
+              <span class="dj-radar-title">360° BINAURAL HRTF ORBIT</span>
+              <span class="dj-radar-sub">Drag satellite or choose speed</span>
+            </div>
+            <div class="dj-canvas-wrap">
+              <canvas id="djRadarCanvas" width="220" height="220"></canvas>
+            </div>
+            <div class="dj-orbit-modes">
+              <button class="dj-orbit-btn ${cur8D === 'off' ? 'active' : ''}" data-8d-mode="off">Center (Off)</button>
+              <button class="dj-orbit-btn ${cur8D === 'slow' ? 'active' : ''}" data-8d-mode="slow">Slow 16s</button>
+              <button class="dj-orbit-btn ${cur8D === 'club' ? 'active' : ''}" data-8d-mode="club">Club 10s</button>
+              <button class="dj-orbit-btn ${cur8D === 'fast' ? 'active' : ''}" data-8d-mode="fast">Hyperspace 5s</button>
+            </div>
+          </div>
+
+          <!-- Right Column: DJ Mixer Controls -->
+          <div class="dj-controls-col">
+            <!-- Stereo Expander -->
+            <div class="dj-ctrl-section">
+              <div class="dj-ctrl-header">
+                <div class="dj-ctrl-label-wrap">
+                  <span class="dj-ctrl-name">Stereo Field Expander</span>
+                  <span class="dj-ctrl-badge">Mono to 3D Stereo</span>
+                </div>
+                <span class="dj-ctrl-val" id="djStereoVal">${Math.round(curWidth * 100)}%</span>
+              </div>
+              <div class="dj-stereo-pills">
+                <button class="dj-pill ${curWidth === 0 ? 'active' : ''}" data-width="0">Mono</button>
+                <button class="dj-pill ${curWidth === 1.0 ? 'active' : ''}" data-width="1.0">Standard 100%</button>
+                <button class="dj-pill ${curWidth === 1.6 ? 'active' : ''}" data-width="1.6">Wide 160%</button>
+                <button class="dj-pill ${curWidth === 2.5 ? 'active' : ''}" data-width="2.5">Ultra Club 250%</button>
+              </div>
+              <input type="range" id="djStereoInput" class="dj-slider" min="0" max="2.5" step="0.05" value="${curWidth}">
+              <div class="dj-ctrl-desc">Converts mono &amp; narrow songs into expansive 3D stereo using Mid-Side decorrelation, Haas micro-delay, and 140Hz sub-bass centering.</div>
+            </div>
+
+            <!-- DJ Filter Sweep -->
+            <div class="dj-ctrl-section">
+              <div class="dj-ctrl-header">
+                <span class="dj-ctrl-name">DJ Resonance Filter Sweep</span>
+                <div class="dj-filter-actions">
+                  <span class="dj-ctrl-val" id="djFilterVal">${curFilter === 0 ? 'Center (Flat)' : (curFilter < 0 ? 'Low-Pass ' + Math.round(curFilter * 100) + '%' : 'High-Pass +' + Math.round(curFilter * 100) + '%')}</span>
+                  <button id="djFilterReset" class="ghostbtn dj-mini-btn">Reset</button>
+                </div>
+              </div>
+              <div class="dj-bipolar-labels">
+                <span>⏮️ Low-Pass Dub</span>
+                <span>Center</span>
+                <span>High-Pass Buildup ⏭️</span>
+              </div>
+              <input type="range" id="djFilterInput" class="dj-slider dj-bipolar-slider" min="-1.0" max="1.0" step="0.02" value="${curFilter}">
+            </div>
+
+            <!-- Bottom Row: Bass Punch & Room Ambience -->
+            <div class="dj-ctrl-row">
+              <!-- Club Bass Punch -->
+              <button id="djBassPunchBtn" class="dj-punch-btn ${curBassPunch ? 'active' : ''}">
+                <span class="dj-punch-icon">💥</span>
+                <div class="dj-punch-meta">
+                  <span class="dj-punch-title">Club Sub-Bass Punch</span>
+                  <span class="dj-punch-sub">+4.8dB @ 85Hz Lowshelf</span>
+                </div>
+                <span class="dj-punch-led ${curBassPunch ? 'on' : ''}"></span>
+              </button>
+
+              <!-- DJ Room Reverb -->
+              <div class="dj-reverb-box">
+                <div class="dj-ctrl-header" style="margin-bottom:6px;">
+                  <span class="dj-ctrl-name">Room Ambience</span>
+                  <span class="dj-ctrl-val" id="djReverbVal">${curReverb === 'off' ? 'Dry' : curReverb.toUpperCase()}</span>
+                </div>
+                <div class="dj-reverb-pills">
+                  <button class="dj-pill ${curReverb === 'off' ? 'active' : ''}" data-reverb="off">Dry</button>
+                  <button class="dj-pill ${curReverb === 'studio' ? 'active' : ''}" data-reverb="studio">Studio</button>
+                  <button class="dj-pill ${curReverb === 'club' ? 'active' : ''}" data-reverb="club">Club</button>
+                  <button class="dj-pill ${curReverb === 'arena' ? 'active' : ''}" data-reverb="arena">Arena</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="automix-modes">
-          <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'smart' ? 'active' : ''}" data-automix-mode="smart">
-            AutoMix (Apple Music)
-          </button>
-          <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'crossfade' ? 'active' : ''}" data-automix-mode="crossfade">
-            Manual Crossfade
-          </button>
-          <button class="automix-mode-btn ${!curAutomix ? 'active' : ''}" data-automix-mode="off">
-            Off (Gapless)
-          </button>
-        </div>
-        <div class="automix-duration-row ${curAutomix ? '' : 'hidden'}" id="automixDurWrap">
-          <span style="font-size:12px;font-weight:600;">Transition Duration</span>
-          <select id="modalAutomixPreset" class="fs-select" style="padding:4px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-size:11.5px;font-weight:600;color-scheme:dark;">
-            <option value="auto" ${curAutomixDuration === 'auto' ? 'selected' : ''}>✨ Auto (Best Mix)</option>
-            <option value="1" ${String(curAutomixDuration) === '1' ? 'selected' : ''}>1s (Instant)</option>
-            <option value="3" ${String(curAutomixDuration) === '3' ? 'selected' : ''}>3s (Fast)</option>
-            <option value="5" ${String(curAutomixDuration) === '5' ? 'selected' : ''}>5s (Quick Blend)</option>
-            <option value="6" ${String(curAutomixDuration) === '6' ? 'selected' : ''}>6s (Apple Music)</option>
-            <option value="8" ${String(curAutomixDuration) === '8' ? 'selected' : ''}>8s (Standard)</option>
-            <option value="10" ${String(curAutomixDuration) === '10' ? 'selected' : ''}>10s (Extended)</option>
-            <option value="12" ${String(curAutomixDuration) === '12' ? 'selected' : ''}>12s (Deep Mix)</option>
-            <option value="15" ${String(curAutomixDuration) === '15' ? 'selected' : ''}>15s (Max)</option>
-            <option value="custom" ${curAutomixDuration !== 'auto' && ![1,3,5,6,8,10,12,15].includes(Number(curAutomixDuration)) ? 'selected' : ''}>Custom</option>
-          </select>
-          <input type="range" id="automixDurInput" class="automix-duration-slider" min="1" max="15" step="1" value="${curAutomixDuration === 'auto' ? 6 : (Number(curAutomixDuration) || 6)}">
-          <span id="automixDurVal" style="font-weight:700;color:var(--accent);min-width:38px;font-size:12px;">${curAutomixDuration === 'auto' ? 'Auto' : curAutomixDuration + 's'}</span>
-        </div>
-        <div class="automix-desc" id="automixDesc">
-          ${!curAutomix ? 'Standard continuous playback with no track overlap or fading.' : (curAutomixDuration === 'auto' ? 'Dynamic Apple Music mix: intelligently analyzes track tempos, trims outro silence, and blends with asymmetric DJ curves (4s–8.5s).' : `Apple Music DJ transition: blends tracks using asymmetric DJ loudness curves over ${curAutomixDuration}s with zero dead-air.`)}
+      </div>
+
+      <!-- TAB 2: 10-BAND EQ & SPEED -->
+      <div class="dj-tab-page ${curTab === 'eq' ? 'active' : ''}" id="tabEqPage">
+        <div class="eq-presets">${presetHtml}</div>
+        <div class="eq-sliders">${slidersHtml}</div>
+        <div class="eq-dsp-row">
+          <div class="eq-dsp-group">
+            <span class="eq-dsp-label">Playback Speed</span>
+            <input type="range" id="eqSpeedInput" class="eq-speed-slider" min="0.5" max="2.0" step="0.05" value="${curSpeed}">
+            <span id="eqSpeedVal" class="eq-dsp-val">${curSpeed.toFixed(2)}x</span>
+            <button id="eqSpeedReset" class="ghostbtn" style="padding:4px 8px;font-size:11px;">1.0x</button>
+          </div>
+          <label class="eq-checkbox-label">
+            <input type="checkbox" id="eqPitchLock" ${curPitchLock ? 'checked' : ''}>
+            <span>Lock Pitch (Timestretch)</span>
+          </label>
         </div>
       </div>
+
+      <!-- TAB 3: AUTOMIX & TRANSITIONS -->
+      <div class="dj-tab-page ${curTab === 'automix' ? 'active' : ''}" id="tabAutomixPage">
+        <div class="automix-section" style="margin-top:0;border-top:none;padding-top:0;">
+          <div class="automix-header">
+            <div class="automix-title">
+              ${icon('automix')} Song Transitions &amp; AutoMix
+              <span class="automix-badge">Apple Music Style</span>
+            </div>
+          </div>
+          <div class="automix-modes">
+            <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'smart' ? 'active' : ''}" data-automix-mode="smart">
+              AutoMix (Apple Music)
+            </button>
+            <button class="automix-mode-btn ${curAutomix && curAutomixMode === 'crossfade' ? 'active' : ''}" data-automix-mode="crossfade">
+              Manual Crossfade
+            </button>
+            <button class="automix-mode-btn ${!curAutomix ? 'active' : ''}" data-automix-mode="off">
+              Off (Gapless)
+            </button>
+          </div>
+          <div class="automix-duration-row ${curAutomix ? '' : 'hidden'}" id="automixDurWrap">
+            <span style="font-size:12px;font-weight:600;">Transition Duration</span>
+            <select id="modalAutomixPreset" class="fs-select" style="padding:4px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-size:11.5px;font-weight:600;color-scheme:dark;">
+              <option value="auto" ${curAutomixDuration === 'auto' ? 'selected' : ''}>✨ Auto (Best Mix)</option>
+              <option value="1" ${String(curAutomixDuration) === '1' ? 'selected' : ''}>1s (Instant)</option>
+              <option value="3" ${String(curAutomixDuration) === '3' ? 'selected' : ''}>3s (Fast)</option>
+              <option value="5" ${String(curAutomixDuration) === '5' ? 'selected' : ''}>5s (Quick Blend)</option>
+              <option value="6" ${String(curAutomixDuration) === '6' ? 'selected' : ''}>6s (Apple Music)</option>
+              <option value="8" ${String(curAutomixDuration) === '8' ? 'selected' : ''}>8s (Standard)</option>
+              <option value="10" ${String(curAutomixDuration) === '10' ? 'selected' : ''}>10s (Extended)</option>
+              <option value="12" ${String(curAutomixDuration) === '12' ? 'selected' : ''}>12s (Deep Mix)</option>
+              <option value="15" ${String(curAutomixDuration) === '15' ? 'selected' : ''}>15s (Max)</option>
+              <option value="custom" ${curAutomixDuration !== 'auto' && ![1,3,5,6,8,10,12,15].includes(Number(curAutomixDuration)) ? 'selected' : ''}>Custom</option>
+            </select>
+            <input type="range" id="automixDurInput" class="automix-duration-slider" min="1" max="15" step="1" value="${curAutomixDuration === 'auto' ? 6 : (Number(curAutomixDuration) || 6)}">
+            <span id="automixDurVal" style="font-weight:700;color:var(--accent);min-width:38px;font-size:12px;">${curAutomixDuration === 'auto' ? 'Auto' : curAutomixDuration + 's'}</span>
+          </div>
+          <div class="automix-desc" id="automixDesc">
+            ${!curAutomix ? 'Standard continuous playback with no track overlap or fading.' : (curAutomixDuration === 'auto' ? 'Dynamic Apple Music mix: intelligently analyzes track tempos, trims outro silence, and blends with asymmetric DJ curves (4s–8.5s).' : `Apple Music DJ transition: blends tracks using asymmetric DJ loudness curves over ${curAutomixDuration}s with zero dead-air.`)}
+          </div>
+        </div>
+      </div>
+
       <div class="eq-footer">
-        <button id="eqResetBtn" class="ghostbtn" style="padding:6px 14px;border-radius:999px;">Reset to Flat</button>
+        <button id="eqResetBtn" class="ghostbtn" style="padding:6px 14px;border-radius:999px;">Reset Active Tab</button>
         <button class="primary" data-action="eq-close" style="padding:8px 20px;border-radius:999px;background:var(--accent);color:#fff;font-weight:600;">Done</button>
       </div>
     </div>
   `;
   modalEl.classList.remove('hidden');
 
+  // Attach Radar Canvas if DJ tab is active
+  const radarCanvas = $('#djRadarCanvas', modalEl);
+  const azimuthBadge = $('#djAzimuthText', modalEl);
+  if (dj && radarCanvas && curTab === 'dj') {
+    dj.attachRadarCanvas(radarCanvas);
+    dj.onAngleChange = (angle, text) => {
+      if (azimuthBadge) azimuthBadge.textContent = text;
+    };
+  }
+
+  // Real-time VU Meter Animation Loop
+  const vuL = $('#djVuL', modalEl);
+  const vuR = $('#djVuR', modalEl);
+  function runModalVuLoop() {
+    if (!modalEl || modalEl.classList.contains('hidden')) return;
+    if (dj && vuL && vuR) {
+      const levels = dj.getVuLevels();
+      vuL.style.width = Math.round(levels.l * 100) + '%';
+      vuR.style.width = Math.round(levels.r * 100) + '%';
+    }
+    modalVuRaf = requestAnimationFrame(runModalVuLoop);
+  }
+  if (modalVuRaf) cancelAnimationFrame(modalVuRaf);
+  modalVuRaf = requestAnimationFrame(runModalVuLoop);
+
+  // Tab switching
+  modalEl.querySelectorAll('.dj-tab-item').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+      const tabId = tabBtn.dataset.tab;
+      curTab = tabId;
+      settings().eqModalTab = tabId;
+      mutate({ type: 'settings.set', patch: { eqModalTab: tabId } });
+
+      modalEl.querySelectorAll('.dj-tab-item').forEach(b => b.classList.toggle('active', b === tabBtn));
+      modalEl.querySelectorAll('.dj-tab-page').forEach(p => p.classList.remove('active'));
+
+      if (tabId === 'dj') {
+        $('#tabDjPage', modalEl)?.classList.add('active');
+        if (dj && radarCanvas) {
+          dj.attachRadarCanvas(radarCanvas);
+          dj.onAngleChange = (angle, text) => {
+            if (azimuthBadge) azimuthBadge.textContent = text;
+          };
+        }
+      } else if (tabId === 'eq') {
+        $('#tabEqPage', modalEl)?.classList.add('active');
+        if (dj) dj.detachRadarCanvas();
+      } else if (tabId === 'automix') {
+        $('#tabAutomixPage', modalEl)?.classList.add('active');
+        if (dj) dj.detachRadarCanvas();
+      }
+    });
+  });
+
+  // DJ Tab Events: 8D Modes
+  modalEl.querySelectorAll('.dj-orbit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset['8dMode'];
+      modalEl.querySelectorAll('.dj-orbit-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (dj) dj.set8DMode(mode);
+      settings().dj8DMode = mode;
+      mutate({ type: 'settings.set', patch: { dj8DMode: mode } });
+      updateEqBadge();
+    });
+  });
+
+  // DJ Tab Events: Stereo Width Slider and Pills
+  const stereoInput = $('#djStereoInput', modalEl);
+  const stereoVal = $('#djStereoVal', modalEl);
+  modalEl.querySelectorAll('.dj-stereo-pills .dj-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const w = parseFloat(pill.dataset.width);
+      modalEl.querySelectorAll('.dj-stereo-pills .dj-pill').forEach(p => p.classList.toggle('active', p === pill));
+      if (stereoInput) stereoInput.value = w;
+      if (stereoVal) stereoVal.textContent = Math.round(w * 100) + '%';
+      if (dj) dj.applyStereoWidth(w);
+      settings().djStereoWidth = w;
+      mutate({ type: 'settings.set', patch: { djStereoWidth: w } });
+      updateEqBadge();
+    });
+  });
+  if (stereoInput && stereoVal) {
+    stereoInput.addEventListener('input', (e) => {
+      const w = parseFloat(e.target.value);
+      stereoVal.textContent = Math.round(w * 100) + '%';
+      modalEl.querySelectorAll('.dj-stereo-pills .dj-pill').forEach(p => {
+        p.classList.toggle('active', Math.abs(parseFloat(p.dataset.width) - w) < 0.05);
+      });
+      if (dj) dj.applyStereoWidth(w);
+      settings().djStereoWidth = w;
+      mutate({ type: 'settings.set', patch: { djStereoWidth: w } });
+      updateEqBadge();
+    });
+  }
+
+  // DJ Tab Events: Filter Sweep Slider & Reset
+  const filterInput = $('#djFilterInput', modalEl);
+  const filterVal = $('#djFilterVal', modalEl);
+  const filterReset = $('#djFilterReset', modalEl);
+  function renderFilterText(f) {
+    if (Math.abs(f) < 0.03) return 'Center (Flat)';
+    if (f < 0) return `Low-Pass ${Math.round(f * 100)}%`;
+    return `High-Pass +${Math.round(f * 100)}%`;
+  }
+  if (filterInput && filterVal) {
+    filterInput.addEventListener('input', (e) => {
+      const f = parseFloat(e.target.value);
+      filterVal.textContent = renderFilterText(f);
+      if (dj) dj.applyDjFilter(f);
+      settings().djFilter = f;
+      mutate({ type: 'settings.set', patch: { djFilter: f } });
+      updateEqBadge();
+    });
+  }
+  if (filterReset && filterInput && filterVal) {
+    filterReset.addEventListener('click', () => {
+      filterInput.value = 0;
+      filterVal.textContent = 'Center (Flat)';
+      if (dj) dj.applyDjFilter(0);
+      settings().djFilter = 0;
+      mutate({ type: 'settings.set', patch: { djFilter: 0 } });
+      updateEqBadge();
+    });
+  }
+
+  // DJ Tab Events: Sub-Bass Punch
+  const bassPunchBtn = $('#djBassPunchBtn', modalEl);
+  if (bassPunchBtn) {
+    bassPunchBtn.addEventListener('click', () => {
+      const nextPunch = !(dj ? dj.bassPunch : !!settings().djBassPunch);
+      bassPunchBtn.classList.toggle('active', nextPunch);
+      const led = bassPunchBtn.querySelector('.dj-punch-led');
+      if (led) led.classList.toggle('on', nextPunch);
+      if (dj) dj.setBassPunch(nextPunch);
+      settings().djBassPunch = nextPunch;
+      mutate({ type: 'settings.set', patch: { djBassPunch: nextPunch } });
+      updateEqBadge();
+    });
+  }
+
+  // DJ Tab Events: Room Ambience Reverb
+  const reverbVal = $('#djReverbVal', modalEl);
+  modalEl.querySelectorAll('.dj-reverb-pills .dj-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const r = pill.dataset.reverb;
+      modalEl.querySelectorAll('.dj-reverb-pills .dj-pill').forEach(p => p.classList.toggle('active', p === pill));
+      if (reverbVal) reverbVal.textContent = r === 'off' ? 'Dry' : r.toUpperCase();
+      if (dj) dj.applyReverb(r, 0.25);
+      settings().djReverbPreset = r;
+      mutate({ type: 'settings.set', patch: { djReverbPreset: r } });
+      updateEqBadge();
+    });
+  });
+
+  // EQ Sliders & Presets
   modalEl.querySelectorAll('.eq-slider').forEach(sl => {
     sl.addEventListener('input', (e) => {
       const idx = +e.target.dataset.band;
@@ -4775,6 +5149,7 @@ function openEqModal() {
     });
   }
 
+  // Automix Section
   const durWrap = $('#automixDurWrap', modalEl);
   const durPreset = $('#modalAutomixPreset', modalEl);
   const durInput = $('#automixDurInput', modalEl);
@@ -4853,14 +5228,41 @@ function openEqModal() {
   const rstBtn = $('#eqResetBtn', modalEl);
   if (rstBtn) {
     rstBtn.addEventListener('click', () => {
-      const flatBtn = modalEl.querySelector('[data-eq-preset="flat"]');
-      if (flatBtn) flatBtn.click();
+      if (curTab === 'dj') {
+        if (dj) {
+          dj.set8DMode('off');
+          dj.applyStereoWidth(1.0);
+          dj.applyDjFilter(0);
+          dj.setBassPunch(false);
+          dj.applyReverb('off', 0.25);
+        }
+        settings().dj8DMode = 'off';
+        settings().djStereoWidth = 1.0;
+        settings().djFilter = 0;
+        settings().djBassPunch = false;
+        settings().djReverbPreset = 'off';
+        mutate({ type: 'settings.set', patch: { dj8DMode: 'off', djStereoWidth: 1.0, djFilter: 0, djBassPunch: false, djReverbPreset: 'off' } });
+        openEqModal(); // re-render tab
+      } else if (curTab === 'eq') {
+        const flatBtn = modalEl.querySelector('[data-eq-preset="flat"]');
+        if (flatBtn) flatBtn.click();
+      } else if (curTab === 'automix') {
+        const smartBtn = modalEl.querySelector('[data-automix-mode="smart"]');
+        if (smartBtn) smartBtn.click();
+      }
+      updateEqBadge();
     });
   }
 
   modalEl.onclick = (e) => {
     if (e.target === modalEl || e.target.closest('[data-action="eq-close"]')) {
       modalEl.classList.add('hidden');
+      if (dj) dj.detachRadarCanvas();
+      if (modalVuRaf) {
+        cancelAnimationFrame(modalVuRaf);
+        modalVuRaf = 0;
+      }
+      updateEqBadge();
     }
   };
 }

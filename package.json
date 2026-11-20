@@ -1,14 +1,14 @@
 {
   "name": "my-music",
   "productName": "My Music",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "My Music - a Spotify-style desktop player powered by YouTube Music",
   "main": "src/main.js",
   "author": "induw",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node -c src/main.js src/preload.js src/renderer/app.js src/renderer/sonara-engine.js src/renderer/automix-engine.js",
+    "check": "node -c src/main.js src/preload.js src/renderer/app.js src/renderer/sonara-engine.js src/renderer/automix-engine.js src/renderer/live-dj-studio.js",
     "smoke": "node test\\smoke.mjs",
     "test:e2e": "node test\\e2e-live.mjs",
     "dist": "npm run check && electron-builder --win --x64",

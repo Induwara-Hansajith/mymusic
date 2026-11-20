@@ -361,7 +361,7 @@
         this.analyser.fftSize = 2048;
         this.analyser.smoothingTimeConstant = 0.82;
 
-        this.masterGain.connect(this.analyser);
+        this.relinkMasterDsp();
         this.analyser.connect(this.audioCtx.destination);
 
         this.wireDeckToGraph('deckA', this.deckA);
@@ -372,6 +372,38 @@
         console.warn('[AutoMixEngine] Web Audio routing fallback:', e);
         this.webAudioEnabled = false;
       }
+    }
+
+    relinkMasterDsp() {
+      if (!this.masterGain || !this.analyser) return;
+      try {
+        this.masterGain.disconnect();
+        let tail = this.masterGain;
+
+        if (typeof window.getDspEqChain === 'function') {
+          const eqChain = window.getDspEqChain(this.audioCtx);
+          if (eqChain && eqChain.in && eqChain.out) {
+            tail.connect(eqChain.in);
+            tail = eqChain.out;
+          }
+        }
+
+        const dj = window.liveDjStudioInstance;
+        if (dj && dj.initialized && dj.inputNode && dj.outputNode) {
+          tail.connect(dj.inputNode);
+          try { dj.outputNode.disconnect(); } catch {}
+          dj.outputNode.connect(this.analyser);
+        } else {
+          tail.connect(this.analyser);
+        }
+      } catch (e) {
+        console.warn('[AutoMixEngine] relinkMasterDsp fallback:', e);
+        try { this.masterGain.connect(this.analyser); } catch {}
+      }
+    }
+
+    attachLiveDjStudio(liveDj) {
+      this.relinkMasterDsp();
     }
 
     wireDeckToGraph(deckId, deckEl) {
