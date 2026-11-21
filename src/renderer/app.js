@@ -180,8 +180,19 @@ async function boot() {
       window.api.on('cmd:toggle', () => togglePlay());
       window.api.on('cmd:next', () => next());
       window.api.on('cmd:prev', () => prev());
-      window.api.on('updates:available', (info) => showUpdatePrompt(info));
+      window.api.on('updates:available', (info) => {
+        if (info && info.manual) {
+          showUpdatePrompt(info);
+        } else {
+          console.log('[updater] update available in background:', info && info.version);
+          updateSettingsUpdateCard();
+        }
+      });
       window.api.on('updates:progress', (info) => updateProgress(info));
+      window.api.on('updates:downloaded', (info) => handleUpdateDownloaded(info));
+      window.api.on('updates:deferred-for-playback', () => {
+        toast('Update ready — restart deferred while music is playing');
+      });
       window.api.on('updates:error', (info) => showUpdateError(info));
       window.api.on('updates:not-available', () => toast('You’re up to date'));
     }
@@ -4135,6 +4146,51 @@ function modal({ title, message, input, value = '', confirmText = 'Confirm', dan
   });
 }
 
+function handleUpdateDownloaded(info) {
+  const version = String(info && info.version || 'new version');
+  const isPlaying = S.playing && !audio.paused;
+
+  const host = $('#updateModal');
+  if (host && !host.classList.contains('hidden')) {
+    const status = $('#updateStatus', host);
+    const now = $('#updateNow', host);
+    const later = $('#updateLater', host);
+    const fill = $('#updateProgressFill', host);
+    if (fill) fill.style.width = '100%';
+    if (status) {
+      status.textContent = isPlaying
+        ? `Update ${version} downloaded! It will automatically install when you exit My Music so your music won't be interrupted.`
+        : `Update ${version} downloaded and ready to install.`;
+    }
+    if (now) {
+      now.disabled = false;
+      now.textContent = isPlaying ? 'Restart now anyway' : 'Restart & install';
+      now.onclick = async () => {
+        if (isPlaying) {
+          const ok = confirm('Music is currently playing. Restarting will stop playback. Restart now?');
+          if (!ok) return;
+        }
+        try { await call('updates:install', { force: true }); }
+        catch (e) { toast(e.message || 'Restart failed'); }
+      };
+    }
+    if (later) {
+      later.disabled = false;
+      later.textContent = 'Install on exit';
+      later.onclick = () => host.classList.add('hidden');
+    }
+    return;
+  }
+
+  toast(
+    isPlaying
+      ? `Update ${version} downloaded in background — will install on exit`
+      : `Update ${version} ready to install`
+  );
+
+  updateSettingsUpdateCard();
+}
+
 function showUpdatePrompt(info) {
   const version = String(info && info.version || 'new version').slice(0, 32);
   const host = $('#updateModal');
@@ -4142,12 +4198,12 @@ function showUpdatePrompt(info) {
   host.innerHTML = `<div class="update-box" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
     <div class="update-icon">${icon('download')}</div>
     <h3 id="updateTitle">A new version is available</h3>
-    <p>My Music ${esc(version)} is ready. Would you like to download and install it now?</p>
+    <p>My Music ${esc(version)} is available. Download in the background without interrupting your music?</p>
     <div class="update-progress hidden" id="updateProgressTrack"><div id="updateProgressFill"></div></div>
-    <div class="update-status" id="updateStatus">You can keep using My Music while the update downloads.</div>
+    <div class="update-status" id="updateStatus">Downloads quietly in the background. Music listening continues uninterrupted.</div>
     <div class="update-actions">
       <button id="updateLater">Later</button>
-      <button id="updateNow" class="primary">Update now</button>
+      <button id="updateNow" class="primary">Download & Update</button>
     </div>
   </div>`;
   host.classList.remove('hidden');
@@ -4158,12 +4214,12 @@ function showUpdatePrompt(info) {
   $('#updateNow', host).addEventListener('click', async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
-    button.textContent = 'Starting…';
+    button.textContent = 'Downloading…';
     $('#updateLater', host).disabled = true;
-    $('#updateStatus', host).textContent = 'Downloading the update. My Music will restart when installation is ready.';
+    $('#updateStatus', host).textContent = 'Downloading update in background. Music listening will not be interrupted.';
     $('#updateProgressTrack', host).classList.remove('hidden');
     try {
-      await call('updates:install');
+      await call('updates:install', { background: true });
     } catch (e) {
       button.disabled = false;
       button.textContent = 'Retry download';
@@ -4175,13 +4231,19 @@ function showUpdatePrompt(info) {
 }
 
 function updateProgress(info) {
-  const host = $('#updateModal');
-  if (!host || host.classList.contains('hidden')) return;
   const progress = Math.max(0, Math.min(100, Number(info && info.percent) || 0));
-  const fill = $('#updateProgressFill', host);
-  if (fill) fill.style.width = `${progress}%`;
-  const status = $('#updateStatus', host);
-  if (status) status.textContent = `Downloading update… ${Math.round(progress)}%`;
+  const rounded = Math.round(progress);
+  const host = $('#updateModal');
+  if (host && !host.classList.contains('hidden')) {
+    const fill = $('#updateProgressFill', host);
+    if (fill) fill.style.width = `${progress}%`;
+    const status = $('#updateStatus', host);
+    if (status) status.textContent = `Downloading update in background… ${rounded}%`;
+  }
+  const checkBtn = $('#checkUpdatesBtn');
+  if (checkBtn && checkBtn.dataset.downloading === 'true') {
+    checkBtn.textContent = `Downloading ${rounded}%…`;
+  }
 }
 
 function showUpdateError(info) {
@@ -4194,6 +4256,43 @@ function showUpdateError(info) {
   if (status) status.textContent = 'Download failed. Check your connection, then retry.';
   if (now) { now.disabled = false; now.textContent = 'Retry download'; }
   if (later) later.disabled = false;
+}
+
+async function updateSettingsUpdateCard() {
+  const checkBtn = $('#checkUpdatesBtn');
+  const desc = $('#updateDetailText');
+  if (!checkBtn) return;
+  try {
+    const st = await call('updates:get-status');
+    if (!st || !st.supported) return;
+    if (st.downloaded) {
+      if (desc) desc.textContent = `Update ${st.version ? `v${st.version} ` : ''}downloaded in background. It will automatically install when you close My Music.`;
+      checkBtn.textContent = 'Restart & install now';
+      checkBtn.disabled = false;
+      checkBtn.dataset.downloading = 'false';
+      checkBtn.classList.remove('ghostbtn');
+      checkBtn.classList.add('primary');
+      checkBtn.style.background = 'var(--accent)';
+      checkBtn.style.color = '#fff';
+      checkBtn.onclick = async () => {
+        const isPlaying = S.playing && !audio.paused;
+        if (isPlaying) {
+          const ok = confirm('Music is currently playing. Restarting will stop playback. Restart now?');
+          if (!ok) return;
+        }
+        try {
+          await call('updates:install', { force: true });
+        } catch (e) {
+          toast(e.message || 'Could not apply update');
+        }
+      };
+    } else if (st.downloading) {
+      if (desc) desc.textContent = 'Downloading update quietly in the background…';
+      checkBtn.disabled = true;
+      checkBtn.dataset.downloading = 'true';
+      checkBtn.textContent = 'Downloading…';
+    }
+  } catch {}
 }
 
 // ---------- misc UI ----------
@@ -5886,7 +5985,7 @@ function renderSettings(tok) {
           </label>
         </div>
         <div class="settings-row" style="margin-top:10px">
-          <span class="settings-desc">Automatic installation works with the Windows Setup installer. Portable and ZIP builds need a manual download.</span>
+          <span class="settings-desc" id="updateDetailText">Automatic updates download quietly in the background so your music is never interrupted, and install when you exit.</span>
           <button class="ghostbtn" id="checkUpdatesBtn" style="padding:7px 14px;border-radius:999px">Check now</button>
         </div>
       </div>
@@ -5957,6 +6056,7 @@ function renderSettings(tok) {
   const checkUpdatesBtn = $('#checkUpdatesBtn');
   if (checkUpdatesBtn) {
     checkUpdatesBtn.addEventListener('click', async () => {
+      if (checkUpdatesBtn.dataset.hasAction === 'restart') return;
       checkUpdatesBtn.disabled = true;
       checkUpdatesBtn.textContent = 'Checking…';
       try { await call('updates:check', { manual: true }); }
@@ -5964,14 +6064,18 @@ function renderSettings(tok) {
       finally {
         checkUpdatesBtn.disabled = false;
         checkUpdatesBtn.textContent = 'Check now';
+        updateSettingsUpdateCard();
       }
     });
     call('updates:get-status').then((status) => {
-      if (status.supported) return;
-      checkUpdatesBtn.disabled = true;
-      checkUpdatesBtn.title = 'Automatic updates are available only in the installed Windows Setup version';
-      const note = $('#updateSupportText');
-      if (note) note.textContent = 'Update checks are active in the installed Windows Setup version. Portable, ZIP, and development builds cannot self-update.';
+      if (!status.supported) {
+        checkUpdatesBtn.disabled = true;
+        checkUpdatesBtn.title = 'Automatic updates are available only in the installed Windows Setup version';
+        const note = $('#updateSupportText');
+        if (note) note.textContent = 'Update checks are active in the installed Windows Setup version. Portable, ZIP, and development builds cannot self-update.';
+        return;
+      }
+      updateSettingsUpdateCard();
     }).catch(() => {});
   }
 

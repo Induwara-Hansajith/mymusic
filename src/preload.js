@@ -13,7 +13,8 @@ const CHANNELS = new Set([
 
 const EVENTS = new Set([
   'cmd:toggle', 'cmd:next', 'cmd:prev',
-  'updates:available', 'updates:progress', 'updates:error', 'updates:not-available'
+  'updates:available', 'updates:progress', 'updates:error', 'updates:not-available',
+  'updates:downloaded', 'updates:deferred-for-playback'
 ]);
 
 contextBridge.exposeInMainWorld('api', {

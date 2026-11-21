@@ -25,6 +25,7 @@ let appIsQuitting = false;
 let currentPlaybackStatus = { playing: false, title: '', artist: '' };
 let updateInterval = null;
 let pendingUpdateInfo = null;
+let updateDownloadedInfo = null;
 let updateCheckIsManual = false;
 let updateCheckInProgress = false;
 let installAfterDownload = false;
@@ -337,7 +338,8 @@ function startUpdateChecker() {
     log('Auto-updater disabled for development, portable, and ZIP builds');
     return;
   }
-  autoUpdater.autoDownload = false;
+  const currentSettings = store.all().settings || {};
+  autoUpdater.autoDownload = currentSettings.autoUpdate !== false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.on('update-available', (info) => {
@@ -349,8 +351,15 @@ function startUpdateChecker() {
       updateCheckIsManual = false;
       return;
     }
-    sendUpdateEvent('updates:available', pendingUpdateInfo);
-    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) showUpdateNotification(pendingUpdateInfo);
+    const isManual = updateCheckIsManual;
+    sendUpdateEvent('updates:available', {
+      version: pendingUpdateInfo.version,
+      manual: isManual,
+      autoDownloading: autoUpdater.autoDownload
+    });
+    if (isManual && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible())) {
+      showUpdateNotification(pendingUpdateInfo);
+    }
     updateCheckIsManual = false;
   });
   autoUpdater.on('update-not-available', (info) => {
@@ -359,15 +368,36 @@ function startUpdateChecker() {
     updateCheckIsManual = false;
   });
   autoUpdater.on('download-progress', (progress) => {
-    sendUpdateEvent('updates:progress', { percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)) });
+    updateDownloadStarted = true;
+    sendUpdateEvent('updates:progress', {
+      percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)),
+      bytesPerSecond: Number(progress.bytesPerSecond) || 0,
+      transferred: Number(progress.transferred) || 0,
+      total: Number(progress.total) || 0
+    });
   });
   autoUpdater.on('update-downloaded', (info) => {
     updateDownloadStarted = false;
-    if (!installAfterDownload) return;
-    installAfterDownload = false;
-    log('Update downloaded; restarting to install', info && info.version);
-    appIsQuitting = true;
-    autoUpdater.quitAndInstall(false, true);
+    updateDownloadedInfo = { version: String((info && info.version) || (pendingUpdateInfo && pendingUpdateInfo.version) || '') };
+    log('Update downloaded in background:', updateDownloadedInfo.version);
+    // Silent installation on exit is enabled once downloaded
+    autoUpdater.autoInstallOnAppQuit = true;
+    sendUpdateEvent('updates:downloaded', {
+      version: updateDownloadedInfo.version,
+      playing: currentPlaybackStatus.playing
+    });
+    if (installAfterDownload) {
+      if (currentPlaybackStatus.playing) {
+        log('Update downloaded; playback is active, deferring restart to prevent interrupting music.');
+        installAfterDownload = false;
+        sendUpdateEvent('updates:deferred-for-playback', { version: updateDownloadedInfo.version });
+      } else {
+        installAfterDownload = false;
+        log('Playback idle; restarting to install update', updateDownloadedInfo.version);
+        appIsQuitting = true;
+        autoUpdater.quitAndInstall(false, true);
+      }
+    }
   });
   autoUpdater.on('error', (error) => {
     updateCheckInProgress = false;
@@ -394,20 +424,40 @@ function startUpdateChecker() {
 
 ipcMain.handle('updates:get-status', wrap(() => ({
   supported: updaterSupported(),
-  enabled: (store.all().settings || {}).autoUpdate !== false
+  enabled: (store.all().settings || {}).autoUpdate !== false,
+  downloaded: !!updateDownloadedInfo,
+  downloading: updateDownloadStarted,
+  version: updateDownloadedInfo ? updateDownloadedInfo.version : (pendingUpdateInfo ? pendingUpdateInfo.version : null),
+  playing: currentPlaybackStatus.playing
 })));
-ipcMain.handle('updates:check', wrap((p) => checkForUpdate(p.manual !== false)));
+ipcMain.handle('updates:check', wrap((p) => {
+  const currentSettings = store.all().settings || {};
+  autoUpdater.autoDownload = currentSettings.autoUpdate !== false;
+  return checkForUpdate(p.manual !== false);
+}));
 ipcMain.handle('updates:defer', wrap((p) => {
   const version = String(p.version || '').slice(0, 32);
   if (!version) throw new Error('Update version is missing.');
   store.mutate({ type: 'settings.set', patch: { updateDeferredVersion: version } });
   return true;
 }));
-ipcMain.handle('updates:install', wrap(async () => {
-  if (!updaterSupported() || !pendingUpdateInfo) throw new Error('There is no update ready to download.');
+ipcMain.handle('updates:install', wrap(async (p) => {
+  if (!updaterSupported() || (!updateDownloadedInfo && !pendingUpdateInfo)) {
+    throw new Error('There is no update ready to download.');
+  }
+  if (updateDownloadedInfo) {
+    const force = !!(p && p.force);
+    if (currentPlaybackStatus.playing && !force) {
+      return { ready: true, playing: true, promptConfirm: true, version: updateDownloadedInfo.version };
+    }
+    log('Restarting application to apply update now...');
+    appIsQuitting = true;
+    autoUpdater.quitAndInstall(false, true);
+    return { installing: true };
+  }
   if (updateDownloadStarted) return { downloading: true };
   updateDownloadStarted = true;
-  installAfterDownload = true;
+  installAfterDownload = !(p && p.background);
   try {
     await autoUpdater.downloadUpdate();
     return { downloading: true };
