@@ -169,11 +169,12 @@
         this.djFilterNode.frequency.setValueAtTime(1000, now);
         this.djFilterNode.Q.setValueAtTime(0.7, now);
 
-        // 3. DJ Club Bass Punch (+4.8dB at 85Hz)
+        // 3. DJ Club Bass Punch (+3.8dB at 75Hz peaking for smooth punch without speaker rattle)
         this.bassPunchNode = this.ctx.createBiquadFilter();
-        this.bassPunchNode.type = 'lowshelf';
-        this.bassPunchNode.frequency.setValueAtTime(85, now);
-        this.bassPunchNode.gain.setValueAtTime(this.bassPunch ? 4.8 : 0, now);
+        this.bassPunchNode.type = 'peaking';
+        this.bassPunchNode.frequency.setValueAtTime(75, now);
+        this.bassPunchNode.Q.setValueAtTime(1.1, now);
+        this.bassPunchNode.gain.setValueAtTime(this.bassPunch ? 3.8 : 0, now);
 
         // Connect Input -> DJ Filter -> Bass Punch
         this.inputNode.connect(this.djFilterNode);
@@ -638,7 +639,7 @@
       this.bassPunch = !!enable;
       if (!this.ctx || !this.bassPunchNode) return;
       const now = this.ctx.currentTime || 0;
-      this.bassPunchNode.gain.setTargetAtTime(this.bassPunch ? 4.8 : 0, now, 0.03);
+      this.bassPunchNode.gain.setTargetAtTime(this.bassPunch ? 3.8 : 0, now, 0.03);
     }
 
     // Controls: DJ Room Ambience (Master Reverb)

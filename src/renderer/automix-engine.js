@@ -376,8 +376,17 @@
         this.analyser.fftSize = 2048;
         this.analyser.smoothingTimeConstant = 0.82;
 
+        // Transparent mastering soft-knee peak limiter: prevents digital clipping/distortion on bass boost
+        this.limiter = this.audioCtx.createDynamicsCompressor();
+        this.limiter.threshold.setValueAtTime(-0.8, 0);
+        this.limiter.knee.setValueAtTime(4.0, 0);
+        this.limiter.ratio.setValueAtTime(20.0, 0);
+        this.limiter.attack.setValueAtTime(0.003, 0);
+        this.limiter.release.setValueAtTime(0.12, 0);
+
         this.relinkMasterDsp();
-        this.analyser.connect(this.audioCtx.destination);
+        this.analyser.connect(this.limiter);
+        this.limiter.connect(this.audioCtx.destination);
 
         this.wireDeckToGraph('deckA', this.deckA);
         this.wireDeckToGraph('deckB', this.deckB);

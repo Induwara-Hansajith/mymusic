@@ -4601,7 +4601,7 @@ function onClick(e) {
 const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const EQ_PRESETS = {
   flat: { name: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-  bass: { name: 'Bass Boost', gains: [6, 5, 4, 2, 0, 0, 0, 0, 0, 0] },
+  bass: { name: 'Bass Boost', gains: [2.5, 4.5, 3.2, 1.2, -0.5, 0, 0, 0, 0.5, 0.5] },
   bass_reduce: { name: 'Bass Reducer', gains: [-6, -5, -4, -2, 0, 0, 0, 0, 0, 0] },
   rock: { name: 'Rock', gains: [4, 3, 1, 0, -1, -1, 1, 2, 3, 4] },
   pop: { name: 'Pop', gains: [-1, 1, 3, 4, 3, 1, -1, -1, 1, 2] },
@@ -4616,6 +4616,7 @@ let dspCtx = null;
 let dspSource = null;
 let dspFilters = [];
 let dspEqFilters = [];
+let dspSubsonicFilter = null;
 let dspActive = false;
 let liveDjStudioInstance = null;
 let modalVuRaf = 0;
@@ -4623,23 +4624,32 @@ let modalVuRaf = 0;
 window.getDspEqChain = function(ctx) {
   if (!ctx) return null;
   if (!dspEqFilters || !dspEqFilters.length || dspEqFilters[0].context !== ctx) {
+    // 1. Subsonic Protection (24Hz Highpass Butterworth):
+    // Removes inaudible DC/subsonic rumble (<24Hz) that over-excurses speaker cones and causes mechanical buzzing
+    dspSubsonicFilter = ctx.createBiquadFilter();
+    dspSubsonicFilter.type = 'highpass';
+    dspSubsonicFilter.frequency.value = 24;
+    dspSubsonicFilter.Q.value = 0.707;
+
     dspEqFilters = EQ_FREQS.map((freq, i) => {
       const f = ctx.createBiquadFilter();
       if (i === 0) f.type = 'lowshelf';
       else if (i === EQ_FREQS.length - 1) f.type = 'highshelf';
       else { f.type = 'peaking'; f.Q.value = 1.4; }
       f.frequency.value = freq;
-      const g = (settings().eq && settings().eq[i]) || 0;
+      const g = (settings().eq && settings().eq[i]) != null ? settings().eq[i] : 0;
       f.gain.value = g;
       return f;
     });
+
+    dspSubsonicFilter.connect(dspEqFilters[0]);
     for (let i = 0; i < dspEqFilters.length - 1; i++) {
       dspEqFilters[i].connect(dspEqFilters[i + 1]);
     }
     dspFilters = dspEqFilters;
   }
   return {
-    in: dspEqFilters[0],
+    in: dspSubsonicFilter || dspEqFilters[0],
     out: dspEqFilters[dspEqFilters.length - 1]
   };
 };
@@ -4716,13 +4726,21 @@ function ensureDspGraph() {
       prevNode = eqChain.out;
     }
 
+    const limiter = dspCtx.createDynamicsCompressor();
+    limiter.threshold.value = -0.8;
+    limiter.knee.value = 4.0;
+    limiter.ratio.value = 20.0;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.12;
+
     const dj = getLiveDjStudio();
     if (dj && dj.initialized) {
       prevNode.connect(dj.inputNode);
-      dj.outputNode.connect(dspCtx.destination);
+      dj.outputNode.connect(limiter);
     } else {
-      prevNode.connect(dspCtx.destination);
+      prevNode.connect(limiter);
     }
+    limiter.connect(dspCtx.destination);
     dspActive = true;
     updateEqBadge();
     console.log('[dsp] Web Audio equalizer & Live DJ Studio graph connected');
@@ -4891,7 +4909,7 @@ function openEqModal() {
                 <span class="dj-punch-icon">💥</span>
                 <div class="dj-punch-meta">
                   <span class="dj-punch-title">Club Sub-Bass Punch</span>
-                  <span class="dj-punch-sub">+4.8dB @ 85Hz Lowshelf</span>
+                  <span class="dj-punch-sub">+3.8dB @ 75Hz Punch</span>
                 </div>
                 <span class="dj-punch-led ${curBassPunch ? 'on' : ''}"></span>
               </button>
