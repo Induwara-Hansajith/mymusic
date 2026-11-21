@@ -414,17 +414,23 @@
 
         const bassFilter = this.audioCtx.createBiquadFilter();
         bassFilter.type = 'lowshelf';
-        bassFilter.frequency.value = this.options.bassCutFrequencyHz;
+        bassFilter.frequency.value = this.options.bassCutFrequencyHz || 200;
         bassFilter.gain.value = 0.0;
+
+        const sweepFilter = this.audioCtx.createBiquadFilter();
+        sweepFilter.type = 'lowpass';
+        sweepFilter.frequency.value = 22050;
+        sweepFilter.Q.value = 0.707;
 
         const gainNode = this.audioCtx.createGain();
         gainNode.gain.value = 1.0;
 
         sourceNode.connect(bassFilter);
-        bassFilter.connect(gainNode);
+        bassFilter.connect(sweepFilter);
+        sweepFilter.connect(gainNode);
         gainNode.connect(this.masterGain);
 
-        this.deckGraphs.set(deckId, { sourceNode, bassFilter, gainNode });
+        this.deckGraphs.set(deckId, { sourceNode, bassFilter, sweepFilter, gainNode });
       } catch (e) {
         console.warn(`[AutoMixEngine] Cannot wire ${deckId} via MediaElementSource (CORS fallback active):`, e);
       }
@@ -440,85 +446,98 @@
           tempoRatio: 1.0,
           barAlignmentOffsetSec: 0,
           bassSwapEnabled: false,
+          filterSweepEnabled: false,
           reason: 'AutoMix is disabled'
         };
       }
 
-      // Sequential Album Guard
-      const sameAlbum = !!(outTrack?.album && inTrack?.album && outTrack.album.toLowerCase() === inTrack.album.toLowerCase());
-      const sequentialIndex = (outTrack?.albumIndex != null && inTrack?.albumIndex != null && inTrack.albumIndex === outTrack.albumIndex + 1);
-
-      if (isSequentialAlbum || (sameAlbum && sequentialIndex)) {
-        return {
-          mode: 'gapless-album',
-          durationSec: 0.25,
-          cueInSec: 0,
-          cueOutSec: Math.max(0, (outTrack?.durationSec || 180) - 0.25),
-          tempoRatio: 1.0,
-          barAlignmentOffsetSec: 0,
-          bassSwapEnabled: false,
-          reason: 'Sequential album gapless transition'
-        };
+      // Smart Intro Cue: skip dead intro silence so incoming track grooves immediately
+      let cueInSec = 0;
+      if (inMeta && inMeta.firstDownbeatSec && inMeta.firstDownbeatSec > 0.6) {
+        cueInSec = Math.min(inMeta.firstDownbeatSec, 3.8);
+      } else if (inMeta && inMeta.introEndSec && inMeta.introEndSec > 2.0) {
+        cueInSec = Math.min(inMeta.introEndSec * 0.35, 3.2);
       }
 
-      // Beat-Matched Mix
-      if (outMeta && inMeta && outMeta.confidence >= 0.65 && inMeta.confidence >= 0.65) {
+      // 1. Beat-Matched Mix (Expanded BPM compatibility window)
+      if (outMeta && inMeta && outMeta.bpm && inMeta.bpm) {
         const bpmA = outMeta.bpm;
         const bpmB = inMeta.bpm;
 
-        const ratios = [
+        const candidates = [
           { ratio: bpmB / bpmA, scale: 1.0 },
           { ratio: (bpmB * 2) / bpmA, scale: 2.0 },
-          { ratio: (bpmB * 0.5) / bpmA, scale: 0.5 }
+          { ratio: (bpmB * 0.5) / bpmA, scale: 0.5 },
+          { ratio: (bpmB * 1.3333) / bpmA, scale: 1.3333 },
+          { ratio: (bpmB * 0.75) / bpmA, scale: 0.75 }
         ];
 
-        let best = ratios[0];
-        for (const candidate of ratios) {
-          if (Math.abs(candidate.ratio - 1.0) < Math.abs(best.ratio - 1.0)) {
-            best = candidate;
+        let best = candidates[0];
+        for (const c of candidates) {
+          if (Math.abs(c.ratio - 1.0) < Math.abs(best.ratio - 1.0)) {
+            best = c;
           }
         }
 
-        if (best.ratio >= 0.92 && best.ratio <= 1.08) {
-          const tempoRatio = Math.max(0.92, Math.min(1.08, 1 / best.ratio));
-          const barSec = 4 * outMeta.beatIntervalSec;
-          const durationSec = Math.max(this.options.minCrossfadeSec, Math.min(this.options.maxCrossfadeSec, barSec * 2));
-          const barAlignmentOffsetSec = inMeta.firstDownbeatSec || 0;
+        // Allow up to ±14% tempo matching
+        if (best.ratio >= 0.86 && best.ratio <= 1.14) {
+          const tempoRatio = Math.max(0.86, Math.min(1.14, 1 / best.ratio));
+          const barSec = (outMeta.beatIntervalSec ? 4 * outMeta.beatIntervalSec : 2.0);
+          const durationSec = Math.max(6.0, Math.min(10.0, barSec * 2));
+          const cueOutSec = Math.max(0, (outTrack?.durationSec || 180) - durationSec);
 
           return {
             mode: 'beat-matched',
             durationSec,
-            cueInSec: 0,
-            cueOutSec: Math.max(0, outMeta.outroStartSec || ((outTrack?.durationSec || 180) - durationSec)),
+            cueInSec,
+            cueOutSec,
             tempoRatio,
-            barAlignmentOffsetSec,
+            barAlignmentOffsetSec: inMeta.firstDownbeatSec || 0,
             bassSwapEnabled: true,
-            reason: `Beat-matched at ~${Math.round(bpmB)} BPM (tempo adjust: ${Math.round(tempoRatio * 100)}%)`
+            filterSweepEnabled: true,
+            reason: `Beat-matched at ~${Math.round(bpmB)} BPM (${Math.round(tempoRatio * 100)}% tempo sync, 2-bar mix)`
           };
         }
       }
 
-      // Fallback: Equal-Power Crossfade
-      const durationSec = this.options.defaultDurationSec;
+      // 2. Sequential Album: Smooth musical blend with bass swap (NOT an abrupt 0.25s gapless cut!)
+      if (isSequentialAlbum) {
+        const durationSec = 4.8;
+        return {
+          mode: 'album-blend',
+          durationSec,
+          cueInSec: Math.min(cueInSec, 1.2),
+          cueOutSec: Math.max(0, (outTrack?.durationSec || 180) - durationSec),
+          tempoRatio: 1.0,
+          barAlignmentOffsetSec: 0,
+          bassSwapEnabled: true,
+          filterSweepEnabled: true,
+          reason: 'Sequential album DJ mix with low-end bass swap'
+        };
+      }
+
+      // 3. Dynamic DJ Filter Blend (Energy Crossfade + Bass Swap + Filter Sweep)
+      const durationSec = Math.max(6.0, Math.min(10.0, this.options.defaultDurationSec || 7.0));
       return {
-        mode: 'equal-power-crossfade',
+        mode: 'dj-filter-blend',
         durationSec,
-        cueInSec: 0,
+        cueInSec,
         cueOutSec: Math.max(0, (outTrack?.durationSec || 180) - durationSec),
         tempoRatio: 1.0,
         barAlignmentOffsetSec: 0,
-        bassSwapEnabled: false,
-        reason: 'Standard equal-power crossfade'
+        bassSwapEnabled: true,
+        filterSweepEnabled: true,
+        reason: 'DJ filter sweep transition with 200Hz bass swap'
       };
     }
 
     applyTransitionStep(outDeckId, inDeckId, t, decision, masterVolume = 1.0) {
       const clampedT = Math.max(0, Math.min(1, t));
 
-      // Asymmetric DJ Transition Curve
-      const outCurve = Math.pow(Math.cos(clampedT * (Math.PI * 0.5)), 0.85);
+      // Asymmetric DJ Transition Curve with midpoint energy preservation (no volume dip)
+      const outCurve = Math.pow(Math.cos(clampedT * (Math.PI * 0.5)), 0.78);
       const inCurve = Math.pow(Math.sin(clampedT * (Math.PI * 0.5)), 1.15);
-      const energyBoost = 1.0 + 0.05 * Math.sin(clampedT * Math.PI);
+      const energyBoost = 1.0 + 0.08 * Math.sin(clampedT * Math.PI);
 
       const outVol = Math.max(0, Math.min(1, masterVolume * outCurve * energyBoost));
       const inVol = Math.max(0, Math.min(1, masterVolume * inCurve * energyBoost));
@@ -529,60 +548,79 @@
       const outGraph = this.deckGraphs.get(outDeckId);
       const inGraph = this.deckGraphs.get(inDeckId);
 
+      const now = this.audioCtx?.currentTime || 0;
+
       if (outGraph && this.webAudioEnabled) {
-        outGraph.gainNode.gain.setValueAtTime(outVol, this.audioCtx?.currentTime || 0);
+        outGraph.gainNode.gain.setValueAtTime(outVol, now);
         outDeck.volume = masterVolume;
       } else {
         outDeck.volume = outVol;
       }
 
       if (inGraph && this.webAudioEnabled) {
-        inGraph.gainNode.gain.setValueAtTime(inVol, this.audioCtx?.currentTime || 0);
+        inGraph.gainNode.gain.setValueAtTime(inVol, now);
         inDeck.volume = masterVolume;
       } else {
         inDeck.volume = inVol;
       }
 
-      // Bass Swap in Beat-Matched Mode
-      let bassCutDb = 0;
-      if (decision.bassSwapEnabled) {
+      // 1. Dynamic 200 Hz Bass Swap (Crucial DJ Transition Element)
+      if (decision.bassSwapEnabled !== false) {
         if (clampedT < 0.5) {
-          const inBassGain = this.options.bassCutMaxDb * (1.0 - clampedT * 2);
-          bassCutDb = inBassGain;
-          if (inGraph && this.webAudioEnabled) {
-            inGraph.bassFilter.gain.setValueAtTime(inBassGain, this.audioCtx?.currentTime || 0);
+          const inBassGain = (this.options.bassCutMaxDb || -24) * (1.0 - clampedT * 2);
+          if (inGraph && this.webAudioEnabled && inGraph.bassFilter) {
+            inGraph.bassFilter.gain.setValueAtTime(inBassGain, now);
           }
-          if (outGraph && this.webAudioEnabled) {
-            outGraph.bassFilter.gain.setValueAtTime(0, this.audioCtx?.currentTime || 0);
+          if (outGraph && this.webAudioEnabled && outGraph.bassFilter) {
+            outGraph.bassFilter.gain.setValueAtTime(0, now);
           }
         } else {
-          const outBassGain = this.options.bassCutMaxDb * ((clampedT - 0.5) * 2);
-          bassCutDb = outBassGain;
-          if (outGraph && this.webAudioEnabled) {
-            outGraph.bassFilter.gain.setValueAtTime(outBassGain, this.audioCtx?.currentTime || 0);
+          const outBassGain = (this.options.bassCutMaxDb || -24) * ((clampedT - 0.5) * 2);
+          if (outGraph && this.webAudioEnabled && outGraph.bassFilter) {
+            outGraph.bassFilter.gain.setValueAtTime(outBassGain, now);
           }
-          if (inGraph && this.webAudioEnabled) {
-            inGraph.bassFilter.gain.setValueAtTime(0, this.audioCtx?.currentTime || 0);
+          if (inGraph && this.webAudioEnabled && inGraph.bassFilter) {
+            inGraph.bassFilter.gain.setValueAtTime(0, now);
           }
         }
+      }
 
-        // Tempo recovery: smoothly return incoming playbackRate to 1.0 after midpoint
+      // 2. DJ Low-Pass Filter Sweep (Smoothly dissolves outgoing highs after midpoint)
+      if (decision.filterSweepEnabled !== false && this.webAudioEnabled) {
+        if (clampedT >= 0.35 && outGraph && outGraph.sweepFilter) {
+          const sweepP = (clampedT - 0.35) / 0.65;
+          const freq = Math.max(500, 22050 - Math.pow(sweepP, 1.6) * 21450);
+          outGraph.sweepFilter.frequency.setValueAtTime(freq, now);
+        } else if (outGraph && outGraph.sweepFilter) {
+          outGraph.sweepFilter.frequency.setValueAtTime(22050, now);
+        }
+
+        if (inGraph && inGraph.sweepFilter) {
+          inGraph.sweepFilter.frequency.setValueAtTime(22050, now);
+        }
+      }
+
+      // 3. Tempo Recovery (Return incoming deck smoothly to 1.0x after midpoint)
+      if (decision.tempoRatio && decision.tempoRatio !== 1.0) {
         if (clampedT >= 0.5) {
           const recoveryProgress = (clampedT - 0.5) * 2;
           const currentRate = decision.tempoRatio + (1.0 - decision.tempoRatio) * recoveryProgress;
           inDeck.playbackRate = currentRate;
+        } else {
+          inDeck.playbackRate = decision.tempoRatio;
         }
       }
 
-      return { outVol, inVol, bassCutDb };
+      return { outVol, inVol };
     }
 
     resetDeckDsp() {
       for (const [, graph] of this.deckGraphs) {
         if (this.audioCtx) {
           const now = this.audioCtx.currentTime;
-          graph.bassFilter.gain.setValueAtTime(0, now);
-          graph.gainNode.gain.setValueAtTime(1.0, now);
+          if (graph.bassFilter) graph.bassFilter.gain.setValueAtTime(0, now);
+          if (graph.sweepFilter) graph.sweepFilter.frequency.setValueAtTime(22050, now);
+          if (graph.gainNode) graph.gainNode.gain.setValueAtTime(1.0, now);
         }
       }
       this.deckA.playbackRate = 1.0;

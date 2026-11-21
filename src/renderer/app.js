@@ -1057,9 +1057,9 @@ function getAutomixDuration(trackDuration) {
 
   // Default Best Mix (Apple Music Smart Dynamic Adaptation):
   // Intelligently analyzes track length and tempo dynamics for the optimal blend
-  if (!trackDuration || trackDuration < 90) return 4.0;  // Quick energetic blend for short tracks (<1.5m)
-  if (trackDuration < 240) return 6.0;                   // Canonical 6.0s Apple Music sweet spot
-  return 8.5;                                           // Deep extended blend for 4+ min tracks
+  if (!trackDuration || trackDuration < 90) return 5.0;  // Energetic blend for short tracks (<1.5m)
+  if (trackDuration < 240) return 7.5;                   // Canonical 7.5s Apple Music sweet spot
+  return 9.5;                                           // Deep extended blend for 4+ min tracks
 }
 
 function cancelAutoMix() {
@@ -1365,9 +1365,9 @@ function handleAutomixTimeupdate(ct, d) {
     const targetPos = settings().repeat === 'one' ? S.oi : nextPos;
     const mixDur = getAutomixDuration(d);
     // Smart Outro compensation: account for common trailing silence on longer songs
-    const silenceTrim = (d > 120) ? 0.7 : 0.2;
-    if (remain <= (mixDur + silenceTrim)) {
-      console.log(`[automix] track nearing end (${remain.toFixed(1)}s remain, trim ${silenceTrim}s), starting ${mixDur}s Apple Music transition`);
+    const triggerLead = (d > 120) ? 1.4 : 0.8;
+    if (remain <= (mixDur + triggerLead)) {
+      console.log(`[automix] track nearing end (${remain.toFixed(1)}s remain, lead ${triggerLead}s), starting ${mixDur}s DJ AutoMix transition`);
       startAutoMix(targetPos, false);
     }
   }
@@ -1419,6 +1419,13 @@ async function playIndex(pos) {
     if (token !== S.playToken) return;
     S.curUrls = r.urls;
     startUrl(0);
+
+    if (typeof AutoMix !== 'undefined' && r.urls && r.urls.length) {
+      initAutoMixEngine();
+      autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, streamUrl: r.urls[0], durationSec: t.duration || 180 })
+        .then(meta => { automixS.curMeta = meta; })
+        .catch(() => {});
+    }
   } catch (e) {
     if (token !== S.playToken) return;
     toast('Could not play "' + t.title + '" — skipping');
