@@ -236,116 +236,238 @@ class AuthSyncEngine extends EventEmitter {
     }
   }
 
-  async signInWithGoogle(BrowserWindowConstructor) {
+  async signInWithGoogle(options = {}) {
     const d = this.load();
     const url = d.config.supabaseUrl;
     const key = d.config.supabaseAnonKey;
     if (!url || !key) throw new Error('Supabase project is not configured.');
 
+    const http = require('http');
+    const { exec } = require('child_process');
+
+    const shell = (options && typeof options === 'object' && options.shell) || null;
+    const mainWindow = (options && typeof options === 'object' && options.mainWindow) || null;
+
     return new Promise((resolve, reject) => {
       let resolved = false;
-      const redirectUrl = `${url}/auth/v1/callback`;
-      const authUrl = `${url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUrl)}`;
+      let server = null;
+      let timeoutId = null;
 
-      const authWin = new BrowserWindowConstructor({
-        width: 500,
-        height: 640,
-        show: true,
-        title: 'Sign in with Google - My Music',
-        autoHideMenuBar: true,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true
+      const cleanup = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
         }
-      });
-
-      // Use standard modern Chrome Windows User-Agent so Google accounts allows login
-      authWin.webContents.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-      );
-
-      const handleUrl = async (targetUrl) => {
-        if (!targetUrl || resolved) return;
-
-        // Check for error redirect from Supabase
-        if (targetUrl.includes('error=') || targetUrl.includes('error_description=')) {
-          resolved = true;
-          try {
-            const parsed = new URL(targetUrl.replace('#', '?'));
-            const desc = parsed.searchParams.get('error_description') || parsed.searchParams.get('error') || 'Google sign-in failed.';
-            authWin.destroy();
-            reject(new Error(decodeURIComponent(desc.replace(/\+/g, ' '))));
-          } catch {
-            authWin.destroy();
-            reject(new Error('Google sign-in failed. Please verify that Google is enabled in Supabase Authentication > Providers.'));
-          }
-          return;
-        }
-
-        // Check for access token redirect
-        if (targetUrl.includes('access_token=')) {
-          resolved = true;
-          try {
-            const hashIndex = targetUrl.indexOf('#');
-            const queryString = hashIndex >= 0 ? targetUrl.slice(hashIndex + 1) : targetUrl.slice(targetUrl.indexOf('?') + 1);
-            const params = new URLSearchParams(queryString);
-            const accessToken = params.get('access_token');
-            const refreshToken = params.get('refresh_token');
-            const expiresIn = Number(params.get('expires_in')) || 3600;
-
-            if (accessToken) {
-              const userRes = await fetch(`${url}/auth/v1/user`, {
-                headers: {
-                  'apikey': key,
-                  'Authorization': `Bearer ${accessToken}`
-                }
-              });
-              const userData = await userRes.json();
-
-              if (!userRes.ok || !userData || !userData.id) {
-                throw new Error('Failed to retrieve user profile after Google sign-in.');
-              }
-
-              d.user = {
-                id: userData.id,
-                email: userData.email,
-                name: (userData.user_metadata && (userData.user_metadata.full_name || userData.user_metadata.name)) || userData.email.split('@')[0],
-                avatarUrl: (userData.user_metadata && userData.user_metadata.avatar_url) || ''
-              };
-              d.session = {
-                accessToken,
-                refreshToken: refreshToken || '',
-                expiresAt: Date.now() + expiresIn * 1000
-              };
-              this.save();
-              this.setSyncStatus('syncing');
-              this.emit('state-changed', this.getUser());
-
-              authWin.destroy();
-              await this.syncNow();
-              resolve({ ok: true, user: this.getUser() });
-              return;
-            }
-          } catch (err) {
-            authWin.destroy();
-            reject(err);
-            return;
-          }
+        if (server) {
+          try { server.close(); } catch {}
+          server = null;
         }
       };
 
-      authWin.webContents.on('will-redirect', (_e, targetUrl) => handleUrl(targetUrl));
-      authWin.webContents.on('will-navigate', (_e, targetUrl) => handleUrl(targetUrl));
-      authWin.webContents.on('did-navigate', (_e, targetUrl) => handleUrl(targetUrl));
+      const finishResolve = (val) => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        if (mainWindow && typeof mainWindow.focus === 'function') {
+          try { mainWindow.focus(); } catch {}
+        }
+        resolve(val);
+      };
 
-      authWin.on('closed', () => {
-        if (!resolved) {
-          resolved = true;
-          resolve({ ok: false, canceled: true, message: 'Google sign-in was canceled.' });
+      const finishReject = (err) => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        reject(err);
+      };
+
+      server = http.createServer(async (req, res) => {
+        try {
+          const reqUrl = new URL(req.url, 'http://localhost');
+          const pathname = reqUrl.pathname;
+
+          if (pathname === '/auth/callback') {
+            res.writeHead(200, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            });
+            res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MyMusic - Sign-In</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0e17; color: #f8fafc;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; padding: 20px;
+    }
+    .card {
+      background: #141824; border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px; padding: 36px 32px; max-width: 440px; text-align: center;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+    }
+    .icon { font-size: 44px; margin-bottom: 16px; }
+    h1 { font-size: 20px; margin: 0 0 10px; font-weight: 700; }
+    p { color: #94a3b8; font-size: 14.5px; line-height: 1.5; margin: 0 0 20px; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="icon" id="icon">🔄</div>
+    <h1 id="title">Completing Sign-In...</h1>
+    <p id="desc">Connecting your account with MyMusic. Please wait a moment.</p>
+  </div>
+  <script>
+    (async () => {
+      try {
+        let params = new URLSearchParams(window.location.search);
+        if (window.location.hash && window.location.hash.length > 1) {
+          params = new URLSearchParams(window.location.hash.substring(1));
+        }
+
+        const token = params.get('access_token');
+        const refresh = params.get('refresh_token');
+        const error = params.get('error_description') || params.get('error');
+
+        if (error) {
+          document.getElementById('icon').textContent = '⚠️';
+          document.getElementById('title').textContent = 'Sign-In Failed';
+          document.getElementById('desc').textContent = error;
+          await fetch('/token?error=' + encodeURIComponent(error));
+          return;
+        }
+
+        if (!token) {
+          document.getElementById('icon').textContent = '⚠️';
+          document.getElementById('title').textContent = 'Sign-In Incomplete';
+          document.getElementById('desc').textContent = 'No access token was received.';
+          await fetch('/token?error=no_token');
+          return;
+        }
+
+        const res = await fetch('/token?access_token=' + encodeURIComponent(token) + '&refresh_token=' + encodeURIComponent(refresh || ''));
+        if (res.ok) {
+          document.getElementById('icon').textContent = '✅';
+          document.getElementById('title').textContent = 'Authentication Successful!';
+          document.getElementById('desc').textContent = 'You have signed in to MyMusic. You can close this browser tab and return to the application.';
+          setTimeout(() => { try { window.close(); } catch {} }, 1500);
+        } else {
+          throw new Error('Local communication error');
+        }
+      } catch (err) {
+        document.getElementById('icon').textContent = '⚠️';
+        document.getElementById('title').textContent = 'Communication Error';
+        document.getElementById('desc').textContent = err.message || 'Could not relay credentials to MyMusic.';
+      }
+    })();
+  </script>
+</body>
+</html>`);
+            return;
+          }
+
+          if (pathname === '/token') {
+            const token = reqUrl.searchParams.get('access_token');
+            const refresh = reqUrl.searchParams.get('refresh_token');
+            const error = reqUrl.searchParams.get('error');
+
+            if (error) {
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+              res.end(JSON.stringify({ ok: false }));
+              finishReject(new Error(decodeURIComponent(error.replace(/\+/g, ' '))));
+              return;
+            }
+
+            if (token) {
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+              res.end(JSON.stringify({ ok: true }));
+
+              try {
+                const userRes = await fetch(`${url}/auth/v1/user`, {
+                  headers: {
+                    'apikey': key,
+                    'Authorization': `Bearer ${token}`
+                  }
+                });
+                const userData = await userRes.json();
+                if (!userRes.ok || !userData || !userData.id) {
+                  throw new Error('Failed to retrieve user profile after Google sign-in.');
+                }
+
+                d.user = {
+                  id: userData.id,
+                  email: userData.email,
+                  name: (userData.user_metadata && (userData.user_metadata.full_name || userData.user_metadata.name)) || userData.email.split('@')[0],
+                  avatarUrl: (userData.user_metadata && userData.user_metadata.avatar_url) || ''
+                };
+                d.session = {
+                  accessToken: token,
+                  refreshToken: refresh || '',
+                  expiresAt: Date.now() + 3600 * 1000
+                };
+                this.save();
+                this.setSyncStatus('syncing');
+                this.emit('state-changed', this.getUser());
+
+                await this.syncNow();
+                finishResolve({ ok: true, user: this.getUser() });
+              } catch (profileErr) {
+                finishReject(profileErr);
+              }
+              return;
+            }
+
+            res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ error: 'Missing token' }));
+            return;
+          }
+
+          res.writeHead(404);
+          res.end('Not Found');
+        } catch (serverErr) {
+          try {
+            res.writeHead(500);
+            res.end('Server Error');
+          } catch {}
         }
       });
 
-      authWin.loadURL(authUrl);
+      const tryListen = (portToTry) => {
+        const onErr = (err) => {
+          server.removeListener('listening', onListen);
+          if (err.code === 'EADDRINUSE' && portToTry < 54325) {
+            tryListen(portToTry + 1);
+          } else {
+            finishReject(new Error('Failed to start local authentication listener: ' + err.message));
+          }
+        };
+
+        const onListen = () => {
+          server.removeListener('error', onErr);
+          const address = server.address();
+          const port = address.port;
+          const redirectUrl = `http://localhost:${port}/auth/callback`;
+          const authUrl = `${url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUrl)}`;
+
+          if (shell && typeof shell.openExternal === 'function') {
+            shell.openExternal(authUrl);
+          } else {
+            exec(`start "" "${authUrl}"`);
+          }
+
+          timeoutId = setTimeout(() => {
+            finishReject(new Error('Google sign-in timed out. Please try again.'));
+          }, 180000);
+        };
+
+        server.once('error', onErr);
+        server.once('listening', onListen);
+        server.listen(portToTry, '127.0.0.1');
+      };
+
+      tryListen(54321);
     });
   }
 
