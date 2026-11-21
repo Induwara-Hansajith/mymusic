@@ -76,13 +76,42 @@
       this.lowPassCutoffHz = 150;
     }
 
+    estimateHeuristicBpm(track) {
+      const dur = (track && track.durationSec) || 180;
+      if (dur > 260) return 96;
+      if (dur < 160) return 128;
+      return 120;
+    }
+
     async analyze(track) {
       if (!track || !track.id) return null;
       const cached = await this.cache.get(track.id);
       if (cached) return cached;
 
+      // For remote streams, never perform background network downloads on active streaming URLs
+      // Remote fetch causes YouTube CDN rate limits, socket contention, and player dropouts
+      if (!track.localPath) {
+        const bpm = this.estimateHeuristicBpm(track);
+        const beatIntervalSec = 60 / bpm;
+        const dur = (track && track.durationSec) || 180;
+        const meta = {
+          id: track.id,
+          bpm,
+          beatIntervalSec: Math.round(beatIntervalSec * 1000) / 1000,
+          firstDownbeatSec: 0,
+          introEndSec: 1.5,
+          outroStartSec: Math.max(0, dur - 8),
+          energyProfile: null,
+          confidence: 0.6,
+          analyzedAt: Date.now()
+        };
+        await this.cache.set(track.id, meta);
+        return meta;
+      }
+
       try {
         const rawBuffer = await this.loadAudioBuffer(track);
+        if (!rawBuffer) return null;
         const meta = await this.processAudioData(track.id, rawBuffer, track.durationSec || 180);
         await this.cache.set(track.id, meta);
         return meta;
@@ -100,21 +129,7 @@
         return await res.arrayBuffer();
       }
 
-      if (!track.streamUrl) throw new Error('No streamUrl available');
-
-      // Attempt bounded Range download (~2 MB) for instant analysis
-      try {
-        const rangeRes = await fetch(track.streamUrl, {
-          headers: { Range: 'bytes=0-2097152' }
-        });
-        if (rangeRes.ok || rangeRes.status === 206) {
-          return await rangeRes.arrayBuffer();
-        }
-      } catch {}
-
-      const res = await fetch(track.streamUrl);
-      if (!res.ok) throw new Error(`Stream read failed: ${res.statusText}`);
-      return await res.arrayBuffer();
+      return null;
     }
 
     async processAudioData(trackId, rawBuffer, fallbackDurationSec) {
@@ -408,8 +423,9 @@
 
     wireDeckToGraph(deckId, deckEl) {
       if (!this.audioCtx || !this.masterGain) return;
+      if (this.deckGraphs.has(deckId)) return;
       try {
-        deckEl.crossOrigin = 'anonymous';
+        if (!deckEl.crossOrigin) deckEl.crossOrigin = 'anonymous';
         const sourceNode = this.audioCtx.createMediaElementSource(deckEl);
 
         const bassFilter = this.audioCtx.createBiquadFilter();

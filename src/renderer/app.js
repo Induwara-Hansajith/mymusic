@@ -62,6 +62,8 @@ const icon = (n, cls = '') =>
 // ---------- dual-deck audio state ----------
 const deckA = $('#audio');
 const deckB = $('#audioB');
+if (deckA) deckA.crossOrigin = 'anonymous';
+if (deckB) deckB.crossOrigin = 'anonymous';
 let curAudio = deckA;
 let standbyAudio = deckB;
 let audio = curAudio;
@@ -1113,9 +1115,9 @@ async function preloadNextTrack(nextPos) {
       console.log('[automix] pre-buffered next track on standby deck:', t.title);
 
       // Pre-analyze DSP & pre-fetch lyrics in memory
-      if (typeof AutoMix !== 'undefined') {
+      if (settings().automix && typeof AutoMix !== 'undefined') {
         initAutoMixEngine();
-        autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, streamUrl: url, localPath: t.localPath, durationSec: t.duration || 180 })
+        autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, localPath: t.localPath, durationSec: t.duration || 180 })
           .then(meta => { automixS.preloadedMeta = meta; })
           .catch(() => {});
         call('ytm:lyrics', { track: t })
@@ -1204,7 +1206,7 @@ async function startAutoMix(nextPos, isQuick = false) {
   } catch (err) {
     console.log('[automix] standby play failed, falling back:', err);
     automixS.mixing = false;
-    playIndex(nextPos);
+    curAudio.volume = mVol;
     return;
   }
 
@@ -1269,10 +1271,12 @@ async function startAutoMix(nextPos, isQuick = false) {
       }
     }
 
-    if (p < 1 && !curAudio.paused && !standbyAudio.paused) {
+    if (p < 1 && S.playing && !curAudio.paused) {
       automixS.raf = requestAnimationFrame(mixStep);
-    } else {
+    } else if (p >= 1) {
       finishAutoMix(nextPos, nextTrack);
+    } else if (!S.playing) {
+      cancelAutoMix();
     }
   }
 
@@ -1300,8 +1304,12 @@ function finishAutoMix(nextPos, nextTrack) {
 
   // Ensure incoming deck is at full master volume and neutral DSP
   curAudio.volume = mVol;
+  curAudio.playbackRate = 1.0;
   if (autoMixEngine) {
     autoMixEngine.resetDeckDsp();
+  }
+  if (curAudio.paused && S.playing) {
+    curAudio.play().catch(() => {});
   }
 
   // Update playback state
@@ -1344,8 +1352,18 @@ function finishAutoMix(nextPos, nextTrack) {
 }
 
 function handleAutomixTimeupdate(ct, d) {
-  if (!settings().automix || d <= 10 || S.seeking) return;
-  const remain = d - ct;
+  if (!settings().automix || S.seeking) return;
+
+  const t = curTrack();
+  const expectedDuration = (t && t.duration && t.duration > 10) ? t.duration : d;
+  const effectiveDuration = Math.max(d || 0, expectedDuration || 0);
+  if (!Number.isFinite(effectiveDuration) || effectiveDuration <= 15) return;
+
+  // Crucial guard: Never trigger AutoMix in the first 75% of a track!
+  // Prevents premature transitions if streaming audio duration fluctuates or is incomplete
+  if (ct < effectiveDuration * 0.75) return;
+
+  const remain = effectiveDuration - ct;
   if (remain <= 0) return;
 
   let nextPos = S.oi + 1;
@@ -1363,9 +1381,9 @@ function handleAutomixTimeupdate(ct, d) {
   // 2. Trigger AutoMix transition
   if (!automixS.mixing && remain > 0.4) {
     const targetPos = settings().repeat === 'one' ? S.oi : nextPos;
-    const mixDur = getAutomixDuration(d);
+    const mixDur = getAutomixDuration(effectiveDuration);
     // Smart Outro compensation: account for common trailing silence on longer songs
-    const triggerLead = (d > 120) ? 1.4 : 0.8;
+    const triggerLead = (effectiveDuration > 120) ? 1.4 : 0.8;
     if (remain <= (mixDur + triggerLead)) {
       console.log(`[automix] track nearing end (${remain.toFixed(1)}s remain, lead ${triggerLead}s), starting ${mixDur}s DJ AutoMix transition`);
       startAutoMix(targetPos, false);
@@ -1396,7 +1414,7 @@ async function playIndex(pos) {
   renderQueuePanel();
   saveLastQueue();
 
-  if (typeof AutoMix !== 'undefined') {
+  if (settings().automix && typeof AutoMix !== 'undefined') {
     initAutoMixEngine();
     autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, localPath: t.localPath, durationSec: t.duration || 180 })
       .then(meta => { automixS.curMeta = meta; })
@@ -1420,9 +1438,9 @@ async function playIndex(pos) {
     S.curUrls = r.urls;
     startUrl(0);
 
-    if (typeof AutoMix !== 'undefined' && r.urls && r.urls.length) {
+    if (settings().automix && typeof AutoMix !== 'undefined') {
       initAutoMixEngine();
-      autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, streamUrl: r.urls[0], durationSec: t.duration || 180 })
+      autoMixAnalyzer.analyze({ id: t.id, title: t.title, artist: t.artist, localPath: t.localPath, durationSec: t.duration || 180 })
         .then(meta => { automixS.curMeta = meta; })
         .catch(() => {});
     }
@@ -3403,20 +3421,47 @@ function bindDeckEvents(deckEl) {
   deckEl.addEventListener('error', () => {
     if (deckEl !== curAudio) return;
     if (S.curUrls && S.curUrlIdx + 1 < S.curUrls.length) { startUrl(S.curUrlIdx + 1); return; }
+
+    const token = S.playToken;
+    const t = curTrack();
+
+    // Resilient Mid-Track Recovery: If playback dropped mid-song (>5s played), refresh the stream URL and resume
+    // Prevents abrupt dropouts due to transient network hiccups or expired googlevideo tokens
+    if (t && !t.localPath && deckEl.currentTime > 5 && (!deckEl._errRetry || deckEl._errRetry < 2)) {
+      deckEl._errRetry = (deckEl._errRetry || 0) + 1;
+      const resumeSec = deckEl.currentTime;
+      console.log(`[player] Stream dropped at ${resumeSec.toFixed(1)}s, refreshing stream URL for ${t.title}...`);
+      call('ytm:stream', { id: t.id }).then(r => {
+        if (token === S.playToken && r && r.urls && r.urls.length) {
+          S.curUrls = r.urls;
+          S.curUrlIdx = 0;
+          curAudio.src = r.urls[0];
+          curAudio.currentTime = resumeSec;
+          curAudio.play().catch(() => {});
+          return;
+        }
+        handleUnrecoverableError(t, token);
+      }).catch(() => handleUnrecoverableError(t, token));
+      return;
+    }
+
+    handleUnrecoverableError(t, token);
+  });
+
+  function handleUnrecoverableError(t, token) {
     S.playing = false;
     updatePlayBtn();
     syncPresence();
     checkLyricsLoop();
-    const token = S.playToken;
-    const t = curTrack();
     if (t && S.order.length > 1 && ++S.errStreak <= 3) {
       toast('Could not play "' + t.title + '" — skipping');
       setTimeout(() => { if (token === S.playToken) next(true); }, 400);
     }
-  });
+  }
 
   deckEl.addEventListener('playing', () => {
     if (deckEl === curAudio) {
+      deckEl._errRetry = 0;
       S.errStreak = 0;
       checkLyricsLoop();
     }
