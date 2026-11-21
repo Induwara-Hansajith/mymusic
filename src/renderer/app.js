@@ -4639,10 +4639,12 @@ function updateEqBadge() {
 }
 
 function ensureDspGraph() {
+  if (dspCtx && dspCtx.state === 'suspended') { dspCtx.resume().catch(() => {}); }
   if (dspActive) return;
   initAutoMixEngine();
   if (autoMixEngine && autoMixEngine.audioCtx) {
     dspCtx = autoMixEngine.audioCtx;
+    if (dspCtx.state === 'suspended') { dspCtx.resume().catch(() => {}); }
     getLiveDjStudio();
     dspActive = true;
     updateEqBadge();
@@ -4700,6 +4702,7 @@ function openEqModal() {
   const modalEl = $('#eqModal');
   if (!modalEl) return;
   ensureDspGraph();
+  if (dspCtx && dspCtx.state === 'suspended') { dspCtx.resume().catch(() => {}); }
 
   const dj = getLiveDjStudio();
   const curPreset = settings().eqPreset || 'flat';
