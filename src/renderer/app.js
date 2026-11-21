@@ -309,7 +309,7 @@ function buildShell() {
     <div class="pb-left">
       <div class="np-thumb-wrap">
         <div class="np-thumb-placeholder">${icon('music')}</div>
-        <img id="np-thumb" src="" alt="" decoding="async">
+        <img id="np-thumb" alt="" decoding="async">
         <div id="np-mixing-badge" class="np-mixing-badge hidden" title="AutoMix: Blending into next track">
           <span class="mixing-dot"></span> MIXING
         </div>
@@ -1748,6 +1748,7 @@ const thumbCache = new Map();
 function preloadThumb(url) {
   if (!url || typeof url !== 'string' || thumbCache.has(url)) return;
   const img = new Image();
+  img.crossOrigin = 'anonymous';
   img.decoding = 'async';
   img.src = url;
   img.onload = () => {
@@ -1816,38 +1817,22 @@ function setNowPlaying(t, restoreOnly = false) {
   const thumb = $('#np-thumb');
   const targetThumb = getPlayerbarThumbUrl(t.thumb || '');
   if (thumb) {
-    if (targetThumb) {
-      if (thumbCache.has(targetThumb)) {
-        thumb.src = targetThumb;
-        thumb.classList.remove('loading');
-        thumb.classList.add('loaded');
-      } else {
-        const preImg = new Image();
-        preImg.decoding = 'async';
-        preImg.src = targetThumb;
-        preImg.onload = () => {
-          thumbCache.set(targetThumb, preImg);
-          const cur = curTrack();
-          if (cur && cur.id === t.id && thumb) {
-            thumb.src = targetThumb;
-            thumb.classList.remove('loading');
-            thumb.classList.add('loaded');
-          }
-        };
-        preImg.onerror = () => {
-          if (targetThumb.includes('maxresdefault.jpg')) {
-            thumb.src = targetThumb.replace('maxresdefault.jpg', 'hqdefault.jpg');
-          }
-        };
-        thumb.decoding = 'async';
-        if (thumb.src !== targetThumb) {
-          thumb.classList.add('loading');
-          thumb.src = targetThumb;
+    if (!thumb._boundError) {
+      thumb._boundError = true;
+      thumb.onerror = () => {
+        if (thumb.src && thumb.src.includes('maxresdefault.jpg')) {
+          thumb.src = thumb.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+        } else {
+          thumb.removeAttribute('src');
         }
+      };
+    }
+    if (targetThumb) {
+      if (thumb.src !== targetThumb && thumb.getAttribute('src') !== targetThumb) {
+        thumb.src = targetThumb;
       }
     } else {
-      thumb.src = '';
-      thumb.classList.remove('loaded');
+      thumb.removeAttribute('src');
     }
   }
 
@@ -4679,8 +4664,6 @@ function fastTrackThumbFromRow(row) {
       const npThumb = $('#np-thumb');
       if (npThumb) {
         npThumb.src = rowImg.currentSrc || rowImg.src;
-        npThumb.classList.remove('loading');
-        npThumb.classList.add('loaded');
       }
     }
   }

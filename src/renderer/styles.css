@@ -714,11 +714,8 @@ input { font: inherit; color: inherit; }
   transition: transform .08s ease-out, opacity 0.22s ease-in-out;
   opacity: 1;
 }
-#np-thumb[src=""], #np-thumb:not([src]), #np-thumb.loading {
+#np-thumb:not([src]), #np-thumb[src=""] {
   opacity: 0;
-}
-#np-thumb.loaded {
-  opacity: 1;
 }
 .np-mixing-badge {
   position: absolute;
