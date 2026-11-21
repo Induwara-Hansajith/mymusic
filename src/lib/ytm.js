@@ -136,6 +136,7 @@ function trackFromRow(row) {
   const title = row.title || T(row.flex_columns && row.flex_columns[0] && row.flex_columns[0].title) || 'Unknown title';
   const id = row.id || p0.videoId || null;
 
+  const thumb = lastThumb(row.thumbnail) || (id && /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : '');
   return {
     id,
     title,
@@ -144,7 +145,7 @@ function trackFromRow(row) {
     album: (album && (album.name || T(album))) || '',
     albumId: (album && (album.id || (album.endpoint && album.endpoint.payload && album.endpoint.payload.browseId))) || null,
     duration: durOfRun(row) || 0,
-    thumb: lastThumb(row.thumbnail),
+    thumb,
     type: isVideo ? 'video' : 'song'
   };
 }
@@ -481,14 +482,24 @@ async function album(id) {
   const a = await ytm.getAlbum(id);
   const header = a.header || {};
   const parts = T(header.subtitle).split(' • ').map(s => s.trim()).filter(s => s && !KIND_RE.test(s));
+  const albumThumb = lastThumb(header.thumbnail);
+  const albumTitle = T(header.title) || 'Album';
+  const albumArtist = parts[0] || '';
   const result = {
     id,
-    title: T(header.title) || 'Album',
-    artist: parts[0] || '',
+    title: albumTitle,
+    artist: albumArtist,
     artistId: null,
     year: (T(header.subtitle).match(/\d{4}/) || [''])[0],
-    thumb: lastThumb(header.thumbnail),
-    tracks: (a.contents || []).filter(r => r.type === 'MusicResponsiveListItem' && r.id).map(trackFromRow)
+    thumb: albumThumb,
+    tracks: (a.contents || []).filter(r => r.type === 'MusicResponsiveListItem' && r.id).map(r => {
+      const t = trackFromRow(r);
+      if (!t.thumb) t.thumb = albumThumb;
+      if (!t.album) t.album = albumTitle;
+      if (!t.albumId) t.albumId = id;
+      if (!t.artist && albumArtist) t.artist = albumArtist;
+      return t;
+    })
   };
   pruneCache(albumCache, 50);
   albumCache.set(id, { result, expires: Date.now() + ALBUM_CACHE_TTL });
@@ -500,12 +511,17 @@ async function playlist(id) {
   const p = await ytm.getPlaylist(id);
   const header = p.header || {};
   const parts = T(header.subtitle).split(' • ').map(s => s.trim()).filter(s => s && !KIND_RE.test(s));
+  const playlistThumb = lastThumb(header.thumbnail);
   return {
     id,
     title: T(header.title) || 'Playlist',
     owner: parts[parts.length - 1] || '',
-    thumb: lastThumb(header.thumbnail),
-    tracks: (p.contents || []).filter(r => r.type === 'MusicResponsiveListItem' && r.id).map(trackFromRow)
+    thumb: playlistThumb,
+    tracks: (p.contents || []).filter(r => r.type === 'MusicResponsiveListItem' && r.id).map(r => {
+      const t = trackFromRow(r);
+      if (!t.thumb) t.thumb = playlistThumb;
+      return t;
+    })
   };
 }
 

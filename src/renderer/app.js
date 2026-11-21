@@ -308,7 +308,8 @@ function buildShell() {
     <canvas id="pb-liquid-canvas" class="pb-liquid-canvas"></canvas>
     <div class="pb-left">
       <div class="np-thumb-wrap">
-        <img id="np-thumb" src="" alt="">
+        <div class="np-thumb-placeholder">${icon('music')}</div>
+        <img id="np-thumb" src="" alt="" decoding="async">
         <div id="np-mixing-badge" class="np-mixing-badge hidden" title="AutoMix: Blending into next track">
           <span class="mixing-dot"></span> MIXING
         </div>
@@ -1710,6 +1711,19 @@ function upgradeThumbUrl(url, highRes = true) {
   return url;
 }
 
+function getPlayerbarThumbUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  // For the player bar (56x56), use edge-cached =w544-h544 (~130ms load vs 1350ms for 1024)
+  if (/googleusercontent\.com|ggpht\.com/i.test(url)) {
+    if (/=w\d+-h\d+/i.test(url)) return url.replace(/=w\d+-h\d+[^?]*/i, '=w544-h544-l90-rj');
+    if (/=s\d+/i.test(url)) return url.replace(/=s\d+[^?]*/i, '=s544-l90-rj');
+  }
+  if (/ytimg\.com|youtube\.com\/vi/i.test(url)) {
+    return url.split('?')[0];
+  }
+  return url;
+}
+
 function getFullscreenThumbUrl(url) {
   if (!url || typeof url !== 'string') return '';
   // Google User Content (YTM album art): upgrade to maximum 1200x1200
@@ -1728,9 +1742,43 @@ function getFullscreenThumbUrl(url) {
   return upgradeThumbUrl(url, true);
 }
 
+// In-memory image cache to ensure instant (0ms) thumbnail transitions
+const thumbCache = new Map();
+
+function preloadThumb(url) {
+  if (!url || typeof url !== 'string' || thumbCache.has(url)) return;
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = url;
+  img.onload = () => {
+    thumbCache.set(url, img);
+    if (thumbCache.size > 200) {
+      const first = thumbCache.keys().next().value;
+      thumbCache.delete(first);
+    }
+  };
+}
+
+function preloadQueueThumbs() {
+  if (!S.queue || !S.queue.length || !S.order) return;
+  const nextIndices = S.order.slice(S.oi + 1, S.oi + 6);
+  for (const idx of nextIndices) {
+    const track = S.queue[idx];
+    if (track && track.thumb) {
+      preloadThumb(getPlayerbarThumbUrl(track.thumb));
+    } else if (track && track.id && /^[A-Za-z0-9_-]{11}$/.test(track.id)) {
+      track.thumb = `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
+      preloadThumb(track.thumb);
+    }
+  }
+}
+
 function setNowPlaying(t, restoreOnly = false) {
   if (!t) return;
-  if (t.thumb) t.thumb = upgradeThumbUrl(t.thumb, true);
+  if (!t.thumb && t.id && /^[A-Za-z0-9_-]{11}$/.test(t.id)) {
+    t.thumb = `https://i.ytimg.com/vi/${t.id}/hqdefault.jpg`;
+  }
+  if (t.thumb) t.thumb = upgradeThumbUrl(t.thumb, false);
 
   const isTrackChange = S.lyricsId !== t.id;
   if (isTrackChange) {
@@ -1766,8 +1814,44 @@ function setNowPlaying(t, restoreOnly = false) {
   }
 
   const thumb = $('#np-thumb');
-  if (thumb) thumb.src = t.thumb || '';
-  applyAccent(t.thumb);
+  const targetThumb = getPlayerbarThumbUrl(t.thumb || '');
+  if (thumb) {
+    if (targetThumb) {
+      if (thumbCache.has(targetThumb)) {
+        thumb.src = targetThumb;
+        thumb.classList.remove('loading');
+        thumb.classList.add('loaded');
+      } else {
+        const preImg = new Image();
+        preImg.decoding = 'async';
+        preImg.src = targetThumb;
+        preImg.onload = () => {
+          thumbCache.set(targetThumb, preImg);
+          const cur = curTrack();
+          if (cur && cur.id === t.id && thumb) {
+            thumb.src = targetThumb;
+            thumb.classList.remove('loading');
+            thumb.classList.add('loaded');
+          }
+        };
+        preImg.onerror = () => {
+          if (targetThumb.includes('maxresdefault.jpg')) {
+            thumb.src = targetThumb.replace('maxresdefault.jpg', 'hqdefault.jpg');
+          }
+        };
+        thumb.decoding = 'async';
+        if (thumb.src !== targetThumb) {
+          thumb.classList.add('loading');
+          thumb.src = targetThumb;
+        }
+      }
+    } else {
+      thumb.src = '';
+      thumb.classList.remove('loaded');
+    }
+  }
+
+  applyAccent(targetThumb || t.thumb);
   const title = $('#np-title');
   if (title) title.textContent = t.title || 'My Music';
   const a = $('#np-artist');
@@ -1779,6 +1863,7 @@ function setNowPlaying(t, restoreOnly = false) {
   if (t.title) document.title = t.title + ' — My Music';
   updateMediaMetadata(t);
   updateFsNowPlaying(t);
+  preloadQueueThumbs();
 
   // highlight the row in any visible list
   $$('#content .trow').forEach(row => row.classList.toggle('playing', row.dataset.tid === t.id));
@@ -2724,7 +2809,7 @@ function getContextTitle() {
 function updateFsNowPlaying(t) {
   if (!t) return;
   const thumb = $('#fs-thumb');
-  if (thumb) {
+  if (thumb && S.fsOpen) {
     const rawThumb = t.thumb || '';
     const fsThumb = getFullscreenThumbUrl(rawThumb);
     thumb.onerror = () => {
@@ -2735,7 +2820,7 @@ function updateFsNowPlaying(t) {
         thumb.src = rawThumb;
       }
     };
-    thumb.src = fsThumb;
+    if (thumb.src !== fsThumb) thumb.src = fsThumb;
   }
   const title = $('#fs-title');
   if (title) title.textContent = t.title || 'My Music';
@@ -3259,6 +3344,22 @@ function extractHueFromPixels(data) {
 }
 
 async function extractPaletteFromUrl(url) {
+  if (!url) return null;
+  // Fast path: if already cached/preloaded in memory, extract directly from Image with zero network fetch
+  if (thumbCache && thumbCache.has(url)) {
+    try {
+      const cachedImg = thumbCache.get(url);
+      if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+        const c = document.createElement('canvas');
+        c.width = 32; c.height = 32;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(cachedImg, 0, 0, 32, 32);
+        const d = ctx.getImageData(0, 0, 32, 32).data;
+        const pal = extractHueFromPixels(d);
+        if (pal) return pal;
+      }
+    } catch {}
+  }
   // Method 1: fetch + createImageBitmap (bypasses DOM CORS taint, fastest & cleanest in Electron)
   try {
     const resp = await fetch(url);
@@ -3621,6 +3722,7 @@ function renderQueuePanel() {
     ${cur ? qRow(cur, 'q-cur', -1) : '<div class="q-empty">Nothing playing</div>'}
     <div class="q-sec">Next up</div>
     ${upcoming.length ? upcoming.map((t, i) => qRow(t, '', i)).join('') : '<div class="q-empty">Queue is empty</div>'}`;
+  preloadQueueThumbs();
 }
 
 function qRow(t, cls, i) {
@@ -4563,6 +4665,27 @@ function doSearch(q, opts = {}) {
   }
 }
 
+function fastTrackThumbFromRow(row) {
+  if (!row) return;
+  const rowImg = row.querySelector('.rthumb');
+  if (rowImg && rowImg.src) {
+    const list = S.lists[row.dataset.list];
+    const t = list && list[+row.dataset.idx];
+    if (t) {
+      const pbUrl = getPlayerbarThumbUrl(t.thumb || rowImg.src);
+      if (rowImg.complete && rowImg.naturalWidth > 0) {
+        thumbCache.set(pbUrl, rowImg);
+      }
+      const npThumb = $('#np-thumb');
+      if (npThumb) {
+        npThumb.src = rowImg.currentSrc || rowImg.src;
+        npThumb.classList.remove('loading');
+        npThumb.classList.add('loaded');
+      }
+    }
+  }
+}
+
 function onClick(e) {
   const menuBtn = e.target.closest('#ctxmenu [data-m]');
   if (menuBtn) { menuAction(menuBtn.dataset.m); return; }
@@ -4610,7 +4733,10 @@ function onClick(e) {
     const nonPlayInteractive = e.target.closest('.rheart, .rmenu, [data-action="row-fav"], [data-action="row-menu"], a[data-action="artist"], a[data-action="album"]');
     if (!nonPlayInteractive) {
       const list = S.lists[row.dataset.list];
-      if (list) playContext(list, +row.dataset.idx);
+      if (list) {
+        fastTrackThumbFromRow(row);
+        playContext(list, +row.dataset.idx);
+      }
       return;
     }
   }
@@ -4673,7 +4799,10 @@ function onClick(e) {
     case 'row-play': {
       const row = el.closest('.trow');
       const list = S.lists[row.dataset.list];
-      if (list) playContext(list, +row.dataset.idx);
+      if (list) {
+        fastTrackThumbFromRow(row);
+        playContext(list, +row.dataset.idx);
+      }
       break;
     }
     case 'row-fav': {
