@@ -236,6 +236,119 @@ class AuthSyncEngine extends EventEmitter {
     }
   }
 
+  async signInWithGoogle(BrowserWindowConstructor) {
+    const d = this.load();
+    const url = d.config.supabaseUrl;
+    const key = d.config.supabaseAnonKey;
+    if (!url || !key) throw new Error('Supabase project is not configured.');
+
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+      const redirectUrl = `${url}/auth/v1/callback`;
+      const authUrl = `${url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUrl)}`;
+
+      const authWin = new BrowserWindowConstructor({
+        width: 500,
+        height: 640,
+        show: true,
+        title: 'Sign in with Google - My Music',
+        autoHideMenuBar: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      // Use standard modern Chrome Windows User-Agent so Google accounts allows login
+      authWin.webContents.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      );
+
+      const handleUrl = async (targetUrl) => {
+        if (!targetUrl || resolved) return;
+
+        // Check for error redirect from Supabase
+        if (targetUrl.includes('error=') || targetUrl.includes('error_description=')) {
+          resolved = true;
+          try {
+            const parsed = new URL(targetUrl.replace('#', '?'));
+            const desc = parsed.searchParams.get('error_description') || parsed.searchParams.get('error') || 'Google sign-in failed.';
+            authWin.destroy();
+            reject(new Error(decodeURIComponent(desc.replace(/\+/g, ' '))));
+          } catch {
+            authWin.destroy();
+            reject(new Error('Google sign-in failed. Please verify that Google is enabled in Supabase Authentication > Providers.'));
+          }
+          return;
+        }
+
+        // Check for access token redirect
+        if (targetUrl.includes('access_token=')) {
+          resolved = true;
+          try {
+            const hashIndex = targetUrl.indexOf('#');
+            const queryString = hashIndex >= 0 ? targetUrl.slice(hashIndex + 1) : targetUrl.slice(targetUrl.indexOf('?') + 1);
+            const params = new URLSearchParams(queryString);
+            const accessToken = params.get('access_token');
+            const refreshToken = params.get('refresh_token');
+            const expiresIn = Number(params.get('expires_in')) || 3600;
+
+            if (accessToken) {
+              const userRes = await fetch(`${url}/auth/v1/user`, {
+                headers: {
+                  'apikey': key,
+                  'Authorization': `Bearer ${accessToken}`
+                }
+              });
+              const userData = await userRes.json();
+
+              if (!userRes.ok || !userData || !userData.id) {
+                throw new Error('Failed to retrieve user profile after Google sign-in.');
+              }
+
+              d.user = {
+                id: userData.id,
+                email: userData.email,
+                name: (userData.user_metadata && (userData.user_metadata.full_name || userData.user_metadata.name)) || userData.email.split('@')[0],
+                avatarUrl: (userData.user_metadata && userData.user_metadata.avatar_url) || ''
+              };
+              d.session = {
+                accessToken,
+                refreshToken: refreshToken || '',
+                expiresAt: Date.now() + expiresIn * 1000
+              };
+              this.save();
+              this.setSyncStatus('syncing');
+              this.emit('state-changed', this.getUser());
+
+              authWin.destroy();
+              await this.syncNow();
+              resolve({ ok: true, user: this.getUser() });
+              return;
+            }
+          } catch (err) {
+            authWin.destroy();
+            reject(err);
+            return;
+          }
+        }
+      };
+
+      authWin.webContents.on('will-redirect', (_e, targetUrl) => handleUrl(targetUrl));
+      authWin.webContents.on('will-navigate', (_e, targetUrl) => handleUrl(targetUrl));
+      authWin.webContents.on('did-navigate', (_e, targetUrl) => handleUrl(targetUrl));
+
+      authWin.on('closed', () => {
+        if (!resolved) {
+          resolved = true;
+          resolve({ ok: false, canceled: true, message: 'Google sign-in was canceled.' });
+        }
+      });
+
+      authWin.loadURL(authUrl);
+    });
+  }
+
   async signIn({ email, password }) {
     const cleanEmail = (email || '').trim().toLowerCase();
     const cleanPassword = (password || '').trim();

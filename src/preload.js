@@ -9,7 +9,7 @@ const CHANNELS = new Set([
   'import:url', 'import:csv', 'import:match',
   'player:status',
   'updates:check', 'updates:install', 'updates:defer', 'updates:get-status',
-  'auth:get-user', 'auth:signup', 'auth:signin', 'auth:signout', 'auth:reset-password', 'auth:sync-now', 'auth:get-config', 'auth:set-config',
+  'auth:get-user', 'auth:signup', 'auth:signin', 'auth:signin-google', 'auth:signout', 'auth:reset-password', 'auth:sync-now', 'auth:get-config', 'auth:set-config',
   'auth:update-profile', 'auth:update-password', 'auth:force-push', 'auth:force-pull', 'auth:delete-cloud-data', 'auth:delete-account'
 ]);
 

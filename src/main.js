@@ -498,6 +498,7 @@ ipcMain.handle('player:status', wrap((p) => updatePlayerStatus(p)));
 ipcMain.handle('auth:get-user', wrap(() => authSync.getUser()));
 ipcMain.handle('auth:signup', wrap((p) => authSync.signUp(p)));
 ipcMain.handle('auth:signin', wrap((p) => authSync.signIn(p)));
+ipcMain.handle('auth:signin-google', wrap(() => authSync.signInWithGoogle(BrowserWindow)));
 ipcMain.handle('auth:signout', wrap(() => authSync.signOut()));
 ipcMain.handle('auth:reset-password', wrap((p) => authSync.resetPassword(p)));
 ipcMain.handle('auth:sync-now', wrap(() => authSync.syncNow()));

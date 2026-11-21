@@ -6027,13 +6027,13 @@ async function openAuthModal(defaultTab = 'signin') {
       return;
     }
 
-    // Unauthenticated: Sign In / Create Account / Server Settings tabs
+    // Unauthenticated: Sign In / Create Account tabs
     m.innerHTML = `
       <div class="auth-box">
         <div class="auth-header">
           <div class="auth-title-group">
             <span class="auth-badge">${icon('cloud')} CROSS-PLATFORM CLOUD SYNC</span>
-            <h2 class="auth-title">${activeTab === 'signup' ? 'Create Account' : (activeTab === 'config' ? 'Cloud Server Settings' : (activeTab === 'recover' ? 'Reset Password' : 'Sign In'))}</h2>
+            <h2 class="auth-title">${activeTab === 'signup' ? 'Create Account' : (activeTab === 'recover' ? 'Reset Password' : 'Sign In')}</h2>
             <p class="auth-sub">Keep your playlists, favorites, and music stats in sync across Windows, Linux, and Android.</p>
           </div>
           <button class="iconbtn" data-action="auth-close" title="Close">${icon('close')}</button>
@@ -6042,10 +6042,22 @@ async function openAuthModal(defaultTab = 'signin') {
         <div class="auth-tabs">
           <button class="auth-tab ${activeTab === 'signin' ? 'active' : ''}" data-tab="signin">Sign In</button>
           <button class="auth-tab ${activeTab === 'signup' ? 'active' : ''}" data-tab="signup">Create Account</button>
-          <button class="auth-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Server / Demo</button>
         </div>
 
         <div id="authAlertArea"></div>
+
+        ${(activeTab === 'signin' || activeTab === 'signup') ? `
+          <button id="authGoogleBtn" type="button" class="auth-btn-google">
+            <svg viewBox="0 0 24 24" style="width:18px;height:18px">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+          <div class="auth-divider"><span>or with email</span></div>
+        ` : ''}
 
         ${activeTab === 'signin' ? `
           <form id="authSignInForm" class="auth-form">
@@ -6093,31 +6105,6 @@ async function openAuthModal(defaultTab = 'signin') {
             <button id="authBackToSignIn" type="button" class="auth-btn-secondary" style="margin-top:4px">Back to Sign In</button>
           </form>
         ` : ''}
-
-        ${activeTab === 'config' ? `
-          <form id="authConfigForm" class="auth-form">
-            <p style="font-size:12px;color:var(--muted);margin:0 0 6px">Connect your own Supabase project URL & Anon Key, or use Local/Demo Sync without an external server.</p>
-            <div class="auth-field">
-              <label for="authCfgUrl">Supabase Project URL</label>
-              <input id="authCfgUrl" class="auth-input" type="url" placeholder="https://your-project.supabase.co" value="${esc(cfg.supabaseUrl || '')}">
-            </div>
-            <div class="auth-field">
-              <label for="authCfgKey">Supabase Anon Key</label>
-              <input id="authCfgKey" class="auth-input" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value="${esc(cfg.supabaseAnonKey || '')}">
-            </div>
-            <div class="settings-row" style="margin-top:4px">
-              <div class="settings-label">
-                <span class="settings-title">Offline Demo Sync</span>
-                <span class="settings-desc">Simulate cross-device account sync locally without an external server</span>
-              </div>
-              <label class="toggle-wrap">
-                <input type="checkbox" id="authCfgDemo" ${cfg.demoMode ? 'checked' : ''}>
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-            <button id="authCfgSubmit" type="submit" class="auth-btn-primary">${icon('check')} Save Server Settings</button>
-          </form>
-        ` : ''}
       </div>
     `;
 
@@ -6138,6 +6125,33 @@ async function openAuthModal(defaultTab = 'signin') {
     $('#authBackToSignIn', m)?.addEventListener('click', () => {
       activeTab = 'signin';
       renderModalContent();
+    });
+
+    // Google Sign-In Handler
+    $('#authGoogleBtn', m)?.addEventListener('click', async () => {
+      const btn = $('#authGoogleBtn', m);
+      const alert = $('#authAlertArea', m);
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+      alert.innerHTML = '';
+
+      try {
+        const res = await call('auth:signin-google');
+        if (res && res.user && res.user.user) {
+          S.user = res.user.user;
+          S.syncStatus = res.user.sync;
+          updateAuthButtonUi();
+          m.classList.add('hidden');
+          toast(`Signed in as ${S.user.name || S.user.email}`);
+        } else if (res && res.canceled) {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+        }
+      } catch (err) {
+        alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
     });
 
     // Form Handlers
