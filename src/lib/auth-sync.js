@@ -39,8 +39,8 @@ class AuthSyncEngine extends EventEmitter {
       user: null, // { id, email, name, avatarUrl }
       session: null, // { accessToken, refreshToken, expiresAt }
       config: {
-        supabaseUrl: '',
-        supabaseAnonKey: '',
+        supabaseUrl: 'https://sjvnqqacnbnqdljuhpsh.supabase.co',
+        supabaseAnonKey: 'sb_publishable_Xt2LF3sA6V-kn6Rmx9Criw_iCkkkdhK',
         demoMode: false
       },
       sync: {
