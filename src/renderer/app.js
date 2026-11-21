@@ -53,7 +53,13 @@ const I = {
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   contract: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/>',
   headphones: '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
-  dj: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M6 9a6 6 0 0 1 12 0v6a6 6 0 0 1-12 0z"/><path d="M2 12h1M21 12h1M9 12h6"/>'
+  dj: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M6 9a6 6 0 0 1 12 0v6a6 6 0 0 1-12 0z"/><path d="M2 12h1M21 12h1M9 12h6"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  cloud: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>',
+  cloudCheck: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><path d="m9 15 2 2 4-4"/>',
+  sync: '<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>',
+  logIn: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
+  logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'
 };
 const FILLED = new Set(['play', 'pause', 'next', 'prev']);
 const icon = (n, cls = '') =>
@@ -130,7 +136,9 @@ const S = {
   fsOpen: false,
   fsTab: 'stage',
   fsSeeking: false,
-  _lastFsLy: -1
+  _lastFsLy: -1,
+  user: null,
+  syncStatus: { status: 'idle', lastSyncedAt: null, error: null }
 };
 
 const curTrack = () => (S.order[S.oi] != null ? S.queue[S.order[S.oi]] : null);
@@ -195,7 +203,43 @@ async function boot() {
       });
       window.api.on('updates:error', (info) => showUpdateError(info));
       window.api.on('updates:not-available', () => toast('You’re up to date'));
+      window.api.on('auth:state-changed', (userPayload) => {
+        if (userPayload) {
+          S.user = userPayload.user;
+          if (userPayload.sync) S.syncStatus = userPayload.sync;
+          updateAuthButtonUi();
+          if (S.view === 'settings') renderSettings();
+        }
+      });
+      window.api.on('auth:sync-status', (syncPayload) => {
+        if (syncPayload) {
+          S.syncStatus = syncPayload;
+          updateAuthButtonUi();
+          if (S.view === 'settings') renderSettings();
+        }
+      });
+      window.api.on('library:updated', (lib) => {
+        if (lib) {
+          S.store = lib;
+          if (['liked', 'recent', 'playlists', 'stats', 'settings'].includes(S.view)) {
+            renderView(S.view, false);
+          }
+          renderSidebarPlaylists();
+          toast('Library synchronized with cloud');
+        }
+      });
     }
+
+    try {
+      const u = await call('auth:get-user');
+      if (u) {
+        S.user = u.user;
+        S.syncStatus = u.sync || S.syncStatus;
+      }
+    } catch (e) {
+      console.warn('[auth] user init error:', e);
+    }
+    updateAuthButtonUi();
 
     const lq = S.store.lastQueue;
     if (lq && Array.isArray(lq.tracks) && lq.tracks.length) {
@@ -4617,6 +4661,7 @@ function onClick(e) {
     case 'search-submit': doSearch($('#searchInput').value); break;
     case 'history-back': navBack(); break;
     case 'history-fwd': navFwd(); break;
+    case 'open-auth-modal': openAuthModal(); break;
     case 'tab': loadSearch(el.dataset.tab); break;
      case 'home-artist-search': doSearch(el.dataset.query); break;
     case 'row-play': {
@@ -5605,6 +5650,357 @@ function openImportModal() {
   };
 }
 
+// ---------- User Accounts & Cloud Sync ----------
+function updateAuthButtonUi() {
+  const btn = $('#topbarAuthBtn');
+  const avatar = $('#topbarAuthAvatar');
+  const nameEl = $('#topbarAuthName');
+  const dot = $('#topbarSyncDot');
+  if (!btn || !avatar || !nameEl || !dot) return;
+
+  const st = S.syncStatus || { status: 'idle' };
+  dot.className = 'topbar-sync-dot ' + (st.status || 'idle');
+
+  if (S.user && S.user.email) {
+    const initial = (S.user.name || S.user.email)[0].toUpperCase();
+    avatar.textContent = initial;
+    avatar.classList.add('has-letter');
+    nameEl.textContent = S.user.name || S.user.email.split('@')[0];
+    const statusLabel = st.status === 'synced' ? 'Synced with cloud' : (st.status === 'syncing' ? 'Syncing...' : (st.status === 'offline' ? 'Offline' : 'Error'));
+    btn.title = `Signed in as ${S.user.email} (${statusLabel})`;
+  } else {
+    avatar.innerHTML = icon('user');
+    avatar.classList.remove('has-letter');
+    nameEl.textContent = 'Sign In';
+    btn.title = 'Account & Cloud Sync (Sign In)';
+  }
+}
+
+async function openAuthModal(defaultTab = 'signin') {
+  const m = $('#authModal');
+  if (!m) return;
+
+  let activeTab = defaultTab;
+  let cfg = { supabaseUrl: '', supabaseAnonKey: '', demoMode: false };
+  try {
+    cfg = await call('auth:get-config');
+  } catch {}
+
+  function renderModalContent() {
+    const isLogged = !!(S.user && S.user.email);
+    const st = S.syncStatus || { status: 'idle' };
+    const lastSyncStr = st.lastSyncedAt
+      ? new Date(st.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : 'Never';
+
+    if (isLogged) {
+      const initial = (S.user.name || S.user.email)[0].toUpperCase();
+      const favCount = (S.store && S.store.favorites && S.store.favorites.length) || 0;
+      const plCount = (S.store && S.store.playlists && S.store.playlists.length) || 0;
+
+      m.innerHTML = `
+        <div class="auth-box">
+          <div class="auth-header">
+            <div class="auth-title-group">
+              <span class="auth-badge">${icon('cloudCheck')} CLOUD SYNC ACTIVE</span>
+              <h2 class="auth-title">My Music Account</h2>
+              <p class="auth-sub">Your library and settings sync seamlessly across your devices.</p>
+            </div>
+            <button class="iconbtn" data-action="auth-close" title="Close">${icon('close')}</button>
+          </div>
+
+          <div class="auth-profile-card">
+            <div class="auth-large-avatar">${esc(initial)}</div>
+            <div class="auth-profile-meta">
+              <span class="auth-profile-name">${esc(S.user.name || 'User')}</span>
+              <span class="auth-profile-email">${esc(S.user.email)}</span>
+            </div>
+          </div>
+
+          <div class="auth-sync-status-row">
+            <div>
+              <div style="font-size:11.5px;color:var(--muted);text-transform:uppercase;font-weight:600">Sync Status</div>
+              <div class="auth-sync-pill ${st.status}">
+                <span class="topbar-sync-dot ${st.status}" style="display:inline-block"></span>
+                <span>${st.status === 'synced' ? 'Synchronized' : (st.status === 'syncing' ? 'Syncing now…' : (st.status === 'offline' ? 'Offline (Local Safe)' : 'Sync Error'))}</span>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:11.5px;color:var(--muted);text-transform:uppercase;font-weight:600">Last Synced</div>
+              <div style="font-size:12.5px;font-weight:600">${lastSyncStr}</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);">
+            <div><span style="color:var(--muted)">Playlists:</span> <strong>${plCount}</strong></div>
+            <div><span style="color:var(--muted)">Liked Songs:</span> <strong>${favCount}</strong></div>
+          </div>
+
+          ${st.error ? `<div class="auth-error">${esc(st.error)}</div>` : ''}
+
+          <div class="auth-btn-row">
+            <button id="authSyncNowBtn" class="auth-btn-secondary">${icon('sync')} Sync Now</button>
+            <button id="authSignOutBtn" class="auth-btn-danger">${icon('logOut')} Sign Out</button>
+          </div>
+        </div>
+      `;
+
+      $('#authSyncNowBtn', m)?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = 'Syncing…';
+        try {
+          await call('auth:sync-now');
+          toast('Cloud sync complete');
+        } catch (err) {
+          toast('Sync error: ' + err.message);
+        } finally {
+          btn.disabled = false;
+          renderModalContent();
+        }
+      });
+
+      $('#authSignOutBtn', m)?.addEventListener('click', async () => {
+        const ok = await modal({
+          title: 'Sign Out?',
+          message: 'Your local playlists and songs will remain safe on this computer in guest mode.',
+          confirmText: 'Sign Out',
+          danger: true
+        });
+        if (ok) {
+          await call('auth:signout');
+          m.classList.add('hidden');
+          toast('Signed out. Local library preserved.');
+        }
+      });
+      return;
+    }
+
+    // Unauthenticated: Sign In / Create Account / Server Settings tabs
+    m.innerHTML = `
+      <div class="auth-box">
+        <div class="auth-header">
+          <div class="auth-title-group">
+            <span class="auth-badge">${icon('cloud')} CROSS-PLATFORM CLOUD SYNC</span>
+            <h2 class="auth-title">${activeTab === 'signup' ? 'Create Account' : (activeTab === 'config' ? 'Cloud Server Settings' : (activeTab === 'recover' ? 'Reset Password' : 'Sign In'))}</h2>
+            <p class="auth-sub">Keep your playlists, favorites, and music stats in sync across Windows, Linux, and Android.</p>
+          </div>
+          <button class="iconbtn" data-action="auth-close" title="Close">${icon('close')}</button>
+        </div>
+
+        <div class="auth-tabs">
+          <button class="auth-tab ${activeTab === 'signin' ? 'active' : ''}" data-tab="signin">Sign In</button>
+          <button class="auth-tab ${activeTab === 'signup' ? 'active' : ''}" data-tab="signup">Create Account</button>
+          <button class="auth-tab ${activeTab === 'config' ? 'active' : ''}" data-tab="config">Server / Demo</button>
+        </div>
+
+        <div id="authAlertArea"></div>
+
+        ${activeTab === 'signin' ? `
+          <form id="authSignInForm" class="auth-form">
+            <div class="auth-field">
+              <label for="authInEmail">Email Address</label>
+              <input id="authInEmail" class="auth-input" type="email" placeholder="you@example.com" required autocomplete="email">
+            </div>
+            <div class="auth-field">
+              <label for="authInPass">Password</label>
+              <input id="authInPass" class="auth-input" type="password" placeholder="••••••••" required autocomplete="current-password">
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+              <span style="color:var(--muted)">Offline-first with cloud backup</span>
+              <a href="#" id="authForgotLink" style="color:var(--accent);text-decoration:none;font-weight:600">Forgot password?</a>
+            </div>
+            <button id="authInSubmit" type="submit" class="auth-btn-primary">${icon('logIn')} Sign In & Sync</button>
+          </form>
+        ` : ''}
+
+        ${activeTab === 'signup' ? `
+          <form id="authSignUpForm" class="auth-form">
+            <div class="auth-field">
+              <label for="authUpName">Display Name</label>
+              <input id="authUpName" class="auth-input" type="text" placeholder="Your Name" required>
+            </div>
+            <div class="auth-field">
+              <label for="authUpEmail">Email Address</label>
+              <input id="authUpEmail" class="auth-input" type="email" placeholder="you@example.com" required autocomplete="email">
+            </div>
+            <div class="auth-field">
+              <label for="authUpPass">Password (min 6 characters)</label>
+              <input id="authUpPass" class="auth-input" type="password" placeholder="••••••••" required minlength="6" autocomplete="new-password">
+            </div>
+            <button id="authUpSubmit" type="submit" class="auth-btn-primary">${icon('user')} Create Account & Sync</button>
+          </form>
+        ` : ''}
+
+        ${activeTab === 'recover' ? `
+          <form id="authRecoverForm" class="auth-form">
+            <div class="auth-field">
+              <label for="authRecEmail">Your Email Address</label>
+              <input id="authRecEmail" class="auth-input" type="email" placeholder="you@example.com" required autocomplete="email">
+            </div>
+            <button id="authRecSubmit" type="submit" class="auth-btn-primary">${icon('sync')} Send Reset Instructions</button>
+            <button id="authBackToSignIn" type="button" class="auth-btn-secondary" style="margin-top:4px">Back to Sign In</button>
+          </form>
+        ` : ''}
+
+        ${activeTab === 'config' ? `
+          <form id="authConfigForm" class="auth-form">
+            <p style="font-size:12px;color:var(--muted);margin:0 0 6px">Connect your own Supabase project URL & Anon Key, or use Local/Demo Sync without an external server.</p>
+            <div class="auth-field">
+              <label for="authCfgUrl">Supabase Project URL</label>
+              <input id="authCfgUrl" class="auth-input" type="url" placeholder="https://your-project.supabase.co" value="${esc(cfg.supabaseUrl || '')}">
+            </div>
+            <div class="auth-field">
+              <label for="authCfgKey">Supabase Anon Key</label>
+              <input id="authCfgKey" class="auth-input" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value="${esc(cfg.supabaseAnonKey || '')}">
+            </div>
+            <div class="settings-row" style="margin-top:4px">
+              <div class="settings-label">
+                <span class="settings-title">Offline Demo Sync</span>
+                <span class="settings-desc">Simulate cross-device account sync locally without an external server</span>
+              </div>
+              <label class="toggle-wrap">
+                <input type="checkbox" id="authCfgDemo" ${cfg.demoMode ? 'checked' : ''}>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <button id="authCfgSubmit" type="submit" class="auth-btn-primary">${icon('check')} Save Server Settings</button>
+          </form>
+        ` : ''}
+      </div>
+    `;
+
+    // Bind Tab switching
+    m.querySelectorAll('.auth-tab').forEach(tabBtn => {
+      tabBtn.onclick = () => {
+        activeTab = tabBtn.dataset.tab;
+        renderModalContent();
+      };
+    });
+
+    $('#authForgotLink', m)?.addEventListener('click', (e) => {
+      e.preventDefault();
+      activeTab = 'recover';
+      renderModalContent();
+    });
+
+    $('#authBackToSignIn', m)?.addEventListener('click', () => {
+      activeTab = 'signin';
+      renderModalContent();
+    });
+
+    // Form Handlers
+    $('#authSignInForm', m)?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('#authInEmail', m).value.trim();
+      const password = $('#authInPass', m).value;
+      const btn = $('#authInSubmit', m);
+      const alert = $('#authAlertArea', m);
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      alert.innerHTML = '';
+
+      try {
+        const res = await call('auth:signin', { email, password });
+        if (res && res.user) {
+          S.user = res.user.user;
+          S.syncStatus = res.user.sync;
+          updateAuthButtonUi();
+          m.classList.add('hidden');
+          toast(`Signed in as ${S.user.name || S.user.email}`);
+        }
+      } catch (err) {
+        alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.innerHTML = `${icon('logIn')} Sign In & Sync`;
+      }
+    });
+
+    $('#authSignUpForm', m)?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = $('#authUpName', m).value.trim();
+      const email = $('#authUpEmail', m).value.trim();
+      const password = $('#authUpPass', m).value;
+      const btn = $('#authUpSubmit', m);
+      const alert = $('#authAlertArea', m);
+      btn.disabled = true;
+      btn.textContent = 'Creating account…';
+      alert.innerHTML = '';
+
+      try {
+        const res = await call('auth:signup', { email, password, name });
+        if (res && res.user && res.user.user) {
+          S.user = res.user.user;
+          S.syncStatus = res.user.sync;
+          updateAuthButtonUi();
+          m.classList.add('hidden');
+          toast(`Welcome, ${S.user.name || S.user.email}! Account created & synced.`);
+        } else if (res && res.confirmNeeded) {
+          alert.innerHTML = `<div class="auth-success">${esc(res.message)}</div>`;
+          btn.disabled = false;
+          btn.innerHTML = `${icon('user')} Create Account & Sync`;
+        }
+      } catch (err) {
+        alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.innerHTML = `${icon('user')} Create Account & Sync`;
+      }
+    });
+
+    $('#authRecoverForm', m)?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('#authRecEmail', m).value.trim();
+      const btn = $('#authRecSubmit', m);
+      const alert = $('#authAlertArea', m);
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      alert.innerHTML = '';
+
+      try {
+        const res = await call('auth:reset-password', { email });
+        alert.innerHTML = `<div class="auth-success">${esc(res.message || 'Reset email sent.')}</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Send Again';
+      } catch (err) {
+        alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.innerHTML = `${icon('sync')} Send Reset Instructions`;
+      }
+    });
+
+    $('#authConfigForm', m)?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = $('#authCfgUrl', m).value.trim();
+      const key = $('#authCfgKey', m).value.trim();
+      const demo = $('#authCfgDemo', m).checked;
+      const btn = $('#authCfgSubmit', m);
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        await call('auth:set-config', { supabaseUrl: url, supabaseAnonKey: key, demoMode: demo });
+        cfg = { supabaseUrl: url, supabaseAnonKey: key, demoMode: demo };
+        toast('Server configuration saved');
+        activeTab = 'signin';
+        renderModalContent();
+      } catch (err) {
+        $('#authAlertArea', m).innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.innerHTML = `${icon('check')} Save Server Settings`;
+      }
+    });
+  }
+
+  renderModalContent();
+  m.classList.remove('hidden');
+
+  m.onclick = (e) => {
+    if (e.target === m || e.target.closest('[data-action="auth-close"]')) {
+      m.classList.add('hidden');
+    }
+  };
+}
+
 async function renderDownloads(tok) {
   set(`<div class="skeleton" style="height:320px"></div>`);
   try {
@@ -5854,6 +6250,31 @@ function renderSettings(tok) {
         <p class="vh-sub" style="margin:0">Personalize your themes, audio processing, and Windows system preferences</p>
       </div>
 
+      <!-- Account & Cloud Sync Card -->
+      <div class="settings-card">
+        <h3>${icon('cloud')} Account & Cloud Sync</h3>
+        ${S.user ? `
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-title">Signed In as <strong>${esc(S.user.name || S.user.email)}</strong></span>
+              <span class="settings-desc">${esc(S.user.email)} • Status: <strong style="color:${(S.syncStatus && S.syncStatus.status === 'synced') ? '#10b981' : '#60a5fa'}">${(S.syncStatus && S.syncStatus.status === 'synced') ? 'Synchronized with cloud' : ((S.syncStatus && S.syncStatus.status) || 'Active')}</strong></span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="settings-btn" id="settingSyncNowBtn">${icon('sync')} Sync Now</button>
+              <button class="settings-btn" id="settingManageAccountBtn">${icon('user')} Manage</button>
+            </div>
+          </div>
+        ` : `
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-title">Guest Mode (Local Library Only)</span>
+              <span class="settings-desc">Playlists, favorites, and settings are currently stored only on this PC. Sign in to synchronize your music library across Linux, Android, and other computers.</span>
+            </div>
+            <button class="settings-btn" id="settingSignInBtn" style="background:var(--accent);color:#fff;border:none;box-shadow:0 2px 10px var(--accent-soft)">${icon('logIn')} Sign In / Create Account</button>
+          </div>
+        `}
+      </div>
+
       <div class="settings-card">
         <h3>${icon('palette')} Custom Appearance & Wallpaper</h3>
         <div class="settings-row">
@@ -6045,6 +6466,31 @@ function renderSettings(tok) {
       mutate({ type: 'settings.set', patch: { wallpaper: url } });
       toast('Wallpaper applied');
     });
+  }
+
+  const settingSignInBtn = $('#settingSignInBtn');
+  if (settingSignInBtn) {
+    settingSignInBtn.onclick = () => openAuthModal('signin');
+  }
+  const settingManageAccountBtn = $('#settingManageAccountBtn');
+  if (settingManageAccountBtn) {
+    settingManageAccountBtn.onclick = () => openAuthModal();
+  }
+  const settingSyncNowBtn = $('#settingSyncNowBtn');
+  if (settingSyncNowBtn) {
+    settingSyncNowBtn.onclick = async () => {
+      settingSyncNowBtn.disabled = true;
+      settingSyncNowBtn.textContent = 'Syncing…';
+      try {
+        await call('auth:sync-now');
+        toast('Library synchronized with cloud');
+      } catch (err) {
+        toast('Sync error: ' + err.message);
+      } finally {
+        settingSyncNowBtn.disabled = false;
+        renderSettings();
+      }
+    };
   }
 
   const wpDimInput = $('#wpDimInput');

@@ -8,13 +8,15 @@ const CHANNELS = new Set([
   'download:start', 'download:list', 'download:reveal',
   'import:url', 'import:csv', 'import:match',
   'player:status',
-  'updates:check', 'updates:install', 'updates:defer', 'updates:get-status'
+  'updates:check', 'updates:install', 'updates:defer', 'updates:get-status',
+  'auth:get-user', 'auth:signup', 'auth:signin', 'auth:signout', 'auth:reset-password', 'auth:sync-now', 'auth:get-config', 'auth:set-config'
 ]);
 
 const EVENTS = new Set([
   'cmd:toggle', 'cmd:next', 'cmd:prev',
   'updates:available', 'updates:progress', 'updates:error', 'updates:not-available',
-  'updates:downloaded', 'updates:deferred-for-playback'
+  'updates:downloaded', 'updates:deferred-for-playback',
+  'auth:state-changed', 'auth:sync-status', 'library:updated'
 ]);
 
 contextBridge.exposeInMainWorld('api', {

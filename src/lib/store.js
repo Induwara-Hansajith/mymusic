@@ -8,6 +8,14 @@ const path = require('path');
 let file = null;
 let data = null;
 let saveTimer = null;
+let mutationListeners = [];
+
+function onMutation(fn) {
+  if (typeof fn === 'function') mutationListeners.push(fn);
+  return () => {
+    mutationListeners = mutationListeners.filter(l => l !== fn);
+  };
+}
 
 function filePath() {
   if (!file) {
@@ -249,7 +257,28 @@ function mutate(p) {
       throw new Error('unknown mutation: ' + p.type);
   }
   save();
+  for (const fn of mutationListeners) {
+    try { fn(p, d); } catch (e) { console.error('[store] mutation listener error:', e.message); }
+  }
   return d;
 }
 
-module.exports = { all: () => load(), mutate };
+function applyRemote(remoteData) {
+  if (!remoteData || typeof remoteData !== 'object') return load();
+  const d = load();
+  if (Array.isArray(remoteData.favorites)) d.favorites = remoteData.favorites;
+  if (Array.isArray(remoteData.playlists)) d.playlists = remoteData.playlists;
+  if (remoteData.settings && typeof remoteData.settings === 'object') {
+    d.settings = { ...d.settings, ...remoteData.settings };
+  }
+  if (remoteData.playStats && typeof remoteData.playStats === 'object') {
+    d.playStats = { ...d.playStats, ...remoteData.playStats };
+  }
+  if (remoteData.lyricsOffsets && typeof remoteData.lyricsOffsets === 'object') {
+    d.lyricsOffsets = { ...d.lyricsOffsets, ...remoteData.lyricsOffsets };
+  }
+  save();
+  return d;
+}
+
+module.exports = { all: () => load(), mutate, onMutation, applyRemote };

@@ -8,6 +8,7 @@ const store = require('./lib/store');
 const ytm = require('./lib/ytm');
 const downloader = require('./lib/downloader');
 const importer = require('./lib/importer');
+const authSync = require('./lib/auth-sync');
 
 app.setAppUserModelId('com.induw.mymusic');
 
@@ -493,6 +494,32 @@ ipcMain.handle('import:csv', wrap((p) => importer.parseCsv(p.text)));
 ipcMain.handle('import:match', wrap((p) => importer.matchTracks(p.rows)));
 ipcMain.handle('player:status', wrap((p) => updatePlayerStatus(p)));
 
+// User Accounts & Cloud Sync
+ipcMain.handle('auth:get-user', wrap(() => authSync.getUser()));
+ipcMain.handle('auth:signup', wrap((p) => authSync.signUp(p)));
+ipcMain.handle('auth:signin', wrap((p) => authSync.signIn(p)));
+ipcMain.handle('auth:signout', wrap(() => authSync.signOut()));
+ipcMain.handle('auth:reset-password', wrap((p) => authSync.resetPassword(p)));
+ipcMain.handle('auth:sync-now', wrap(() => authSync.syncNow()));
+ipcMain.handle('auth:get-config', wrap(() => authSync.getConfig()));
+ipcMain.handle('auth:set-config', wrap((p) => authSync.setConfig(p)));
+
+authSync.on('sync-status', (status) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('auth:sync-status', status);
+  }
+});
+authSync.on('state-changed', (user) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('auth:state-changed', user);
+  }
+});
+authSync.on('library-merged', (lib) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('library:updated', lib);
+  }
+});
+
 let isMiniMode = false;
 let normalBounds = null;
 
@@ -606,6 +633,7 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
+  authSync.init(store);
   startUpdateChecker();
 
   app.on('activate', () => {

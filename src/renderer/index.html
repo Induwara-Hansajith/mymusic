@@ -27,6 +27,15 @@
           </button>
           <div id="sugg"></div>
         </div>
+        <div id="topbarRight">
+          <button id="topbarAuthBtn" class="topbar-auth-btn" data-action="open-auth-modal" title="Account & Cloud Sync">
+            <div id="topbarAuthAvatar" class="topbar-auth-avatar">
+              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <span id="topbarAuthName" class="topbar-auth-name">Sign In</span>
+            <span id="topbarSyncDot" class="topbar-sync-dot idle" title="Cloud Sync Status"></span>
+          </button>
+        </div>
       </header>
       <div id="content"></div>
     </div>
@@ -41,6 +50,7 @@
   <div id="updateModal" class="hidden"></div>
   <div id="eqModal" class="hidden"></div>
   <div id="importModal" class="hidden"></div>
+  <div id="authModal" class="hidden"></div>
   <audio id="audio" crossorigin="anonymous"></audio>
   <audio id="audioB" crossorigin="anonymous"></audio>
   <script src="sonara-engine.js"></script>
