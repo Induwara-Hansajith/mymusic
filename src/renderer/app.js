@@ -59,7 +59,9 @@ const I = {
   cloudCheck: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><path d="m9 15 2 2 4-4"/>',
   sync: '<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>',
   logIn: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
-  logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'
+  logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
 };
 const FILLED = new Set(['play', 'pause', 'next', 'prev']);
 const icon = (n, cls = '') =>
@@ -5697,54 +5699,164 @@ async function openAuthModal(defaultTab = 'signin') {
       const initial = (S.user.name || S.user.email)[0].toUpperCase();
       const favCount = (S.store && S.store.favorites && S.store.favorites.length) || 0;
       const plCount = (S.store && S.store.playlists && S.store.playlists.length) || 0;
+      const totalPlays = (S.store && S.store.playStats && S.store.playStats.totalPlays) || 0;
+      let loggedSubtab = activeTab === 'signin' ? 'overview' : activeTab;
+      if (!['overview', 'profile', 'security', 'data', 'danger'].includes(loggedSubtab)) {
+        loggedSubtab = 'overview';
+      }
 
       m.innerHTML = `
         <div class="auth-box">
           <div class="auth-header">
             <div class="auth-title-group">
-              <span class="auth-badge">${icon('cloudCheck')} CLOUD SYNC ACTIVE</span>
-              <h2 class="auth-title">My Music Account</h2>
-              <p class="auth-sub">Your library and settings sync seamlessly across your devices.</p>
+              <span class="auth-badge">${icon('cloudCheck')} CLOUD ACCOUNT ACTIVE</span>
+              <h2 class="auth-title">Account Management</h2>
+              <p class="auth-sub">Manage your profile, cloud library sync, security, and storage.</p>
             </div>
             <button class="iconbtn" data-action="auth-close" title="Close">${icon('close')}</button>
           </div>
 
-          <div class="auth-profile-card">
-            <div class="auth-large-avatar">${esc(initial)}</div>
-            <div class="auth-profile-meta">
-              <span class="auth-profile-name">${esc(S.user.name || 'User')}</span>
-              <span class="auth-profile-email">${esc(S.user.email)}</span>
-            </div>
+          <div class="auth-subtabs">
+            <button class="auth-subtab ${loggedSubtab === 'overview' ? 'active' : ''}" data-subtab="overview">${icon('cloud')} Overview</button>
+            <button class="auth-subtab ${loggedSubtab === 'profile' ? 'active' : ''}" data-subtab="profile">${icon('user')} Profile</button>
+            <button class="auth-subtab ${loggedSubtab === 'security' ? 'active' : ''}" data-subtab="security">${icon('lock')} Security</button>
+            <button class="auth-subtab ${loggedSubtab === 'data' ? 'active' : ''}" data-subtab="data">${icon('sync')} Cloud Data</button>
+            <button class="auth-subtab ${loggedSubtab === 'danger' ? 'active' : ''}" data-subtab="danger" style="color:${loggedSubtab === 'danger' ? '#fff' : '#fca5a5'}">${icon('shield')} Danger</button>
           </div>
 
-          <div class="auth-sync-status-row">
-            <div>
-              <div style="font-size:11.5px;color:var(--muted);text-transform:uppercase;font-weight:600">Sync Status</div>
-              <div class="auth-sync-pill ${st.status}">
-                <span class="topbar-sync-dot ${st.status}" style="display:inline-block"></span>
-                <span>${st.status === 'synced' ? 'Synchronized' : (st.status === 'syncing' ? 'Syncing now…' : (st.status === 'offline' ? 'Offline (Local Safe)' : 'Sync Error'))}</span>
+          <div id="authAlertArea"></div>
+
+          ${loggedSubtab === 'overview' ? `
+            <div class="auth-profile-card">
+              <div class="auth-large-avatar">${esc(initial)}</div>
+              <div class="auth-profile-meta">
+                <span class="auth-profile-name">${esc(S.user.name || 'User')}</span>
+                <span class="auth-profile-email">${esc(S.user.email)}</span>
               </div>
             </div>
-            <div style="text-align:right">
-              <div style="font-size:11.5px;color:var(--muted);text-transform:uppercase;font-weight:600">Last Synced</div>
-              <div style="font-size:12.5px;font-weight:600">${lastSyncStr}</div>
+
+            <div class="auth-sync-status-row">
+              <div>
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:0.04em">Cloud Status</div>
+                <div class="auth-sync-pill ${st.status}">
+                  <span class="topbar-sync-dot ${st.status}" style="display:inline-block"></span>
+                  <span>${st.status === 'synced' ? 'Synchronized' : (st.status === 'syncing' ? 'Syncing now…' : (st.status === 'offline' ? 'Offline (Local Safe)' : 'Sync Error'))}</span>
+                </div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:0.04em">Last Synced</div>
+                <div style="font-size:12px;font-weight:600">${lastSyncStr}</div>
+              </div>
             </div>
-          </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);">
-            <div><span style="color:var(--muted)">Playlists:</span> <strong>${plCount}</strong></div>
-            <div><span style="color:var(--muted)">Liked Songs:</span> <strong>${favCount}</strong></div>
-          </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11.5px;background:rgba(255,255,255,0.03);padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+              <div><div style="color:var(--muted)">Playlists</div><strong style="font-size:14px">${plCount}</strong></div>
+              <div><div style="color:var(--muted)">Liked Songs</div><strong style="font-size:14px">${favCount}</strong></div>
+              <div><div style="color:var(--muted)">Plays</div><strong style="font-size:14px">${totalPlays}</strong></div>
+            </div>
 
-          ${st.error ? `<div class="auth-error">${esc(st.error)}</div>` : ''}
+            ${st.error ? `<div class="auth-error">${esc(st.error)}</div>` : ''}
 
-          <div class="auth-btn-row">
-            <button id="authSyncNowBtn" class="auth-btn-secondary">${icon('sync')} Sync Now</button>
-            <button id="authSignOutBtn" class="auth-btn-danger">${icon('logOut')} Sign Out</button>
-          </div>
+            <div class="auth-btn-row">
+              <button id="authSyncNowBtn" class="auth-btn-primary" style="flex:1">${icon('sync')} Sync Now</button>
+              <button id="authSignOutBtn" class="auth-btn-secondary" style="flex:1">${icon('logOut')} Sign Out</button>
+            </div>
+          ` : ''}
+
+          ${loggedSubtab === 'profile' ? `
+            <form id="authEditProfileForm" class="auth-form">
+              <div class="auth-field">
+                <label for="authEditName">Display Name</label>
+                <input id="authEditName" class="auth-input" type="text" value="${esc(S.user.name || '')}" required>
+              </div>
+              <div class="auth-field">
+                <label>Email Address</label>
+                <input class="auth-input" type="text" value="${esc(S.user.email)}" disabled style="opacity:0.6;cursor:not-allowed">
+              </div>
+              <div class="auth-field">
+                <label>Account ID</label>
+                <input class="auth-input" type="text" value="${esc(S.user.id || 'N/A')}" disabled style="opacity:0.6;font-size:11.5px;cursor:not-allowed">
+              </div>
+              <button id="authSaveProfileBtn" type="submit" class="auth-btn-primary">${icon('check')} Save Changes</button>
+            </form>
+          ` : ''}
+
+          ${loggedSubtab === 'security' ? `
+            <form id="authChangePassForm" class="auth-form">
+              <p style="font-size:12px;color:var(--muted);margin:0">Update your account password securely.</p>
+              <div class="auth-field">
+                <label for="authNewPass">New Password (min 6 characters)</label>
+                <input id="authNewPass" class="auth-input" type="password" placeholder="••••••••" required minlength="6" autocomplete="new-password">
+              </div>
+              <div class="auth-field">
+                <label for="authConfirmPass">Confirm New Password</label>
+                <input id="authConfirmPass" class="auth-input" type="password" placeholder="••••••••" required minlength="6" autocomplete="new-password">
+              </div>
+              <button id="authChangePassBtn" type="submit" class="auth-btn-primary">${icon('lock')} Update Password</button>
+            </form>
+          ` : ''}
+
+          ${loggedSubtab === 'data' ? `
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <p style="font-size:12px;color:var(--muted);margin:0">Manage manual cloud sync overrides between this device and your Supabase cloud library.</p>
+              
+              <div class="auth-action-card">
+                <div class="auth-action-info">
+                  <span class="auth-action-title">Upload Local to Cloud</span>
+                  <span class="auth-action-desc">Force overwrite the cloud library with this computer's current playlists and likes.</span>
+                </div>
+                <button id="authForcePushBtn" class="auth-card-btn">${icon('cloud')} Upload</button>
+              </div>
+
+              <div class="auth-action-card">
+                <div class="auth-action-info">
+                  <span class="auth-action-title">Download Cloud to Local</span>
+                  <span class="auth-action-desc">Replace this computer's local library with the cloud snapshot.</span>
+                </div>
+                <button id="authForcePullBtn" class="auth-card-btn">${icon('download')} Download</button>
+              </div>
+
+              <div class="auth-action-card">
+                <div class="auth-action-info">
+                  <span class="auth-action-title">Clear Cloud Library</span>
+                  <span class="auth-action-desc">Delete cloud-stored library data while keeping local playback safe.</span>
+                </div>
+                <button id="authClearCloudBtn" class="auth-card-btn danger">${icon('trash')} Clear</button>
+              </div>
+            </div>
+          ` : ''}
+
+          ${loggedSubtab === 'danger' ? `
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div class="auth-action-card">
+                <div class="auth-action-info">
+                  <span class="auth-action-title">Sign Out on this PC</span>
+                  <span class="auth-action-desc">Switch back to local guest mode. Local playlists and downloaded files remain safe.</span>
+                </div>
+                <button id="authDangerSignOutBtn" class="auth-card-btn">${icon('logOut')} Sign Out</button>
+              </div>
+
+              <div class="auth-action-card" style="border-color:rgba(239,68,68,0.25)">
+                <div class="auth-action-info">
+                  <span class="auth-action-title" style="color:#fca5a5">Delete Account</span>
+                  <span class="auth-action-desc">Permanently remove your account and delete your cloud library data.</span>
+                </div>
+                <button id="authDangerDeleteAccountBtn" class="auth-card-btn danger">${icon('trash')} Delete Account</button>
+              </div>
+            </div>
+          ` : ''}
         </div>
       `;
 
+      // Subtab switching
+      m.querySelectorAll('.auth-subtab').forEach(btn => {
+        btn.onclick = () => {
+          activeTab = btn.dataset.subtab;
+          renderModalContent();
+        };
+      });
+
+      // Actions: Overview
       $('#authSyncNowBtn', m)?.addEventListener('click', async (e) => {
         const btn = e.currentTarget;
         btn.disabled = true;
@@ -5760,7 +5872,7 @@ async function openAuthModal(defaultTab = 'signin') {
         }
       });
 
-      $('#authSignOutBtn', m)?.addEventListener('click', async () => {
+      const handleSignOut = async () => {
         const ok = await modal({
           title: 'Sign Out?',
           message: 'Your local playlists and songs will remain safe on this computer in guest mode.',
@@ -5772,7 +5884,146 @@ async function openAuthModal(defaultTab = 'signin') {
           m.classList.add('hidden');
           toast('Signed out. Local library preserved.');
         }
+      };
+
+      $('#authSignOutBtn', m)?.addEventListener('click', handleSignOut);
+      $('#authDangerSignOutBtn', m)?.addEventListener('click', handleSignOut);
+
+      // Actions: Edit Profile
+      $('#authEditProfileForm', m)?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newName = $('#authEditName', m).value.trim();
+        const btn = $('#authSaveProfileBtn', m);
+        const alert = $('#authAlertArea', m);
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        alert.innerHTML = '';
+
+        try {
+          const res = await call('auth:update-profile', { name: newName });
+          if (res && res.user) {
+            S.user = res.user.user;
+            updateAuthButtonUi();
+            alert.innerHTML = `<div class="auth-success">Profile updated successfully!</div>`;
+          }
+        } catch (err) {
+          alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = `${icon('check')} Save Changes`;
+        }
       });
+
+      // Actions: Security Password Change
+      $('#authChangePassForm', m)?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newPass = $('#authNewPass', m).value;
+        const confirmPass = $('#authConfirmPass', m).value;
+        const btn = $('#authChangePassBtn', m);
+        const alert = $('#authAlertArea', m);
+
+        if (newPass !== confirmPass) {
+          alert.innerHTML = `<div class="auth-error">Passwords do not match.</div>`;
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Updating…';
+        alert.innerHTML = '';
+
+        try {
+          const res = await call('auth:update-password', { newPassword: newPass });
+          alert.innerHTML = `<div class="auth-success">${esc(res.message || 'Password updated successfully!')}</div>`;
+          $('#authNewPass', m).value = '';
+          $('#authConfirmPass', m).value = '';
+        } catch (err) {
+          alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = `${icon('lock')} Update Password`;
+        }
+      });
+
+      // Actions: Data Sync Controls
+      $('#authForcePushBtn', m)?.addEventListener('click', async () => {
+        const ok = await modal({
+          title: 'Upload to Cloud?',
+          message: 'This will overwrite your cloud backup with the current playlists and liked songs on this PC.',
+          confirmText: 'Upload',
+          danger: false
+        });
+        if (!ok) return;
+
+        const alert = $('#authAlertArea', m);
+        alert.innerHTML = '';
+        try {
+          const res = await call('auth:force-push');
+          alert.innerHTML = `<div class="auth-success">${esc(res.message || 'Local library uploaded to cloud.')}</div>`;
+          toast('Cloud backup updated');
+        } catch (err) {
+          alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        }
+      });
+
+      $('#authForcePullBtn', m)?.addEventListener('click', async () => {
+        const ok = await modal({
+          title: 'Download from Cloud?',
+          message: 'This will replace the playlists and liked songs on this PC with the cloud snapshot.',
+          confirmText: 'Download',
+          danger: true
+        });
+        if (!ok) return;
+
+        const alert = $('#authAlertArea', m);
+        alert.innerHTML = '';
+        try {
+          const res = await call('auth:force-pull');
+          alert.innerHTML = `<div class="auth-success">${esc(res.message || 'Cloud library loaded.')}</div>`;
+          toast('Local library refreshed from cloud');
+        } catch (err) {
+          alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        }
+      });
+
+      $('#authClearCloudBtn', m)?.addEventListener('click', async () => {
+        const ok = await modal({
+          title: 'Clear Cloud Library?',
+          message: 'This will delete all playlists and favorites stored in the cloud. Local files and playlists on this PC will NOT be deleted.',
+          confirmText: 'Clear Cloud Data',
+          danger: true
+        });
+        if (!ok) return;
+
+        const alert = $('#authAlertArea', m);
+        alert.innerHTML = '';
+        try {
+          const res = await call('auth:delete-cloud-data');
+          alert.innerHTML = `<div class="auth-success">${esc(res.message || 'Cloud library data deleted.')}</div>`;
+          toast('Cloud library cleared');
+        } catch (err) {
+          alert.innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        }
+      });
+
+      // Actions: Danger Zone Delete Account
+      $('#authDangerDeleteAccountBtn', m)?.addEventListener('click', async () => {
+        const ok = await modal({
+          title: 'Delete Account Permanently?',
+          message: 'This will permanently remove your cloud sync account and wipe all cloud library data from Supabase. This action cannot be undone.',
+          confirmText: 'Delete Account',
+          danger: true
+        });
+        if (!ok) return;
+
+        try {
+          await call('auth:delete-account');
+          m.classList.add('hidden');
+          toast('Account permanently deleted. Reverted to guest mode.');
+        } catch (err) {
+          $('#authAlertArea', m).innerHTML = `<div class="auth-error">${esc(err.message)}</div>`;
+        }
+      });
+
       return;
     }
 

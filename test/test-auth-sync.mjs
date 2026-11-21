@@ -136,3 +136,40 @@ test('AuthSync: Demo / Offline Account Lifecycle (Sign Up, Sync, Sign Out)', asy
     track: { id: 'test_sync_track' }
   });
 });
+
+test('AuthSync: Full Account Management (Profile, Password, Force Sync, Deletion)', async () => {
+  authSync.setConfig({ demoMode: true });
+
+  await authSync.signUp({
+    email: 'admin.manager@mymusic.app',
+    password: 'initialpassword123',
+    name: 'Initial Name'
+  });
+
+  assert.equal(authSync.isLoggedIn(), true);
+
+  // 1. Update Profile Name
+  const profRes = await authSync.updateProfile({ name: 'Updated Rockstar' });
+  assert.equal(profRes.ok, true);
+  assert.equal(authSync.getUser().user.name, 'Updated Rockstar');
+
+  // 2. Update Password
+  const passRes = await authSync.updatePassword({ newPassword: 'brandnewpassword456' });
+  assert.equal(passRes.ok, true);
+
+  // 3. Force Push & Force Pull
+  const pushRes = await authSync.forcePush();
+  assert.equal(pushRes.ok, true);
+
+  const pullRes = await authSync.forcePull();
+  assert.equal(pullRes.ok, true);
+
+  // 4. Delete Cloud Data
+  const clearRes = await authSync.deleteCloudData();
+  assert.equal(clearRes.ok, true);
+
+  // 5. Delete Account
+  const delRes = await authSync.deleteAccount();
+  assert.equal(delRes.ok, true);
+  assert.equal(authSync.isLoggedIn(), false, 'Should be signed out after account deletion');
+});

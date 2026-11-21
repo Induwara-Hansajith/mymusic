@@ -503,6 +503,12 @@ ipcMain.handle('auth:reset-password', wrap((p) => authSync.resetPassword(p)));
 ipcMain.handle('auth:sync-now', wrap(() => authSync.syncNow()));
 ipcMain.handle('auth:get-config', wrap(() => authSync.getConfig()));
 ipcMain.handle('auth:set-config', wrap((p) => authSync.setConfig(p)));
+ipcMain.handle('auth:update-profile', wrap((p) => authSync.updateProfile(p)));
+ipcMain.handle('auth:update-password', wrap((p) => authSync.updatePassword(p)));
+ipcMain.handle('auth:force-push', wrap(() => authSync.forcePush()));
+ipcMain.handle('auth:force-pull', wrap(() => authSync.forcePull()));
+ipcMain.handle('auth:delete-cloud-data', wrap(() => authSync.deleteCloudData()));
+ipcMain.handle('auth:delete-account', wrap(() => authSync.deleteAccount()));
 
 authSync.on('sync-status', (status) => {
   if (mainWindow && !mainWindow.isDestroyed()) {

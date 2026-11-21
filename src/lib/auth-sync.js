@@ -364,6 +364,199 @@ class AuthSyncEngine extends EventEmitter {
     return { ok: true, message: 'Password recovery email sent.' };
   }
 
+  async updateProfile({ name, avatarUrl }) {
+    if (!this.isLoggedIn()) throw new Error('You must be signed in to update your profile.');
+    const d = this.load();
+    const cleanName = (name !== undefined ? name : (d.user.name || '')).trim();
+    const cleanAvatar = avatarUrl !== undefined ? avatarUrl.trim() : (d.user.avatarUrl || '');
+
+    const url = d.config.supabaseUrl;
+    const key = d.config.supabaseAnonKey;
+    if (url && key && !d.config.demoMode) {
+      const token = await this.refreshSessionIfNeeded();
+      if (!token) throw new Error('Session expired. Please sign in again.');
+
+      const res = await fetch(`${url}/auth/v1/user`, {
+        method: 'PUT',
+        headers: {
+          'apikey': key,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          data: { name: cleanName, avatarUrl: cleanAvatar }
+        })
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        throw new Error(resData.msg || resData.error_description || resData.message || 'Failed to update profile.');
+      }
+    }
+
+    d.user.name = cleanName;
+    d.user.avatarUrl = cleanAvatar;
+    this.save();
+    this.emit('state-changed', this.getUser());
+    return { ok: true, user: this.getUser() };
+  }
+
+  async updatePassword({ newPassword }) {
+    if (!this.isLoggedIn()) throw new Error('You must be signed in to change your password.');
+    const cleanPass = (newPassword || '').trim();
+    if (!cleanPass || cleanPass.length < 6) {
+      throw new Error('Password must be at least 6 characters.');
+    }
+
+    const d = this.load();
+    const url = d.config.supabaseUrl;
+    const key = d.config.supabaseAnonKey;
+    if (url && key && !d.config.demoMode) {
+      const token = await this.refreshSessionIfNeeded();
+      if (!token) throw new Error('Session expired. Please sign in again.');
+
+      const res = await fetch(`${url}/auth/v1/user`, {
+        method: 'PUT',
+        headers: {
+          'apikey': key,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password: cleanPass })
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        throw new Error(resData.msg || resData.error_description || resData.message || 'Failed to change password.');
+      }
+    }
+    return { ok: true, message: 'Password updated successfully.' };
+  }
+
+  async forcePush() {
+    if (!this.isLoggedIn()) throw new Error('Not signed in.');
+    const d = this.load();
+    const url = d.config.supabaseUrl;
+    const key = d.config.supabaseAnonKey;
+
+    if (!url || !key || d.config.demoMode) {
+      this.setSyncStatus('synced');
+      return { ok: true, message: 'Local library pushed to cloud (demo mode).' };
+    }
+
+    this.setSyncStatus('syncing');
+    const token = await this.refreshSessionIfNeeded();
+    if (!token) throw new Error('Session expired. Please sign in again.');
+
+    const localData = this.store ? this.store.all() : {};
+    const res = await fetch(`${url}/rest/v1/user_libraries`, {
+      method: 'POST',
+      headers: {
+        'apikey': key,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        user_id: d.user.id,
+        favorites: localData.favorites || [],
+        playlists: localData.playlists || [],
+        settings: localData.settings || {},
+        play_stats: localData.playStats || {},
+        lyrics_offsets: localData.lyricsOffsets || {},
+        client_version: '1.1.7',
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    if (!res.ok) {
+      this.setSyncStatus('error', `Cloud push failed: HTTP ${res.status}`);
+      throw new Error(`Cloud push failed: HTTP ${res.status}`);
+    }
+
+    this.setSyncStatus('synced');
+    return { ok: true, message: 'Local library successfully uploaded and replaced in cloud.' };
+  }
+
+  async forcePull() {
+    if (!this.isLoggedIn()) throw new Error('Not signed in.');
+    const d = this.load();
+    const url = d.config.supabaseUrl;
+    const key = d.config.supabaseAnonKey;
+
+    if (!url || !key || d.config.demoMode) {
+      this.setSyncStatus('synced');
+      return { ok: true, message: 'Cloud library loaded.' };
+    }
+
+    this.setSyncStatus('syncing');
+    const token = await this.refreshSessionIfNeeded();
+    if (!token) throw new Error('Session expired. Please sign in again.');
+
+    const res = await fetch(`${url}/rest/v1/user_libraries?user_id=eq.${encodeURIComponent(d.user.id)}&select=*`, {
+      method: 'GET',
+      headers: {
+        'apikey': key,
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      this.setSyncStatus('error', `Cloud fetch failed: HTTP ${res.status}`);
+      throw new Error(`Cloud fetch failed: HTTP ${res.status}`);
+    }
+
+    const rows = await res.json();
+    const remote = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    if (!remote) {
+      this.setSyncStatus('synced');
+      return { ok: true, message: 'No remote cloud data found for this account.' };
+    }
+
+    if (this.store && typeof this.store.applyRemote === 'function') {
+      this.store.applyRemote({
+        favorites: remote.favorites || [],
+        playlists: remote.playlists || [],
+        settings: remote.settings || {},
+        playStats: remote.play_stats || remote.playStats || {},
+        lyricsOffsets: remote.lyrics_offsets || remote.lyricsOffsets || {}
+      });
+      this.emit('library-merged', this.store.all());
+    }
+
+    this.setSyncStatus('synced');
+    return { ok: true, message: 'Local library replaced with cloud library.' };
+  }
+
+  async deleteCloudData() {
+    if (!this.isLoggedIn()) throw new Error('Not signed in.');
+    const d = this.load();
+    const url = d.config.supabaseUrl;
+    const key = d.config.supabaseAnonKey;
+
+    if (url && key && !d.config.demoMode) {
+      const token = await this.refreshSessionIfNeeded();
+      if (token) {
+        await fetch(`${url}/rest/v1/user_libraries?user_id=eq.${encodeURIComponent(d.user.id)}`, {
+          method: 'DELETE',
+          headers: {
+            'apikey': key,
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      }
+    }
+
+    this.setSyncStatus('idle');
+    return { ok: true, message: 'Cloud library data deleted. Local files remain intact.' };
+  }
+
+  async deleteAccount() {
+    await this.deleteCloudData();
+    await this.signOut();
+    return { ok: true, message: 'Account deleted and signed out.' };
+  }
+
   async refreshSessionIfNeeded() {
     const d = this.load();
     if (!d.session || !d.session.refreshToken) return null;
