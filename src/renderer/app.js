@@ -271,6 +271,10 @@ async function boot() {
     }
     go('home', {}, { push: false });
     console.log('renderer:ready');
+
+    if (typeof window.checkV117Intro === 'function') {
+      window.checkV117Intro();
+    }
   } catch (err) {
     console.error('Renderer boot error:', err);
   }
@@ -5678,6 +5682,7 @@ function updateAuthButtonUi() {
   }
 }
 
+window.openAuthModal = openAuthModal;
 async function openAuthModal(defaultTab = 'signin') {
   const m = $('#authModal');
   if (!m) return;
@@ -6719,6 +6724,21 @@ function renderSettings(tok) {
           <button class="dl-folder-btn" data-action="dl-open-folder">${icon('folder')} Open Folder</button>
         </div>
       </div>
+
+      <div class="settings-card" style="border:1px solid rgba(139, 92, 246, 0.3); background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(6, 182, 212, 0.05));">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="background:rgba(139, 92, 246, 0.2);color:#c4b5fd;font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid rgba(139, 92, 246, 0.4)">v1.1.7 PREMIERE</span>
+              <h3 style="margin:0;font-size:15px;font-weight:700">What's New in MyMusic</h3>
+            </div>
+            <p class="settings-desc" style="margin:0">Watch the official introduction video announcing Cross-Platform cloud sync, Google Sign-In, and Sonara Audio.</p>
+          </div>
+          <button id="relaunchIntroBtn" class="primarybtn" style="background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;font-weight:600;padding:8px 18px;border-radius:999px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+            <svg class="ic" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><polygon points="5 3 19 12 5 21 5 3"/></svg> Watch Premiere Intro
+          </button>
+        </div>
+      </div>
     </div>
   `);
 
@@ -6731,6 +6751,15 @@ function renderSettings(tok) {
       mutate({ type: 'settings.set', patch: { wallpaper: url } });
       toast('Wallpaper applied');
     });
+  }
+
+  const relaunchIntroBtn = $('#relaunchIntroBtn');
+  if (relaunchIntroBtn) {
+    relaunchIntroBtn.onclick = () => {
+      if (typeof window.openV117Intro === 'function') {
+        window.openV117Intro({ force: true });
+      }
+    };
   }
 
   const settingSignInBtn = $('#settingSignInBtn');
