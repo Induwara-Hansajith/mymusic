@@ -4700,15 +4700,15 @@ function onClick(e) {
 const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const EQ_PRESETS = {
   flat: { name: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-  bass: { name: 'Bass Boost', gains: [2.5, 4.5, 3.2, 1.2, -0.5, 0, 0, 0, 0.5, 0.5] },
-  bass_reduce: { name: 'Bass Reducer', gains: [-6, -5, -4, -2, 0, 0, 0, 0, 0, 0] },
-  rock: { name: 'Rock', gains: [4, 3, 1, 0, -1, -1, 1, 2, 3, 4] },
-  pop: { name: 'Pop', gains: [-1, 1, 3, 4, 3, 1, -1, -1, 1, 2] },
-  vocal: { name: 'Vocal', gains: [1, -1, -2, 1, 3, 4, 3, 1, 0, -1] },
-  acoustic: { name: 'Acoustic', gains: [3, 2, 1, 1, 1, 1, 2, 2, 3, 3] },
-  electronic: { name: 'Electronic', gains: [5, 4, 2, 0, -1, 2, 1, 3, 4, 4] },
-  club: { name: 'Club', gains: [2, 3, 4, 2, 2, 2, 0, 0, 0, 0] },
-  classical: { name: 'Classical', gains: [4, 3, 2, 2, -1, -1, 0, 2, 3, 3] }
+  bass: { name: 'Bass Boost', gains: [0, 2.0, 4.0, 1.8, -1.5, 0, 0, 0, 0.5, 0.8] },
+  bass_reduce: { name: 'Bass Reducer', gains: [-8, -6, -4, -2, 0, 0, 0, 0, 0, 0] },
+  rock: { name: 'Rock', gains: [0, 2.5, 1.5, 0, -1, -1, 1, 2, 3, 3.5] },
+  pop: { name: 'Pop', gains: [0, 1, 2.5, 3.5, 2.5, 1, -1, -1, 1, 2] },
+  vocal: { name: 'Vocal', gains: [-2, -2, -1, 1, 3, 4, 3, 1, 0, -1] },
+  acoustic: { name: 'Acoustic', gains: [0, 1.5, 1, 1, 1, 1, 2, 2, 2.5, 2.5] },
+  electronic: { name: 'Electronic', gains: [0, 2.2, 3.8, 1.2, -1.2, 1.0, 1.5, 2.5, 3.0, 3.0] },
+  club: { name: 'Club', gains: [0, 2.0, 3.5, 1.5, -1.0, 0, 1.0, 1.5, 2.0, 2.0] },
+  classical: { name: 'Classical', gains: [0, 2.5, 2, 1.5, -1, -1, 0, 2, 2.5, 2.5] }
 };
 
 let dspCtx = null;
@@ -4716,39 +4716,71 @@ let dspSource = null;
 let dspFilters = [];
 let dspEqFilters = [];
 let dspSubsonicFilter = null;
+let dspSubsonicFilter2 = null;
+let dspPreGain = null;
 let dspActive = false;
 let liveDjStudioInstance = null;
 let modalVuRaf = 0;
 
+function updateEqHeadroom() {
+  if (!dspPreGain || !dspPreGain.context) return;
+  const currentGains = (settings().eq && settings().eq.length) ? settings().eq : [];
+  let maxBoost = 0;
+  for (let i = 0; i < currentGains.length; i++) {
+    if (currentGains[i] > maxBoost) maxBoost = currentGains[i];
+  }
+  const now = dspPreGain.context.currentTime || 0;
+  if (maxBoost > 0) {
+    // Dynamic Headroom Compensation: scales down pre-gain to prevent digital clipping & compressor distortion
+    const headroomDb = -Math.min(4.5, maxBoost * 0.7);
+    const linearGain = Math.pow(10, headroomDb / 20);
+    dspPreGain.gain.setTargetAtTime(linearGain, now, 0.025);
+  } else {
+    dspPreGain.gain.setTargetAtTime(1.0, now, 0.025);
+  }
+}
+
 window.getDspEqChain = function(ctx) {
   if (!ctx) return null;
   if (!dspEqFilters || !dspEqFilters.length || dspEqFilters[0].context !== ctx) {
-    // 1. Subsonic Protection (24Hz Highpass Butterworth):
-    // Removes inaudible DC/subsonic rumble (<24Hz) that over-excurses speaker cones and causes mechanical buzzing
+    // 1. Dual-stage steep Subsonic Protection (42Hz Butterworth):
+    // Removes inaudible DC/subsonic rumble (<40Hz) that over-excurses small speaker cones and causes mechanical buzzing
     dspSubsonicFilter = ctx.createBiquadFilter();
     dspSubsonicFilter.type = 'highpass';
-    dspSubsonicFilter.frequency.value = 24;
+    dspSubsonicFilter.frequency.value = 42;
     dspSubsonicFilter.Q.value = 0.707;
+
+    dspSubsonicFilter2 = ctx.createBiquadFilter();
+    dspSubsonicFilter2.type = 'highpass';
+    dspSubsonicFilter2.frequency.value = 38;
+    dspSubsonicFilter2.Q.value = 0.707;
+
+    // 2. Pre-Gain Node for clean headroom staging
+    dspPreGain = ctx.createGain();
+    dspPreGain.gain.value = 1.0;
 
     dspEqFilters = EQ_FREQS.map((freq, i) => {
       const f = ctx.createBiquadFilter();
-      if (i === 0) f.type = 'lowshelf';
+      if (i === 0) { f.type = 'peaking'; f.Q.value = 1.0; } // Peaking prevents infinite low-end shelf boost below 30Hz
       else if (i === EQ_FREQS.length - 1) f.type = 'highshelf';
-      else { f.type = 'peaking'; f.Q.value = 1.4; }
+      else { f.type = 'peaking'; f.Q.value = 1.35; }
       f.frequency.value = freq;
       const g = (settings().eq && settings().eq[i]) != null ? settings().eq[i] : 0;
       f.gain.value = g;
       return f;
     });
 
-    dspSubsonicFilter.connect(dspEqFilters[0]);
+    dspPreGain.connect(dspSubsonicFilter);
+    dspSubsonicFilter.connect(dspSubsonicFilter2);
+    dspSubsonicFilter2.connect(dspEqFilters[0]);
     for (let i = 0; i < dspEqFilters.length - 1; i++) {
       dspEqFilters[i].connect(dspEqFilters[i + 1]);
     }
     dspFilters = dspEqFilters;
+    updateEqHeadroom();
   }
   return {
-    in: dspSubsonicFilter || dspEqFilters[0],
+    in: dspPreGain || dspSubsonicFilter || dspEqFilters[0],
     out: dspEqFilters[dspEqFilters.length - 1]
   };
 };
@@ -4826,11 +4858,11 @@ function ensureDspGraph() {
     }
 
     const limiter = dspCtx.createDynamicsCompressor();
-    limiter.threshold.value = -0.8;
-    limiter.knee.value = 4.0;
-    limiter.ratio.value = 20.0;
-    limiter.attack.value = 0.003;
-    limiter.release.value = 0.12;
+    limiter.threshold.value = -1.2;
+    limiter.knee.value = 8.0;
+    limiter.ratio.value = 8.0;
+    limiter.attack.value = 0.012;
+    limiter.release.value = 0.18;
 
     const dj = getLiveDjStudio();
     if (dj && dj.initialized) {
@@ -4858,6 +4890,7 @@ function applyEqGains(gains) {
       }
     }
   }
+  updateEqHeadroom();
 }
 
 function applySpeedAndPitch() {

@@ -169,18 +169,18 @@
         this.djFilterNode.frequency.setValueAtTime(1000, now);
         this.djFilterNode.Q.setValueAtTime(0.7, now);
 
-        // 3. DJ Club Bass Punch (+3.8dB at 75Hz peaking for smooth punch without speaker rattle)
+        // 3. DJ Club Bass Punch (+2.8dB at 90Hz peaking for musical punch without small speaker rattle)
         this.bassPunchNode = this.ctx.createBiquadFilter();
         this.bassPunchNode.type = 'peaking';
-        this.bassPunchNode.frequency.setValueAtTime(75, now);
-        this.bassPunchNode.Q.setValueAtTime(1.1, now);
-        this.bassPunchNode.gain.setValueAtTime(this.bassPunch ? 3.8 : 0, now);
+        this.bassPunchNode.frequency.setValueAtTime(90, now);
+        this.bassPunchNode.Q.setValueAtTime(1.2, now);
+        this.bassPunchNode.gain.setValueAtTime(this.bassPunch ? 2.8 : 0, now);
 
         // Connect Input -> DJ Filter -> Bass Punch
         this.inputNode.connect(this.djFilterNode);
         this.djFilterNode.connect(this.bassPunchNode);
 
-        // 4. Stereo Expander (Mid-Side Decorrelator + Haas Micro-Delay)
+        // 4. Stereo Expander (Direct Mid-Side with Zero Phase Distortion)
         this.splitterNode = this.ctx.createChannelSplitter(2);
         this.bassPunchNode.connect(this.splitterNode);
 
@@ -202,24 +202,38 @@
         this.sideDiffR = this.ctx.createGain();
         this.sideDiffR.gain.setValueAtTime(-0.5, now);
 
-        // High-pass on Side signal at 140Hz: keeps sub-bass centered
+        // High-pass on Side signal at 140Hz: keeps sub-bass strictly centered
         this.sideHp = this.ctx.createBiquadFilter();
         this.sideHp.type = 'highpass';
         this.sideHp.frequency.setValueAtTime(140, now);
 
-        // Haas micro-delay for true mono source stereo synthesis (13ms)
+        // Direct pristine Mid-Side path (zero delay, zero comb-filtering)
+        this.sideDirectGain = this.ctx.createGain();
+        this.sideDirectGain.gain.setValueAtTime(Math.min(1.5, this.stereoWidth), now);
+
+        // Optional Haas micro-delay (only for ultra-wide > 1.25, zero by default)
         this.sideHaasDelay = this.ctx.createDelay(0.05);
         this.sideHaasDelay.delayTime.setValueAtTime(0.013, now);
+        this.sideHaasGain = this.ctx.createGain();
+        const haasAmt = this.stereoWidth > 1.25 ? (this.stereoWidth - 1.25) * 0.35 : 0.0;
+        this.sideHaasGain.gain.setValueAtTime(haasAmt, now);
 
         this.sideBus = this.ctx.createGain();
-        this.sideBus.gain.setValueAtTime(this.stereoWidth, now);
+        this.sideBus.gain.setValueAtTime(1.0, now);
 
         this.splitterNode.connect(this.sideDiffL, 0);
         this.splitterNode.connect(this.sideDiffR, 1);
         this.sideDiffL.connect(this.sideHp);
         this.sideDiffR.connect(this.sideHp);
+
+        // Direct path (clean original stereo)
+        this.sideHp.connect(this.sideDirectGain);
+        this.sideDirectGain.connect(this.sideBus);
+
+        // Haas path (ultra-wide only)
         this.sideHp.connect(this.sideHaasDelay);
-        this.sideHaasDelay.connect(this.sideBus);
+        this.sideHaasDelay.connect(this.sideHaasGain);
+        this.sideHaasGain.connect(this.sideBus);
 
         // Recombine Mid + Side into Left & Right
         this.sideGainL = this.ctx.createGain();
@@ -600,9 +614,13 @@
     // Controls: Stereo Expander Width (0.0 to 2.5)
     applyStereoWidth(width) {
       this.stereoWidth = Math.max(0, Math.min(2.5, width));
-      if (!this.ctx || !this.sideBus) return;
+      if (!this.ctx || !this.sideDirectGain) return;
       const now = this.ctx.currentTime || 0;
-      this.sideBus.gain.setTargetAtTime(this.stereoWidth, now, 0.03);
+      this.sideDirectGain.gain.setTargetAtTime(Math.min(1.5, this.stereoWidth), now, 0.03);
+      const haasAmt = this.stereoWidth > 1.25 ? (this.stereoWidth - 1.25) * 0.35 : 0.0;
+      if (this.sideHaasGain) {
+        this.sideHaasGain.gain.setTargetAtTime(haasAmt, now, 0.03);
+      }
     }
 
     // Controls: DJ Resonance Filter Sweep (-1.0 to 1.0)
@@ -639,7 +657,7 @@
       this.bassPunch = !!enable;
       if (!this.ctx || !this.bassPunchNode) return;
       const now = this.ctx.currentTime || 0;
-      this.bassPunchNode.gain.setTargetAtTime(this.bassPunch ? 3.8 : 0, now, 0.03);
+      this.bassPunchNode.gain.setTargetAtTime(this.bassPunch ? 2.8 : 0, now, 0.03);
     }
 
     // Controls: DJ Room Ambience (Master Reverb)
