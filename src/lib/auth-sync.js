@@ -257,7 +257,8 @@ class AuthSyncEngine extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       let resolved = false;
-      let server = null;
+      let server4 = null;
+      let server6 = null;
       let timeoutId = null;
 
       const cleanup = () => {
@@ -265,9 +266,13 @@ class AuthSyncEngine extends EventEmitter {
           clearTimeout(timeoutId);
           timeoutId = null;
         }
-        if (server) {
-          try { server.close(); } catch {}
-          server = null;
+        if (server4) {
+          try { server4.close(); } catch {}
+          server4 = null;
+        }
+        if (server6) {
+          try { server6.close(); } catch {}
+          server6 = null;
         }
       };
 
@@ -275,8 +280,12 @@ class AuthSyncEngine extends EventEmitter {
         if (resolved) return;
         resolved = true;
         cleanup();
-        if (mainWindow && typeof mainWindow.focus === 'function') {
-          try { mainWindow.focus(); } catch {}
+        if (mainWindow) {
+          try {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          } catch {}
         }
         resolve(val);
       };
@@ -288,8 +297,19 @@ class AuthSyncEngine extends EventEmitter {
         reject(err);
       };
 
-      server = http.createServer(async (req, res) => {
+      const requestHandler = async (req, res) => {
         try {
+          // Handle CORS preflight for modern Linux/WebKit/Firefox browsers
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204, {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+            });
+            res.end();
+            return;
+          }
+
           const reqUrl = new URL(req.url, 'http://localhost');
           const pathname = reqUrl.pathname;
 
@@ -331,11 +351,15 @@ class AuthSyncEngine extends EventEmitter {
       try {
         let params = new URLSearchParams(window.location.search);
         if (window.location.hash && window.location.hash.length > 1) {
-          params = new URLSearchParams(window.location.hash.substring(1));
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          for (const [k, v] of hashParams.entries()) {
+            params.set(k, v);
+          }
         }
 
         const token = params.get('access_token');
         const refresh = params.get('refresh_token');
+        const code = params.get('code');
         const error = params.get('error_description') || params.get('error');
 
         if (error) {
@@ -346,23 +370,36 @@ class AuthSyncEngine extends EventEmitter {
           return;
         }
 
-        if (!token) {
-          document.getElementById('icon').textContent = '⚠️';
-          document.getElementById('title').textContent = 'Sign-In Incomplete';
-          document.getElementById('desc').textContent = 'No access token was received.';
-          await fetch('/token?error=no_token');
+        if (token) {
+          const res = await fetch('/token?access_token=' + encodeURIComponent(token) + '&refresh_token=' + encodeURIComponent(refresh || ''));
+          if (res.ok) {
+            document.getElementById('icon').textContent = '✅';
+            document.getElementById('title').textContent = 'Authentication Successful!';
+            document.getElementById('desc').textContent = 'You have signed in to MyMusic. You can close this browser tab and return to the application.';
+            setTimeout(() => { try { window.close(); } catch {} }, 1500);
+          } else {
+            throw new Error('Local communication error');
+          }
           return;
         }
 
-        const res = await fetch('/token?access_token=' + encodeURIComponent(token) + '&refresh_token=' + encodeURIComponent(refresh || ''));
-        if (res.ok) {
-          document.getElementById('icon').textContent = '✅';
-          document.getElementById('title').textContent = 'Authentication Successful!';
-          document.getElementById('desc').textContent = 'You have signed in to MyMusic. You can close this browser tab and return to the application.';
-          setTimeout(() => { try { window.close(); } catch {} }, 1500);
-        } else {
-          throw new Error('Local communication error');
+        if (code) {
+          const res = await fetch('/token?code=' + encodeURIComponent(code));
+          if (res.ok) {
+            document.getElementById('icon').textContent = '✅';
+            document.getElementById('title').textContent = 'Authentication Successful!';
+            document.getElementById('desc').textContent = 'You have signed in to MyMusic. You can close this browser tab and return to the application.';
+            setTimeout(() => { try { window.close(); } catch {} }, 1500);
+          } else {
+            throw new Error('Local communication error exchanging code');
+          }
+          return;
         }
+
+        document.getElementById('icon').textContent = '⚠️';
+        document.getElementById('title').textContent = 'Sign-In Incomplete';
+        document.getElementById('desc').textContent = 'No access token or authentication code was received.';
+        await fetch('/token?error=no_token');
       } catch (err) {
         document.getElementById('icon').textContent = '⚠️';
         document.getElementById('title').textContent = 'Communication Error';
@@ -378,6 +415,7 @@ class AuthSyncEngine extends EventEmitter {
           if (pathname === '/token') {
             const token = reqUrl.searchParams.get('access_token');
             const refresh = reqUrl.searchParams.get('refresh_token');
+            const code = reqUrl.searchParams.get('code');
             const error = reqUrl.searchParams.get('error');
 
             if (error) {
@@ -387,7 +425,30 @@ class AuthSyncEngine extends EventEmitter {
               return;
             }
 
-            if (token) {
+            let accessToken = token;
+            let refreshToken = refresh || '';
+
+            if (!accessToken && code) {
+              try {
+                const tokenRes = await fetch(`${url}/auth/v1/token?grant_type=pkce`, {
+                  method: 'POST',
+                  headers: {
+                    'apikey': key,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ auth_code: code })
+                });
+                const tokenData = await tokenRes.json();
+                if (tokenRes.ok && tokenData && tokenData.access_token) {
+                  accessToken = tokenData.access_token;
+                  refreshToken = tokenData.refresh_token || '';
+                }
+              } catch (codeErr) {
+                console.warn('[auth-sync] Code exchange attempt failed:', codeErr.message);
+              }
+            }
+
+            if (accessToken) {
               res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
               res.end(JSON.stringify({ ok: true }));
 
@@ -395,7 +456,7 @@ class AuthSyncEngine extends EventEmitter {
                 const userRes = await fetch(`${url}/auth/v1/user`, {
                   headers: {
                     'apikey': key,
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${accessToken}`
                   }
                 });
                 const userData = await userRes.json();
@@ -410,8 +471,8 @@ class AuthSyncEngine extends EventEmitter {
                   avatarUrl: (userData.user_metadata && userData.user_metadata.avatar_url) || ''
                 };
                 d.session = {
-                  accessToken: token,
-                  refreshToken: refresh || '',
+                  accessToken: accessToken,
+                  refreshToken: refreshToken,
                   expiresAt: Date.now() + 3600 * 1000
                 };
                 this.save();
@@ -439,11 +500,39 @@ class AuthSyncEngine extends EventEmitter {
             res.end('Server Error');
           } catch {}
         }
-      });
+      };
+
+      const openBrowser = (targetUrl) => {
+        if (shell && typeof shell.openExternal === 'function') {
+          shell.openExternal(targetUrl).catch((err) => {
+            console.warn('[auth-sync] shell.openExternal failed, using system fallback:', err.message);
+            spawnSystemBrowser(targetUrl);
+          });
+        } else {
+          spawnSystemBrowser(targetUrl);
+        }
+      };
+
+      const spawnSystemBrowser = (targetUrl) => {
+        try {
+          if (process.platform === 'win32') {
+            exec(`start "" "${targetUrl}"`);
+          } else if (process.platform === 'darwin') {
+            exec(`open "${targetUrl}"`);
+          } else {
+            // Linux: xdg-open -> gio open -> sensible-browser
+            exec(`xdg-open "${targetUrl}" || gio open "${targetUrl}" || sensible-browser "${targetUrl}"`);
+          }
+        } catch (e) {
+          console.error('[auth-sync] Failed to spawn browser:', e.message);
+        }
+      };
 
       const tryListen = (portToTry) => {
+        server4 = http.createServer(requestHandler);
+
         const onErr = (err) => {
-          server.removeListener('listening', onListen);
+          server4.removeListener('listening', onListen);
           if (err.code === 'EADDRINUSE' && portToTry < 54325) {
             tryListen(portToTry + 1);
           } else {
@@ -452,26 +541,32 @@ class AuthSyncEngine extends EventEmitter {
         };
 
         const onListen = () => {
-          server.removeListener('error', onErr);
-          const address = server.address();
-          const port = address.port;
-          const redirectUrl = `http://localhost:${port}/auth/callback`;
+          server4.removeListener('error', onErr);
+          const port = portToTry;
+
+          // Also bind IPv6 loopback on same port so localhost resolves cleanly on Linux
+          try {
+            server6 = http.createServer(requestHandler);
+            server6.once('error', () => { server6 = null; });
+            server6.listen(port, '::1');
+          } catch {
+            server6 = null;
+          }
+
+          // Modern OAuth standards accept 127.0.0.1 and localhost
+          const redirectUrl = `http://127.0.0.1:${port}/auth/callback`;
           const authUrl = `${url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectUrl)}`;
 
-          if (shell && typeof shell.openExternal === 'function') {
-            shell.openExternal(authUrl);
-          } else {
-            exec(`start "" "${authUrl}"`);
-          }
+          openBrowser(authUrl);
 
           timeoutId = setTimeout(() => {
             finishReject(new Error('Google sign-in timed out. Please try again.'));
           }, 180000);
         };
 
-        server.once('error', onErr);
-        server.once('listening', onListen);
-        server.listen(portToTry, '127.0.0.1');
+        server4.once('error', onErr);
+        server4.once('listening', onListen);
+        server4.listen(portToTry, '127.0.0.1');
       };
 
       tryListen(54321);

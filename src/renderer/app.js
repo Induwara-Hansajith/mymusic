@@ -6314,7 +6314,7 @@ async function openAuthModal(defaultTab = 'signin') {
       const alert = $('#authAlertArea', m);
       btn.disabled = true;
       btn.style.opacity = '0.7';
-      alert.innerHTML = '';
+      alert.innerHTML = '<div style="color:var(--text-muted);font-size:13px;margin:8px 0;text-align:center;">Opening default browser for Google sign-in... Complete authentication in your browser window.</div>';
 
       try {
         const res = await call('auth:signin-google');
@@ -6325,6 +6325,7 @@ async function openAuthModal(defaultTab = 'signin') {
           m.classList.add('hidden');
           toast(`Signed in as ${S.user.name || S.user.email}`);
         } else if (res && res.canceled) {
+          alert.innerHTML = '';
           btn.disabled = false;
           btn.style.opacity = '1';
         }
