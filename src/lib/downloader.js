@@ -4,24 +4,43 @@ const fs = require('fs');
 const os = require('os');
 const { shell, app } = require('electron');
 
-let YTDLP = path.join(__dirname, '..', '..', 'bin', 'yt-dlp.exe');
-try {
-  const electron = require('electron');
-  if (electron && electron.app && electron.app.isPackaged) {
-    const packagedPath = path.join(process.resourcesPath, 'bin', 'yt-dlp.exe');
-    if (fs.existsSync(packagedPath)) YTDLP = packagedPath;
+function getYtDlpPath() {
+  const exeName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+  try {
+    const electron = require('electron');
+    if (electron && electron.app && electron.app.isPackaged) {
+      const packagedPath = path.join(process.resourcesPath, 'bin', exeName);
+      if (fs.existsSync(packagedPath)) return packagedPath;
+    }
+  } catch {}
+  const devPath = path.join(__dirname, '..', '..', 'bin', exeName);
+  if (fs.existsSync(devPath)) return devPath;
+
+  if (process.platform !== 'win32') {
+    const systemPaths = ['/usr/bin/yt-dlp', '/usr/local/bin/yt-dlp', '/opt/homebrew/bin/yt-dlp'];
+    for (const p of systemPaths) {
+      if (fs.existsSync(p)) return p;
+    }
   }
-} catch {}
+  return exeName;
+}
 
 function getFfmpegPath() {
-  const candidates = [
-    path.join(process.env.LOCALAPPDATA || '', 'zstream', 'ffmpeg', 'ffmpeg.exe'),
-    path.join(os.homedir(), 'AppData', 'Local', 'zstream', 'ffmpeg', 'ffmpeg.exe')
-  ];
-  for (const c of candidates) {
-    if (c && fs.existsSync(c)) return c;
+  if (process.platform === 'win32') {
+    const candidates = [
+      path.join(process.env.LOCALAPPDATA || '', 'zstream', 'ffmpeg', 'ffmpeg.exe'),
+      path.join(os.homedir(), 'AppData', 'Local', 'zstream', 'ffmpeg', 'ffmpeg.exe')
+    ];
+    for (const c of candidates) {
+      if (c && fs.existsSync(c)) return c;
+    }
+    return null;
   }
-  return null;
+  const unixCandidates = ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg'];
+  for (const c of unixCandidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'ffmpeg';
 }
 
 function getDownloadDir() {
@@ -101,7 +120,7 @@ function downloadTrack(track) {
 
     args.push('-o', outTemplate, `https://www.youtube.com/watch?v=${track.id}`);
 
-    const p = spawn(YTDLP, args, { windowsHide: true });
+    const p = spawn(getYtDlpPath(), args, { windowsHide: true });
     let stdout = '', stderr = '';
     const to = setTimeout(() => {
       try { p.kill(); } catch {}

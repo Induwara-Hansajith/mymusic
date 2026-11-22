@@ -1,10 +1,11 @@
 {
   "name": "my-music",
   "productName": "My Music",
-  "version": "1.1.7",
+  "desktopName": "mymusic.desktop",
+  "version": "1.1.8",
   "description": "My Music - a Spotify-style desktop player powered by YouTube Music",
   "main": "src/main.js",
-  "author": "induw",
+  "author": "Induwara Hansajith <induwarahansajith10@gmail.com>",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -12,6 +13,10 @@
     "smoke": "node test\\smoke.mjs",
     "test:e2e": "node test\\e2e-live.mjs",
     "dist": "npm run check && electron-builder --win --x64",
+    "dist:win": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1",
+    "dist:linux": "npm run check && electron-builder --linux tar.gz --x64",
+    "dist:linux:all": "npm run check && electron-builder --linux AppImage deb tar.gz --x64",
+    "dist:all": "npm run check && powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 && electron-builder --linux tar.gz --x64",
     "dist:publish": "npm run check && electron-builder --win --x64 --publish always"
   },
   "build": {
@@ -38,13 +43,13 @@
       "package.json"
     ],
     "asar": true,
-    "extraResources": [
-      {
-        "from": "bin/yt-dlp.exe",
-        "to": "bin/yt-dlp.exe"
-      }
-    ],
     "win": {
+      "extraResources": [
+        {
+          "from": "bin/yt-dlp.exe",
+          "to": "bin/yt-dlp.exe"
+        }
+      ],
       "target": [
         "nsis",
         "portable",
@@ -59,6 +64,38 @@
         ]
       },
       "cscLink": "build/cert.pfx"
+    },
+    "linux": {
+      "maintainer": "Induwara Hansajith <induwarahansajith10@gmail.com>",
+      "extraResources": [
+        {
+          "from": "bin/yt-dlp",
+          "to": "bin/yt-dlp"
+        }
+      ],
+      "target": [
+        "tar.gz",
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Audio",
+      "syncDesktopName": true,
+      "synopsis": "My Music - a Spotify-style desktop player powered by YouTube Music",
+      "description": "Desktop music player powered by YouTube Music with cross-device cloud sync, lyrics, and studio sound engine.",
+      "artifactName": "My.Music.${version}.${ext}"
+    },
+    "appImage": {
+      "artifactName": "My.Music.${version}.${ext}"
+    },
+    "deb": {
+      "artifactName": "My.Music.${version}.${ext}",
+      "depends": [
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "xdg-utils"
+      ]
     },
     "nsis": {
       "oneClick": false,

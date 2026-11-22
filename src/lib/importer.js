@@ -3,14 +3,26 @@ const path = require('path');
 const fs = require('fs');
 const ytm = require('./ytm');
 
-let YTDLP = path.join(__dirname, '..', '..', 'bin', 'yt-dlp.exe');
-try {
-  const electron = require('electron');
-  if (electron && electron.app && electron.app.isPackaged) {
-    const packagedPath = path.join(process.resourcesPath, 'bin', 'yt-dlp.exe');
-    if (fs.existsSync(packagedPath)) YTDLP = packagedPath;
+function getYtDlpPath() {
+  const exeName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+  try {
+    const electron = require('electron');
+    if (electron && electron.app && electron.app.isPackaged) {
+      const packagedPath = path.join(process.resourcesPath, 'bin', exeName);
+      if (fs.existsSync(packagedPath)) return packagedPath;
+    }
+  } catch {}
+  const devPath = path.join(__dirname, '..', '..', 'bin', exeName);
+  if (fs.existsSync(devPath)) return devPath;
+
+  if (process.platform !== 'win32') {
+    const systemPaths = ['/usr/bin/yt-dlp', '/usr/local/bin/yt-dlp', '/opt/homebrew/bin/yt-dlp'];
+    for (const p of systemPaths) {
+      if (fs.existsSync(p)) return p;
+    }
   }
-} catch {}
+  return exeName;
+}
 
 function parseCsv(text) {
   if (!text || typeof text !== 'string') return [];
@@ -89,7 +101,7 @@ function resolveUrl(url) {
     if (!safeUrl) return reject(new Error('Only http(s) URLs are supported'));
     // '--' ends option parsing so a URL can never be interpreted as a yt-dlp flag.
     const args = ['--flat-playlist', '-J', '--no-warnings', '--', safeUrl];
-    const p = spawn(YTDLP, args, { windowsHide: true });
+    const p = spawn(getYtDlpPath(), args, { windowsHide: true });
     let stdout = '', stderr = '';
     const to = setTimeout(() => {
       try { p.kill(); } catch {}

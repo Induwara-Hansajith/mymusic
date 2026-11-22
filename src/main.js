@@ -273,16 +273,23 @@ const wrap = (fn) => async (_ev, payload) => {
 };
 
 function updaterSupported() {
-  if (!app.isPackaged || process.platform !== 'win32' || process.env.PORTABLE_EXECUTABLE_DIR) return false;
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return false;
   const updateConfig = path.join(process.resourcesPath, 'app-update.yml');
   if (!fs.existsSync(updateConfig)) return false;
-  // The NSIS installer creates an uninstaller beside the app executable. ZIP and
-  // portable builds do not have this marker and must be updated manually.
-  try {
-    return fs.readdirSync(path.dirname(process.execPath)).some(name => /^uninstall.*\.exe$/i.test(name));
-  } catch {
-    return false;
+  if (process.platform === 'win32') {
+    // The NSIS installer creates an uninstaller beside the app executable. ZIP and
+    // portable builds do not have this marker and must be updated manually.
+    try {
+      return fs.readdirSync(path.dirname(process.execPath)).some(name => /^uninstall.*\.exe$/i.test(name));
+    } catch {
+      return false;
+    }
   }
+  if (process.platform === 'linux') {
+    // AppImage supports in-place auto-update via electron-updater
+    return !!process.env.APPIMAGE;
+  }
+  return false;
 }
 
 function sendUpdateEvent(channel, payload) {

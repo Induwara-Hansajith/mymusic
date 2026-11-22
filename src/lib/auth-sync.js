@@ -6,6 +6,13 @@ const fs = require('fs');
 const path = require('path');
 const EventEmitter = require('events');
 
+const getClientVersion = () => {
+  try {
+    if (app && typeof app.getVersion === 'function') return app.getVersion();
+  } catch {}
+  return '1.1.8';
+};
+
 class AuthSyncEngine extends EventEmitter {
   constructor() {
     super();
@@ -699,7 +706,7 @@ class AuthSyncEngine extends EventEmitter {
         settings: localData.settings || {},
         play_stats: localData.playStats || {},
         lyrics_offsets: localData.lyricsOffsets || {},
-        client_version: '1.1.7',
+        client_version: getClientVersion(),
         updated_at: new Date().toISOString()
       })
     });
@@ -999,7 +1006,7 @@ class AuthSyncEngine extends EventEmitter {
           settings: merged.settings,
           play_stats: merged.playStats,
           lyrics_offsets: merged.lyricsOffsets,
-          client_version: '1.1.7',
+          client_version: getClientVersion(),
           updated_at: new Date().toISOString()
         })
       });
@@ -1050,7 +1057,7 @@ class AuthSyncEngine extends EventEmitter {
           settings: localData.settings || {},
           play_stats: localData.playStats || {},
           lyrics_offsets: localData.lyricsOffsets || {},
-          client_version: '1.1.7',
+          client_version: getClientVersion(),
           updated_at: new Date().toISOString()
         })
       });

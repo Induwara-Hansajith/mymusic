@@ -1,15 +1,15 @@
 /**
- * MyMusic v1.1.7 Premiere Introduction Video & Cinematic Experience
- * Showcases the v1.1.7 Milestone Release and announces Cross-Platform Cloud Sync.
+ * MyMusic v1.1.8 Premiere Introduction Video & Cinematic Experience
+ * Showcases the v1.1.8 Milestone Release and announces Linux packaging & Cross-Platform Cloud Sync.
  */
 (() => {
-  const INTRO_VERSION = '1.1.7';
-  const STORAGE_KEY = 'mymusic_intro_seen_v117';
+  const INTRO_VERSION = '1.1.8';
+  const STORAGE_KEY = 'mymusic_intro_seen_v118';
   const TOTAL_DURATION = 46; // seconds
 
   const CHAPTERS = [
-    { start: 0,  end: 8,  id: 'genesis', title: 'v1.1.7 Premiere' },
-    { start: 8,  end: 20, id: 'crossplatform', title: 'Cross-Platform Sync' },
+    { start: 0,  end: 8,  id: 'genesis', title: 'v1.1.8 Premiere' },
+    { start: 8,  end: 20, id: 'crossplatform', title: 'Linux & Cloud Sync' },
     { start: 20, end: 30, id: 'cloudauth', title: 'Google Sign-In' },
     { start: 30, end: 38, id: 'sonara', title: 'Sonara & AutoMix' },
     { start: 38, end: 46, id: 'launch', title: 'Launch Experience' }
@@ -537,7 +537,7 @@
         <div class="intro-topbar">
           <div class="intro-brand">
             <span class="intro-badge-pulse"></span>
-            <span class="intro-title-text">MyMusic 1.1.7</span>
+            <span class="intro-title-text">MyMusic 1.1.8</span>
             <span class="intro-tag">WORLD PREMIERE</span>
           </div>
           <div class="intro-top-actions">
@@ -565,17 +565,17 @@
           <div class="intro-scene-card active" data-scene="0">
             <div class="intro-card-pill">MILESTONE RELEASE</div>
             <h1 class="intro-hero-title">The Evolution of Sound</h1>
-            <p class="intro-hero-desc">Welcome to <strong>MyMusic 1.1.7</strong>. Engineered for audiophiles, optimized for speed, and crafted without compromises.</p>
+            <p class="intro-hero-desc">Welcome to <strong>MyMusic 1.1.8</strong>. Engineered for audiophiles, optimized for speed, and crafted without compromises.</p>
           </div>
 
           <!-- Scene 2: Cross Platform Sync Announcement -->
           <div class="intro-scene-card" data-scene="1">
-            <div class="intro-card-pill highlight">FIRST ANNOUNCEMENT</div>
-            <h1 class="intro-hero-title">Cross-Platform Sync is Here</h1>
-            <p class="intro-hero-desc">Break free from desktop boundaries. Your playlists, favorites, listening stats, and queue now synchronize seamlessly in the cloud across all your computers and devices.</p>
+            <div class="intro-card-pill highlight">LINUX & CROSS-PLATFORM</div>
+            <h1 class="intro-hero-title">Linux Release & Cloud Sync</h1>
+            <p class="intro-hero-desc">Break free from desktop boundaries. Now available natively on Linux (AppImage, deb, tar.gz) and Windows. Your playlists, favorites, listening stats, and queue synchronize seamlessly in the cloud.</p>
             <div class="intro-feature-row">
+              <div class="intro-feature-chip">🐧 Linux & Windows Native</div>
               <div class="intro-feature-chip">⚡ Real-time Supabase Cloud</div>
-              <div class="intro-feature-chip">🛡️ Zero-Loss Offline Cache</div>
               <div class="intro-feature-chip">🔄 Smart Library Merge</div>
             </div>
           </div>
@@ -598,7 +598,7 @@
           <div class="intro-scene-card" data-scene="4">
             <div class="intro-card-pill highlight">GET STARTED</div>
             <h1 class="intro-hero-title">Your Stage Awaits</h1>
-            <p class="intro-hero-desc">Experience v1.1.7 today. Connect your cloud account or begin exploring right away.</p>
+            <p class="intro-hero-desc">Experience v1.1.8 today. Connect your cloud account or begin exploring right away.</p>
             <div class="intro-cta-actions">
               <button id="introAuthActionBtn" class="intro-primary-btn">
                 <svg viewBox="0 0 24 24" class="ic" fill="none" stroke="currentColor" stroke-width="2">
@@ -783,4 +783,6 @@
   // Export functions to window
   window.checkV117Intro = checkV117Intro;
   window.openV117Intro = openIntroModal;
+  window.checkV118Intro = checkV117Intro;
+  window.openV118Intro = openIntroModal;
 })();

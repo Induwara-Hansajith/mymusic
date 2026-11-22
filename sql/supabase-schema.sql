@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.user_libraries (
   settings JSONB DEFAULT '{}'::jsonb,
   play_stats JSONB DEFAULT '{"totalPlays":0,"totalSeconds":0,"tracks":{},"artists":{}}'::jsonb,
   lyrics_offsets JSONB DEFAULT '{}'::jsonb,
-  client_version TEXT DEFAULT '1.1.7',
+  client_version TEXT DEFAULT '1.1.8',
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
