@@ -19,3 +19,7 @@ build/*.cer
 build/*.p12
 build/*.key
 
+
+__pycache__/
+*.pyc
+
