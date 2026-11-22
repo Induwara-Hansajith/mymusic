@@ -408,7 +408,8 @@ function buildShell() {
           <section id="fs-view-stage" class="fs-tab-view active">
             <div class="fs-stage-card">
               <div class="fs-artwork-wrap">
-                <img id="fs-thumb" src="" alt="Artwork" class="fs-artwork">
+                <div class="fs-thumb-placeholder">${icon('music')}</div>
+                <img id="fs-thumb" alt="Artwork" class="fs-artwork" decoding="async">
                 <div id="fs-mixing-badge" class="np-mixing-badge hidden" title="AutoMix: Blending into next track">
                   <span class="mixing-dot"></span> MIXING
                 </div>
@@ -2794,18 +2795,67 @@ function getContextTitle() {
 function updateFsNowPlaying(t) {
   if (!t) return;
   const thumb = $('#fs-thumb');
-  if (thumb && S.fsOpen) {
-    const rawThumb = t.thumb || '';
-    const fsThumb = getFullscreenThumbUrl(rawThumb);
-    thumb.onerror = () => {
-      // If 1080p/720p maxresdefault 404s for an older video, smoothly fall back to hqdefault (uncompressed 480x360)
-      if (thumb.src && thumb.src.includes('maxresdefault.jpg')) {
-        thumb.src = thumb.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-      } else if (thumb.src !== rawThumb) {
-        thumb.src = rawThumb;
+  if (thumb) {
+    if (!thumb._boundError) {
+      thumb._boundError = true;
+      thumb.onerror = () => {
+        const curSrc = thumb.src || '';
+        const raw = (t && t.thumb) || '';
+        if (curSrc.includes('maxresdefault.jpg')) {
+          thumb.src = curSrc.replace('maxresdefault.jpg', 'hqdefault.jpg');
+        } else if (raw && curSrc !== raw) {
+          thumb.src = raw;
+        } else if (t && t.id && /^[A-Za-z0-9_-]{11}$/.test(t.id) && !curSrc.includes('hqdefault.jpg')) {
+          thumb.src = `https://i.ytimg.com/vi/${t.id}/hqdefault.jpg`;
+        } else {
+          thumb.removeAttribute('src');
+        }
+      };
+    }
+
+    if (S.fsOpen) {
+      const npThumb = $('#np-thumb');
+      const npSrc = npThumb ? (npThumb.currentSrc || npThumb.src || '') : '';
+      const rawThumb = t.thumb || npSrc;
+      const fsThumb = getFullscreenThumbUrl(rawThumb);
+
+      // Instant 0ms handover: if #np-thumb has an active image and #fs-thumb doesn't yet, copy immediately
+      if (npSrc && (!thumb.getAttribute('src') || !thumb.src)) {
+        thumb.src = npSrc;
       }
-    };
-    if (thumb.src !== fsThumb) thumb.src = fsThumb;
+
+      if (fsThumb) {
+        if (thumb.src !== fsThumb) {
+          // Preload high-res image before swapping to prevent flicker or blank gaps
+          const highRes = new Image();
+          highRes.src = fsThumb;
+          highRes.onload = () => {
+            const cur = curTrack();
+            if (cur && cur.id === t.id && thumb) {
+              thumb.src = fsThumb;
+            }
+          };
+          highRes.onerror = () => {
+            if (fsThumb.includes('maxresdefault.jpg')) {
+              const hqUrl = fsThumb.replace('maxresdefault.jpg', 'hqdefault.jpg');
+              if (thumb.src !== hqUrl) thumb.src = hqUrl;
+            } else if (rawThumb && thumb.src !== rawThumb) {
+              thumb.src = rawThumb;
+            }
+          };
+          // If we don't even have a low-res source yet, set immediately so loading starts
+          if (!thumb.getAttribute('src')) {
+            thumb.src = fsThumb;
+          }
+        }
+      } else if (rawThumb) {
+        if (thumb.src !== rawThumb) thumb.src = rawThumb;
+      } else if (t.id && /^[A-Za-z0-9_-]{11}$/.test(t.id)) {
+        thumb.src = `https://i.ytimg.com/vi/${t.id}/hqdefault.jpg`;
+      } else {
+        thumb.removeAttribute('src');
+      }
+    }
   }
   const title = $('#fs-title');
   if (title) title.textContent = t.title || 'My Music';
@@ -3089,6 +3139,16 @@ function openNowPlayingOverlay() {
 
   const t = curTrack();
   if (t) {
+    // 0ms handover: copy active playerbar thumbnail directly into fullscreen thumbnail immediately
+    const npThumb = $('#np-thumb');
+    const fsThumb = $('#fs-thumb');
+    if (npThumb && fsThumb && (npThumb.currentSrc || npThumb.src)) {
+      const activeSrc = npThumb.currentSrc || npThumb.src;
+      if (!fsThumb.getAttribute('src')) {
+        fsThumb.src = activeSrc;
+      }
+    }
+
     if (S.lyricsId !== t.id) {
       S.lyrics = null;
       S.lyricsId = t.id;
@@ -4664,6 +4724,10 @@ function fastTrackThumbFromRow(row) {
       const npThumb = $('#np-thumb');
       if (npThumb) {
         npThumb.src = rowImg.currentSrc || rowImg.src;
+      }
+      const fsThumb = $('#fs-thumb');
+      if (fsThumb && S.fsOpen) {
+        fsThumb.src = rowImg.currentSrc || rowImg.src;
       }
     }
   }
