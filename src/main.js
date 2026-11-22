@@ -286,10 +286,110 @@ function updaterSupported() {
     }
   }
   if (process.platform === 'linux') {
-    // AppImage supports in-place auto-update via electron-updater
-    return !!process.env.APPIMAGE;
+    // Linux supports both AppImage and standalone/script installations
+    return true;
   }
   return false;
+}
+
+function isNewerVersion(remote, local) {
+  const pRemote = String(remote || '').replace(/^[^\d]*/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const pLocal = String(local || '').replace(/^[^\d]*/, '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pRemote.length, pLocal.length); i++) {
+    const r = pRemote[i] || 0;
+    const l = pLocal[i] || 0;
+    if (r > l) return true;
+    if (r < l) return false;
+  }
+  return false;
+}
+
+async function checkLinuxGitHubRelease() {
+  const res = await fetch('https://api.github.com/repos/Induwara-Hansajith/mymusic/releases', {
+    headers: { 'User-Agent': 'MyMusic-Updater' }
+  });
+  if (!res.ok) throw new Error(`GitHub releases API returned HTTP ${res.status}`);
+  const releases = await res.json();
+  for (const r of releases) {
+    if (r.draft) continue;
+    const tarAsset = (r.assets || []).find(a => /My\.Music\..*\.tar\.gz$/i.test(a.name));
+    if (tarAsset) {
+      const match = tarAsset.name.match(/My\.Music\.([0-9.]+)\.tar\.gz/i);
+      const version = match ? match[1] : (r.tag_name || '').replace(/^[^\d]*/, '');
+      return { version, downloadUrl: tarAsset.browser_download_url };
+    }
+  }
+  return null;
+}
+
+async function downloadLinuxUpdate(pendingInfo) {
+  const tmpTarPath = path.join(app.getPath('temp'), `My.Music.${pendingInfo.version}.tar.gz`);
+  log(`Starting Linux update download: ${pendingInfo.downloadUrl} -> ${tmpTarPath}`);
+  const res = await fetch(pendingInfo.downloadUrl, { headers: { 'User-Agent': 'MyMusic-Updater' } });
+  if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  let transferred = 0;
+  const fileStream = fs.createWriteStream(tmpTarPath);
+
+  const reader = res.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    fileStream.write(Buffer.from(value));
+    transferred += value.length;
+    const percent = total > 0 ? (transferred / total) * 100 : 0;
+    sendUpdateEvent('updates:progress', {
+      percent: Math.max(0, Math.min(100, percent)),
+      bytesPerSecond: 0,
+      transferred,
+      total
+    });
+  }
+
+  await new Promise((resolve, reject) => {
+    fileStream.on('finish', resolve);
+    fileStream.on('error', reject);
+    fileStream.end();
+  });
+
+  updateDownloadStarted = false;
+  updateDownloadedInfo = {
+    version: pendingInfo.version,
+    tarPath: tmpTarPath,
+    isLinux: true
+  };
+  log('Linux update downloaded to:', tmpTarPath);
+  sendUpdateEvent('updates:downloaded', {
+    version: updateDownloadedInfo.version,
+    playing: currentPlaybackStatus.playing
+  });
+}
+
+function applyLinuxDownloadedUpdate(downloadedInfo) {
+  const { spawn } = require('child_process');
+  const appDir = path.dirname(process.execPath);
+  const updateScript = path.join(appDir, 'update.sh');
+  let cmd, args;
+
+  if (fs.existsSync(updateScript)) {
+    cmd = 'bash';
+    args = [updateScript, downloadedInfo.tarPath];
+  } else {
+    cmd = 'bash';
+    args = ['-c', `curl -fsSL https://raw.githubusercontent.com/Induwara-Hansajith/mymusic/main/scripts/install.sh | bash -s -- "${downloadedInfo.tarPath}"`];
+  }
+
+  log(`Executing Linux update command: ${cmd} ${args.join(' ')}`);
+  const child = spawn(cmd, args, {
+    detached: true,
+    stdio: 'ignore'
+  });
+  child.unref();
+
+  setTimeout(() => {
+    appIsQuitting = true;
+    app.quit();
+  }, 1000);
 }
 
 function sendUpdateEvent(channel, payload) {
@@ -322,7 +422,7 @@ function showUpdateNotification(info) {
 }
 
 async function checkForUpdate(manual = true) {
-  if (!updaterSupported()) throw new Error('Automatic updates are available only in the installed Windows Setup version.');
+  if (!updaterSupported()) throw new Error('Automatic updates are available only in installed versions.');
   const currentSettings = store.all().settings || {};
   if (!manual && currentSettings.autoUpdate === false) return { skipped: true };
   if (updateCheckInProgress) return { checking: true };
@@ -331,6 +431,47 @@ async function checkForUpdate(manual = true) {
   }
   updateCheckIsManual = !!manual;
   updateCheckInProgress = true;
+
+  if (process.platform === 'linux' && !process.env.APPIMAGE) {
+    try {
+      const release = await checkLinuxGitHubRelease();
+      updateCheckInProgress = false;
+      if (release && isNewerVersion(release.version, app.getVersion())) {
+        pendingUpdateInfo = {
+          version: release.version,
+          downloadUrl: release.downloadUrl,
+          isLinux: true
+        };
+        const deferred = (store.all().settings || {}).updateDeferredVersion;
+        if (deferred && deferred === pendingUpdateInfo.version) {
+          log('Update remains deferred:', pendingUpdateInfo.version);
+          updateCheckIsManual = false;
+          return { deferred: true };
+        }
+        const isManual = updateCheckIsManual;
+        sendUpdateEvent('updates:available', {
+          version: pendingUpdateInfo.version,
+          manual: isManual,
+          autoDownloading: false,
+          isLinux: true
+        });
+        if (isManual && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible())) {
+          showUpdateNotification(pendingUpdateInfo);
+        }
+      } else {
+        if (updateCheckIsManual) sendUpdateEvent('updates:not-available', { version: app.getVersion() });
+      }
+      updateCheckIsManual = false;
+      return { checking: true };
+    } catch (error) {
+      updateCheckInProgress = false;
+      const isManual = updateCheckIsManual;
+      updateCheckIsManual = false;
+      if (isManual) sendUpdateEvent('updates:error', { manual: true, message: error.message });
+      throw error;
+    }
+  }
+
   try {
     await autoUpdater.checkForUpdates();
   } catch (error) {
@@ -344,6 +485,13 @@ async function checkForUpdate(manual = true) {
 function startUpdateChecker() {
   if (!updaterSupported()) {
     log('Auto-updater disabled for development, portable, and ZIP builds');
+    return;
+  }
+  if (process.platform === 'linux' && !process.env.APPIMAGE) {
+    setTimeout(() => checkForUpdate(false).catch((e) => log('Initial Linux update check failed:', e.message)), 12000);
+    updateInterval = setInterval(() => {
+      checkForUpdate(false).catch((e) => log('Scheduled Linux update check failed:', e.message));
+    }, 6 * 60 * 60 * 1000);
     return;
   }
   const currentSettings = store.all().settings || {};
@@ -453,6 +601,29 @@ ipcMain.handle('updates:install', wrap(async (p) => {
   if (!updaterSupported() || (!updateDownloadedInfo && !pendingUpdateInfo)) {
     throw new Error('There is no update ready to download.');
   }
+
+  if (process.platform === 'linux' && !process.env.APPIMAGE && ((pendingUpdateInfo && pendingUpdateInfo.isLinux) || (updateDownloadedInfo && updateDownloadedInfo.isLinux))) {
+    if (updateDownloadedInfo) {
+      const force = !!(p && p.force);
+      if (currentPlaybackStatus.playing && !force) {
+        return { ready: true, playing: true, promptConfirm: true, version: updateDownloadedInfo.version };
+      }
+      log('Restarting application to apply Linux update now...');
+      applyLinuxDownloadedUpdate(updateDownloadedInfo);
+      return { installing: true };
+    }
+
+    if (updateDownloadStarted) return { downloading: true };
+    updateDownloadStarted = true;
+    installAfterDownload = !(p && p.background);
+    downloadLinuxUpdate(pendingUpdateInfo).catch(err => {
+      log('Linux update download failed:', err.message);
+      updateDownloadStarted = false;
+      sendUpdateEvent('updates:error', { manual: false, message: 'Update download failed: ' + err.message });
+    });
+    return { downloading: true };
+  }
+
   if (updateDownloadedInfo) {
     const force = !!(p && p.force);
     if (currentPlaybackStatus.playing && !force) {

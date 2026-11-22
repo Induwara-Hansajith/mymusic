@@ -180,7 +180,13 @@ pkgname = mymusic-bin
 
 ARCH_README = f"""# Arch Linux / Manjaro Installation Guide for My Music v{VERSION}
 
-### Option 1: Native Pacman Package (Recommended)
+### Option 1: 1-Line Universal Installer (Recommended)
+Run in terminal (no root required, auto-updates):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Induwara-Hansajith/mymusic/main/scripts/install.sh | bash
+```
+
+### Option 2: Native Pacman Package
 1. Ensure `base-devel` is installed:
    ```bash
    sudo pacman -S --needed base-devel
@@ -198,11 +204,11 @@ ARCH_README = f"""# Arch Linux / Manjaro Installation Guide for My Music v{VERSI
    mymusic
    ```
 
-### Option 2: Standalone Portable Run
+### Option 3: Standalone Portable Run
 Extract `My.Music.{VERSION}.tar.gz` anywhere and run:
 ```bash
-./install-desktop.sh   # Integrates into application menu
-./My-Music.sh          # Or run directly
+./install.sh           # Installs desktop launcher and CLI command
+./My-Music.sh          # Or run directly without installation
 ```
 """
 
@@ -371,6 +377,23 @@ fi
         ti.mtime = 0
         tar.addfile(ti, io.BytesIO(desktop_bytes))
 
+        # Add version.txt and update.sh to /opt/mymusic/
+        install_sh_path = ROOT_DIR / "scripts" / "install.sh"
+        install_sh_bytes = install_sh_path.read_bytes().replace(b"\r\n", b"\n") if install_sh_path.exists() else b""
+
+        ti = tarfile.TarInfo("./opt/mymusic/version.txt")
+        ti.size = len(f"{VERSION}\n".encode("utf-8"))
+        ti.mode = 0o644
+        ti.mtime = 0
+        tar.addfile(ti, io.BytesIO(f"{VERSION}\n".encode("utf-8")))
+
+        if install_sh_bytes:
+            ti = tarfile.TarInfo("./opt/mymusic/update.sh")
+            ti.size = len(install_sh_bytes)
+            ti.mode = 0o755
+            ti.mtime = 0
+            tar.addfile(ti, io.BytesIO(install_sh_bytes))
+
         # Add launcher wrapper to /usr/bin/mymusic
         bin_wrapper = b"#!/bin/sh\nexec /opt/mymusic/mymusic \"$@\"\n"
         ti = tarfile.TarInfo("./usr/bin/mymusic")
@@ -445,7 +468,13 @@ def create_universal_tarball(out_tar_path: Path):
                 tar.addfile(ti, io.BytesIO(file_bytes))
 
         # Add helper files
+        install_sh_path = ROOT_DIR / "scripts" / "install.sh"
+        install_sh_bytes = install_sh_path.read_bytes().replace(b"\r\n", b"\n") if install_sh_path.exists() else b""
+
         helpers = [
+            ("version.txt", f"{VERSION}\n".encode("utf-8"), 0o644),
+            ("install.sh", install_sh_bytes, 0o755),
+            ("update.sh", install_sh_bytes, 0o755),
             ("mymusic.png", icon_bytes, 0o644),
             ("My-Music.sh", PORTABLE_LAUNCHER.replace("\r\n", "\n").encode("utf-8"), 0o755),
             ("install-desktop.sh", INSTALL_DESKTOP_SCRIPT.replace("\r\n", "\n").encode("utf-8"), 0o755),
