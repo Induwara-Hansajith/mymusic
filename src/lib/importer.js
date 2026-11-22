@@ -9,11 +9,21 @@ function getYtDlpPath() {
     const electron = require('electron');
     if (electron && electron.app && electron.app.isPackaged) {
       const packagedPath = path.join(process.resourcesPath, 'bin', exeName);
-      if (fs.existsSync(packagedPath)) return packagedPath;
+      if (fs.existsSync(packagedPath)) {
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(packagedPath, 0o755); } catch {}
+        }
+        return packagedPath;
+      }
     }
   } catch {}
   const devPath = path.join(__dirname, '..', '..', 'bin', exeName);
-  if (fs.existsSync(devPath)) return devPath;
+  if (fs.existsSync(devPath)) {
+    if (process.platform !== 'win32') {
+      try { fs.chmodSync(devPath, 0o755); } catch {}
+    }
+    return devPath;
+  }
 
   if (process.platform !== 'win32') {
     const systemPaths = ['/usr/bin/yt-dlp', '/usr/local/bin/yt-dlp', '/opt/homebrew/bin/yt-dlp'];

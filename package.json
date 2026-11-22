@@ -9,7 +9,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node -c src/main.js src/preload.js src/lib/store.js src/lib/auth-sync.js src/renderer/app.js src/renderer/sonara-engine.js src/renderer/automix-engine.js src/renderer/live-dj-studio.js",
+    "check": "node -c src/main.js src/preload.js src/lib/store.js src/lib/auth-sync.js src/lib/ytm.js src/lib/downloader.js src/lib/importer.js src/renderer/app.js src/renderer/sonara-engine.js src/renderer/automix-engine.js src/renderer/live-dj-studio.js",
     "smoke": "node test\\smoke.mjs",
     "test:e2e": "node test\\e2e-live.mjs",
     "dist": "npm run check && electron-builder --win --x64",

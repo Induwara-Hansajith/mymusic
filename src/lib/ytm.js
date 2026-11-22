@@ -1,19 +1,42 @@
 // YouTube Music service (main process).
 // Search/browse/lyrics via youtubei.js (v18 InnerTube client, same as YT Music web).
-// Audio stream URLs resolved with the bundled yt-dlp.exe and cached for ~5 hours.
+// Audio stream URLs resolved with bundled or system yt-dlp and cached for ~5 hours.
 
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-let YTDLP = path.join(__dirname, '..', '..', 'bin', 'yt-dlp.exe');
-try {
-  const electron = require('electron');
-  if (electron && electron.app && electron.app.isPackaged) {
-    const packagedPath = path.join(process.resourcesPath, 'bin', 'yt-dlp.exe');
-    if (fs.existsSync(packagedPath)) YTDLP = packagedPath;
+function getYtDlpPath() {
+  const exeName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+  try {
+    const electron = require('electron');
+    if (electron && electron.app && electron.app.isPackaged) {
+      const packagedPath = path.join(process.resourcesPath, 'bin', exeName);
+      if (fs.existsSync(packagedPath)) {
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(packagedPath, 0o755); } catch {}
+        }
+        return packagedPath;
+      }
+    }
+  } catch {}
+
+  const devPath = path.join(__dirname, '..', '..', 'bin', exeName);
+  if (fs.existsSync(devPath)) {
+    if (process.platform !== 'win32') {
+      try { fs.chmodSync(devPath, 0o755); } catch {}
+    }
+    return devPath;
   }
-} catch {}
+
+  if (process.platform !== 'win32') {
+    const systemPaths = ['/usr/bin/yt-dlp', '/usr/local/bin/yt-dlp', '/opt/homebrew/bin/yt-dlp'];
+    for (const p of systemPaths) {
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return exeName;
+}
 
 let ytm = null;
 let initPromise = null;
@@ -562,7 +585,8 @@ async function artist(id) {
 
 function ytdlpUrl(videoId) {
   return new Promise((resolve, reject) => {
-    const p = spawn(YTDLP, [
+    const binPath = getYtDlpPath();
+    const p = spawn(binPath, [
       '-g', '--no-warnings', '--no-playlist',
       '--extractor-args', 'youtube:player_client=android',
       '-f', 'bestaudio[protocol^=http][ext=m4a]/bestaudio[protocol^=http]/bestaudio/best',
@@ -778,4 +802,4 @@ async function artistThumb(name, artistId) {
   return null;
 }
 
-module.exports = { search, suggestions, home, album, artist, playlist, stream, lyrics, translate, radio, artistThumb };
+module.exports = { search, suggestions, home, album, artist, playlist, stream, lyrics, translate, radio, artistThumb, getYtDlpPath };
