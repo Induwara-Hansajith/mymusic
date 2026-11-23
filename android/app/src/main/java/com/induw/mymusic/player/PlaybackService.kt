@@ -26,6 +26,7 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
         player = exo
+        runCatching { AudioFx.attach(exo.audioSessionId) }
         val activity = PendingIntent.getActivity(
             this,
             0,

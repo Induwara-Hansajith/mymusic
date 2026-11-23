@@ -15,6 +15,12 @@ interface MediaCatalog {
     suspend fun search(query: String): List<Track>
     suspend fun resolvePlayableUri(track: Track): String
 
+    /** Saves a track into the public Music/My Music folder; offline downloader (Full flavor). */
+    suspend fun saveToDownloads(context: Context, track: Track): String =
+        throw UnsupportedOperationException(
+            "Offline download is only available in My Music Full (GitHub / F-Droid)."
+        )
+
     companion object {
         fun create(context: Context, http: OkHttpClient): MediaCatalog =
             FlavorMediaCatalogFactory.create(context, http)

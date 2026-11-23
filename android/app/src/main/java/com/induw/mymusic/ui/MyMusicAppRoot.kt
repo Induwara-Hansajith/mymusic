@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -48,6 +49,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -127,6 +129,8 @@ fun MyMusicAppRoot(app: MyMusicApp) {
         job.join()
     }
 
+    fun downloadTrack(track: Track) = downloadTrackToMusic(app, track)
+
     fun playTrack(track: Track, context: List<Track>) {
         scope.launch {
             error = null
@@ -134,6 +138,7 @@ fun MyMusicAppRoot(app: MyMusicApp) {
             runCatching {
                 val list = if (context.isNotEmpty()) context else listOf(track)
                 val startAt = list.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                player.automixSource = { tracks }
                 player.playQueue(list, startAt)
             }.onFailure { error = it.message ?: "Playback failed" }
         }
@@ -187,7 +192,7 @@ fun MyMusicAppRoot(app: MyMusicApp) {
                         currentId = currentTrack?.id,
                         onPlay = { track, ctx -> playTrack(track, ctx) }
                     )
-                    tab == Tab.SETTINGS -> SettingsScreen(app = app)
+                    tab == Tab.SETTINGS -> SettingsScreen(app = app, player = player)
                 }
             }
 
@@ -372,7 +377,8 @@ private fun TrackList(
                 onLike = {
                     UiScope.launch { app.library.setLiked(track.id, track.id !in likedSet) }
                 },
-                onAddToPlaylist = { onAddToPlaylist(track) }
+                onAddToPlaylist = { onAddToPlaylist(track) },
+                onDownload = { downloadTrackToMusic(app, track) }
             )
         }
     }
@@ -387,6 +393,16 @@ object UiScope {
 
     fun launch(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit) {
         scope.launch(block = block)
+    }
+}
+
+/** Saves a YouTube track via MediaStore, reporting the outcome as a system toast. */
+private fun downloadTrackToMusic(app: MyMusicApp, track: Track) {
+    val ctx = app.applicationContext
+    UiScope.launch {
+        runCatching { app.catalog.saveToDownloads(ctx, track) }
+            .onSuccess { android.widget.Toast.makeText(ctx, "Saved to Music/My Music", android.widget.Toast.LENGTH_SHORT).show() }
+            .onFailure { android.widget.Toast.makeText(ctx, it.message ?: "Download failed", android.widget.Toast.LENGTH_SHORT).show() }
     }
 }
 
@@ -417,7 +433,8 @@ private fun LikedScreen(
                         liked = true,
                         onPlay = { onPlay(track, liked) },
                         onLike = { UiScope.launch { app.library.setLiked(track.id, false) } },
-                        onAddToPlaylist = { onAddToPlaylist(track) }
+                        onAddToPlaylist = { onAddToPlaylist(track) },
+                        onDownload = { downloadTrackToMusic(app, track) }
                     )
                 }
             }
@@ -477,7 +494,8 @@ private fun PlaylistsScreen(
                                     UiScope.launch {
                                         app.playlists.removeFromPlaylist(pl.id, t.id)
                                     }
-                                }
+                                },
+                                onDownload = { downloadTrackToMusic(app, t) }
                             )
                         }
                     }
@@ -562,7 +580,7 @@ object PlaylistsRepositoryAccess {
 }
 
 @Composable
-private fun SettingsScreen(app: MyMusicApp) {
+private fun SettingsScreen(app: MyMusicApp, player: PlayerController) {
     val scope = rememberCoroutineScope()
     var signedIn by remember { mutableStateOf(app.auth.isSignedIn()) }
     var email by remember { mutableStateOf(app.auth.currentEmail()) }
@@ -637,6 +655,26 @@ private fun SettingsScreen(app: MyMusicApp) {
             }
         }
         item {
+            Text("Playback", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            val automixOn by player.automix.collectAsState()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Auto-Mix (keep playing when the queue ends)",
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
+                )
+                Switch(
+                    checked = automixOn,
+                    onCheckedChange = { on -> player.setAutomix(on) }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            EqualizerSection()
+        }
+        item {
             Text("About", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
                 "My Music for Android ${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR_LABEL} flavor). " +
@@ -703,6 +741,58 @@ private fun AddToPlaylistDialog(
 }
 
 @Composable
+private fun EqualizerSection() {
+    val eqOn = remember { mutableStateOf(com.induw.mymusic.player.AudioFx.enabled) }
+    val levelsState = remember { mutableStateOf(com.induw.mymusic.player.AudioFx.levels()) }
+    val min = remember { com.induw.mymusic.player.AudioFx.minLevel() }
+    val max = remember { com.induw.mymusic.player.AudioFx.maxLevel() }
+    if (!com.induw.mymusic.player.AudioFx.available) {
+        Text(
+            "Equalizer starts with the first playback session.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+        )
+        return
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Equalizer", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f))
+        Switch(
+            checked = eqOn.value,
+            onCheckedChange = {
+                com.induw.mymusic.player.AudioFx.setEnabled(it)
+                eqOn.value = it
+            }
+        )
+    }
+    if (eqOn.value && levelsState.value.isNotEmpty()) {
+        levelsState.value.forEachIndexed { band, level ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    com.induw.mymusic.player.AudioFx.bandLabel(band),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.size(width = 44.dp, height = 20.dp),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+                Slider(
+                    value = level.toFloat(),
+                    onValueChange = { newValue ->
+                        val milliBel = newValue.toInt()
+                        com.induw.mymusic.player.AudioFx.setLevel(band, milliBel)
+                        levelsState.value = levelsState.value.toMutableList()
+                            .also { it[band] = milliBel }
+                    },
+                    valueRange = min.toFloat()..max.toFloat(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun TrackRow(
     track: Track,
     playing: Boolean,
@@ -710,7 +800,8 @@ private fun TrackRow(
     onPlay: () -> Unit,
     onLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onRemove: (() -> Unit)? = null
+    onRemove: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -753,6 +844,15 @@ private fun TrackRow(
                     Icons.Default.Delete,
                     "Remove from playlist",
                     tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                )
+            }
+        }
+        if (onDownload != null && track.source == TrackSource.YOUTUBE) {
+            IconButton(onClick = onDownload) {
+                Icon(
+                    Icons.Default.Download,
+                    "Download",
+                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                 )
             }
         }

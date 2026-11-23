@@ -58,6 +58,12 @@ class PlayerController(context: Context) {
     private val _hasQueue = MutableStateFlow(false)
     val hasQueue: StateFlow<Boolean> = _hasQueue.asStateFlow()
 
+    private val _automix = MutableStateFlow(false)
+    val automix: StateFlow<Boolean> = _automix.asStateFlow()
+
+    /** Current browsable list (library/search/playlist) used to extend the queue. */
+    var automixSource: (() -> List<Track>)? = null
+
     enum class RepeatMode { OFF, ALL, ONE }
 
     suspend fun ensureConnected() {
@@ -84,6 +90,7 @@ class PlayerController(context: Context) {
                     item.mediaId.takeIf { it.startsWith("yt:") || it.startsWith("meta:") }
                         ?.let { lazyResolve(c, idx) }
                 }
+                maybeAutomix(c)
             }
 
             override fun onShuffleModeEnabledChanged(enabled: Boolean) {
@@ -152,6 +159,33 @@ class PlayerController(context: Context) {
 
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
+    }
+
+    fun setAutomix(on: Boolean) {
+        _automix.value = on
+        if (on) controller?.let { maybeAutomix(it) }
+    }
+
+    /** Appends more songs when the queue is nearly spent (desktop Automix behavior, mobile cut). */
+    private fun maybeAutomix(c: MediaController) {
+        if (!_automix.value) return
+        if (c.mediaItemCount - c.currentMediaItemIndex > 2) return
+        val source = automixSource?.invoke().orEmpty()
+        if (source.isEmpty()) return
+        val inQueue = (0 until c.mediaItemCount).mapNotNull { i ->
+            trackById[c.getMediaItemAt(i).mediaId]?.id
+        }.toHashSet()
+        val additions = source.filter { it.id !in inQueue }.take(10)
+        if (additions.isEmpty()) return
+        additions.forEach { trackById[it.id] = it }
+        c.addMediaItems(additions.map { t ->
+            buildItem(
+                t,
+                if (t.source == com.induw.mymusic.data.TrackSource.LOCAL) t.mediaUri
+                else "mymusic://pending/${t.id}"
+            )
+        })
+        _queue.value = _queue.value + additions
     }
 
     fun toggleShuffle() {
