@@ -17,7 +17,6 @@ object FlavorMediaCatalogFactory {
         FullMediaCatalog(LocalMusicScanner(context), YoutubeMusicClient(http), http)
 }
 
-/** GitHub / F-Droid catalog: local files + YouTube Music search/streaming + offline download. */
 private class FullMediaCatalog(
     private val scanner: LocalMusicScanner,
     private val youtube: YoutubeMusicClient,
@@ -27,15 +26,38 @@ private class FullMediaCatalog(
 
     override suspend fun search(query: String): List<Track> {
         val q = query.trim().lowercase()
-        val local = if (q.isEmpty()) {
-            emptyList()
-        } else {
-            scanner.scan().filter {
-                it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
-            }
+        val local = if (q.isEmpty()) emptyList() else scanner.scan().filter {
+            it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
         }
         val remote = runCatching { youtube.search(query) }.getOrDefault(emptyList())
         return local + remote
+    }
+
+    override suspend fun searchStructured(query: String, filter: String?): Map<String, Any> {
+        return youtube.searchStructured(query, filter)
+    }
+
+    override suspend fun homeFeed(): List<Map<String, Any>> {
+        return youtube.homeFeed()
+    }
+
+    override suspend fun resolveStreamUrl(id: String): String {
+        return youtube.resolveAudioUrlById(id)
+    }
+
+    override suspend fun radio(id: String): List<Map<String, Any>> {
+        val tracks = youtube.getRelated(id, 16)
+        return tracks.map { t ->
+            val vid = t.youtubeVideoId?.ifBlank { null } ?: t.id.removePrefix("yt:")
+            mapOf(
+                "id" to vid,
+                "title" to t.title,
+                "artist" to t.artist,
+                "duration" to (t.durationMs / 1000).toInt(),
+                "thumb" to (t.artworkUrl ?: "https://i.ytimg.com/vi/$vid/hqdefault.jpg"),
+                "type" to "song"
+            )
+        }
     }
 
     override suspend fun resolvePlayableUri(track: Track): String = when (track.source) {
@@ -46,20 +68,13 @@ private class FullMediaCatalog(
     override suspend fun saveToDownloads(context: Context, track: Track): String =
         withContext(Dispatchers.IO) {
             val uri = resolvePlayableUri(track)
-            if (track.source != TrackSource.YOUTUBE) {
-                error("Track is already stored on the device.")
-            }
-            val safeTitle = "${track.artist} - ${track.title}"
-                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            val safeTitle = "${track.artist} - ${track.title}".replace(Regex("[\\\\/:*?\"<>|]"), "_")
             val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, "$safeTitle.m4a")
                 put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
                 if (Build.VERSION.SDK_INT >= 29) {
-                    put(
-                        MediaStore.Audio.Media.RELATIVE_PATH,
-                        Environment.DIRECTORY_MUSIC + "/My Music"
-                    )
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/My Music")
                 }
             }
             val target = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)

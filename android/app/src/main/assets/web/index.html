@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data: file: blob:; media-src https: file: blob: data:; connect-src https: ws:;">
+  <title>My Music</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+  <div id="wallpaperBackdrop" aria-hidden="true"></div>
+  <div id="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <canvas id="viz" aria-hidden="true"></canvas>
+  <div id="app">
+    <aside id="sidebar"></aside>
+    <div id="main">
+      <header id="topbar">
+        <div class="nav-btns">
+          <button id="btnBack" class="iconbtn" title="Back" data-action="history-back"></button>
+          <button id="btnFwd" class="iconbtn" title="Forward" data-action="history-fwd"></button>
+        </div>
+        <div id="searchWrap">
+          <input id="searchInput" type="text" placeholder="Search songs, albums, artists…" spellcheck="false" autocomplete="off">
+          <button id="searchBtn" title="Search" data-action="search-submit" aria-label="Search">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/></svg>
+          </button>
+          <div id="sugg"></div>
+        </div>
+        <div id="topbarRight">
+          <button id="topbarAuthBtn" class="topbar-auth-btn" data-action="open-auth-modal" title="Account & Cloud Sync">
+            <div id="topbarAuthAvatar" class="topbar-auth-avatar">
+              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <span id="topbarAuthName" class="topbar-auth-name">Sign In</span>
+            <span id="topbarSyncDot" class="topbar-sync-dot idle" title="Cloud Sync Status"></span>
+          </button>
+        </div>
+      </header>
+      <div id="content"></div>
+    </div>
+    <aside id="queuePanel" class="sidepanel hidden"></aside>
+    <aside id="lyricsPanel" class="sidepanel hidden"></aside>
+  </div>
+  <footer id="playerbar"></footer>
+  <div id="nowPlayingOverlay" class="hidden"></div>
+  <div id="ctxmenu" class="hidden"></div>
+  <div id="toast"></div>
+  <div id="modal" class="hidden"></div>
+  <div id="updateModal" class="hidden"></div>
+  <div id="eqModal" class="hidden"></div>
+  <div id="importModal" class="hidden"></div>
+  <div id="authModal" class="hidden"></div>
+  <div id="introModal" class="hidden"></div>
+  <audio id="audio" crossorigin="anonymous"></audio>
+  <audio id="audioB" crossorigin="anonymous"></audio>
+  <script src="android-bridge.js"></script>
+  <script src="sonara-engine.js"></script>
+  <script src="automix-engine.js"></script>
+  <script src="live-dj-studio.js"></script>
+  <script src="intro-video.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+

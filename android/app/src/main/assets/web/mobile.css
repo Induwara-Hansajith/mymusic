@@ -1,0 +1,208 @@
+/* Mobile Responsive Enhancements for My Music */
+@media (max-width: 768px) {
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 72px);
+    height: calc(100dvh - 72px);
+  }
+
+  #sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 280px;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.7);
+    background: rgba(14, 18, 28, 0.96) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+  }
+
+  #sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  #sidebarBackdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  #sidebarBackdrop.mobile-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  #topbar {
+    height: 56px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .nav-btns {
+    gap: 4px;
+    display: flex;
+    align-items: center;
+  }
+
+  #searchWrap {
+    flex: 1;
+    min-width: 0;
+  }
+
+  #searchInput {
+    font-size: 14px;
+    padding: 8px 36px 8px 12px;
+  }
+
+  #topbarRight {
+    flex: none;
+  }
+
+  .topbar-auth-name {
+    display: none;
+  }
+
+  .topbar-auth-btn {
+    padding: 6px;
+  }
+
+  #content {
+    padding: 10px 14px 24px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  .card {
+    padding: 10px;
+  }
+
+  .card .thumb {
+    border-radius: 8px;
+  }
+
+  .row {
+    padding: 8px 10px;
+    gap: 10px;
+  }
+
+  .row .col-album {
+    display: none;
+  }
+
+  .row .col-time {
+    font-size: 12px;
+  }
+
+  #playerbar {
+    height: 72px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 500;
+    background: rgba(14, 18, 28, 0.94);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .pb-left {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+
+  .pb-center {
+    flex: none;
+  }
+
+  .pb-ctrls {
+    gap: 8px;
+  }
+
+  #pb-shuffle, #pb-prev, #pb-repeat, #pb-automix, #pb-radio {
+    display: none !important;
+  }
+
+  #pb-play {
+    width: 44px;
+    height: 44px;
+  }
+
+  .pb-seek {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    padding: 0;
+    margin: 0;
+  }
+
+  .pb-seek span {
+    display: none;
+  }
+
+  .pb-seek input[type="range"] {
+    position: absolute;
+    top: -4px;
+    left: 0;
+    width: 100%;
+    height: 10px;
+    opacity: 0.8;
+  }
+
+  .pb-right {
+    display: none !important;
+  }
+
+  #nowPlayingOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: #07090e;
+    overflow-y: auto;
+  }
+
+  .mobile-close-np {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2010;
+    cursor: pointer;
+    border: none;
+  }
+
+  .modal-box {
+    width: 94vw !important;
+    max-width: 440px !important;
+    max-height: 85vh !important;
+    margin: 20px auto !important;
+  }
+}

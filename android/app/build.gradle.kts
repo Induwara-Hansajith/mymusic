@@ -93,6 +93,8 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.media:media:1.7.0")
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
@@ -124,3 +126,5 @@ dependencies {
     // Full flavor only: NewPipe Extractor for YouTube Music streams (not shipped in Play builds)
     add("fullImplementation", "com.github.TeamNewPipe:NewPipeExtractor:0.24.6")
 }
+
+
