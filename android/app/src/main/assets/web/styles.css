@@ -3848,3 +3848,62 @@ select option:hover, .fs-select option:hover {
 
 
 
+
+/* ========================================================
+   LOW RESOURCE MODE (Optimized for Budget Smartphones & Battery)
+   ======================================================== */
+body.low-resource-mode #aurora {
+  display: none !important;
+}
+
+body.low-resource-mode #viz,
+body.low-resource-mode #pb-liquid-canvas,
+body.low-resource-mode .pb-liquid-canvas {
+  display: none !important;
+}
+
+body.low-resource-mode #sidebar,
+body.low-resource-mode #playerbar,
+body.low-resource-mode .sidepanel,
+body.low-resource-mode .modal-box,
+body.low-resource-mode .card,
+body.low-resource-mode .stat-section,
+body.low-resource-mode .topbar-auth-btn,
+body.low-resource-mode .settings-card,
+body.low-resource-mode #topbar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+body.low-resource-mode #sidebar {
+  background: #0d1017 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+body.low-resource-mode #playerbar {
+  background: #0a0d14 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+body.low-resource-mode .card {
+  background: #11141d !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+body.low-resource-mode .modal-box {
+  background: #0d1017 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+body.low-resource-mode #nowPlayingOverlay {
+  background: #07090e !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.low-resource-mode * {
+  animation-duration: 0.001s !important;
+  transition-duration: 0.04s !important;
+}

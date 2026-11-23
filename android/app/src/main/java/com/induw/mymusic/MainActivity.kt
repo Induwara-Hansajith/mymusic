@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as MyMusicApp
 
+        window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
         window.statusBarColor = Color.parseColor("#07090E")
@@ -67,6 +68,7 @@ class MainActivity : ComponentActivity() {
                 useWideViewPort = true
                 loadWithOverviewMode = true
                 setSupportZoom(false)
+                setRenderPriority(WebSettings.RenderPriority.HIGH)
                 builtInZoomControls = false
                 displayZoomControls = false
             }
@@ -182,6 +184,13 @@ class MainActivity : ComponentActivity() {
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_MODERATE) {
+            webView?.clearCache(false)
+        }
+    }
+
     override fun onDestroy() {
         notificationManager?.cancel()
         webView?.destroy()
@@ -189,4 +198,5 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
+
 

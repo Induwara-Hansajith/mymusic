@@ -163,7 +163,7 @@ async function boot() {
         volume: 0.8, repeat: 'off', shuffle: false, viz: 'bars', radio: true,
         speed: 1.0, pitchLock: true, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], eqPreset: 'flat',
         wallpaper: '', wallpaperDim: 60, accentHue: 'auto', closeToTray: false, ambientColors: true,
-        lyricsStyle: 'random'
+        lyricsStyle: 'random', lowResourceMode: false
       },
       lyricsOffsets: {},
       lastQueue: null,
@@ -179,6 +179,15 @@ async function boot() {
     applyWallpaper();
     applySpeedAndPitch();
     updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     if (settings().ambientColors !== false && (settings().accentHue == null || settings().accentHue === 0)) {
       settings().accentHue = 'auto';
     }
@@ -1927,6 +1936,20 @@ const ACC_DEFAULT_HUE = 258;
 const accCache = new Map();          // thumb url -> hue (null = use default)
 let curAccThumb = null;
 
+function applyLowResourceMode(enable) {
+  settings().lowResourceMode = !!enable;
+  document.body.classList.toggle('low-resource-mode', !!enable);
+  if (enable) {
+    vizStop();
+    if (typeof fsVizStop === 'function') fsVizStop();
+    if (typeof SonaraEngine !== 'undefined' && SonaraEngine.running) {
+      SonaraEngine.stop();
+    }
+  } else {
+    if (S.playing && vizS.mode !== 'off') vizStart();
+  }
+}
+
 function vizInit() {
   vizS.mode = VIZ_MODES.includes(settings().viz) ? settings().viz : 'bars';
   const btn = $('#pb-viz');
@@ -2015,6 +2038,7 @@ function ensureTap() {
 function resumeTap() { if (vizS.actx && vizS.actx.state === 'suspended') vizS.actx.resume().catch(() => {}); }
 
 function vizStart() {
+  if (settings().lowResourceMode) return;
   if (vizS.raf) return;
   vizS.idleFrames = 0;
   vizS.raf = requestAnimationFrame(vizFrame);
@@ -5068,6 +5092,15 @@ function ensureDspGraph() {
     getLiveDjStudio();
     dspActive = true;
     updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     return;
   }
   try {
@@ -5101,6 +5134,15 @@ function ensureDspGraph() {
     limiter.connect(dspCtx.destination);
     dspActive = true;
     updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     console.log('[dsp] Web Audio equalizer & Live DJ Studio graph connected');
   } catch (e) {
     console.log('[dsp] Web Audio graph fallback:', (e && e.message) || e);
@@ -5423,6 +5465,15 @@ function openEqModal() {
       settings().dj8DMode = mode;
       mutate({ type: 'settings.set', patch: { dj8DMode: mode } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   });
 
@@ -5439,6 +5490,15 @@ function openEqModal() {
       settings().djStereoWidth = w;
       mutate({ type: 'settings.set', patch: { djStereoWidth: w } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   });
   if (stereoInput && stereoVal) {
@@ -5452,6 +5512,15 @@ function openEqModal() {
       settings().djStereoWidth = w;
       mutate({ type: 'settings.set', patch: { djStereoWidth: w } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   }
 
@@ -5472,6 +5541,15 @@ function openEqModal() {
       settings().djFilter = f;
       mutate({ type: 'settings.set', patch: { djFilter: f } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   }
   if (filterReset && filterInput && filterVal) {
@@ -5482,6 +5560,15 @@ function openEqModal() {
       settings().djFilter = 0;
       mutate({ type: 'settings.set', patch: { djFilter: 0 } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   }
 
@@ -5497,6 +5584,15 @@ function openEqModal() {
       settings().djBassPunch = nextPunch;
       mutate({ type: 'settings.set', patch: { djBassPunch: nextPunch } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   }
 
@@ -5511,6 +5607,15 @@ function openEqModal() {
       settings().djReverbPreset = r;
       mutate({ type: 'settings.set', patch: { djReverbPreset: r } });
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   });
 
@@ -5683,6 +5788,15 @@ function openEqModal() {
         if (smartBtn) smartBtn.click();
       }
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     });
   }
 
@@ -5695,6 +5809,15 @@ function openEqModal() {
         modalVuRaf = 0;
       }
       updateEqBadge();
+    if (settings().lowResourceMode === undefined) {
+      const isLowEnd = (typeof navigator !== 'undefined') && (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+        (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+        /Android.*(Go|Lite)/i.test(navigator.userAgent)
+      );
+      settings().lowResourceMode = !!isLowEnd;
+    }
+    applyLowResourceMode(settings().lowResourceMode);
     }
   };
 }
@@ -6828,7 +6951,20 @@ function renderSettings(tok) {
         </div>
       </div>
 
-      <div class="settings-card">
+            <div class="settings-card" id="cardLowResource">
+        <h3> Performance & Battery Saver</h3>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">Low Resource Mode</span>
+            <span class="settings-desc">Disables real-time 60fps canvas visualizers, animated aurora backgrounds, and blur shaders. Highly recommended for low-end smartphones to maximize battery life and deliver fluid 60 FPS scrolling.</span>
+          </div>
+          <label class="toggle-wrap" title="Low Resource Mode">
+            <input type="checkbox" id="lowResourceToggle" ${s.lowResourceMode ? 'checked' : ''}>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+<div class="settings-card">
         <h3>${icon('lyrics')} Lyrics & Visual Animation</h3>
         <div class="settings-row">
           <div class="settings-label">
@@ -7117,3 +7253,4 @@ function syncTaskbarTray() {
     artist: t ? t.artist : ''
   }).catch(() => {});
 }
+

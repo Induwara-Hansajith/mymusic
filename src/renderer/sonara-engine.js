@@ -422,6 +422,7 @@
      * Start 60fps animation loop
      */
     start() {
+      if (typeof document !== 'undefined' && document.body && document.body.classList.contains('low-resource-mode')) return;
       if (this.running) return;
       this.running = true;
       this.lastTime = performance.now();
@@ -910,3 +911,4 @@
 
   return new SonaraAnimationEngine();
 });
+

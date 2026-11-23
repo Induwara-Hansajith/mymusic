@@ -32,7 +32,7 @@
         accentHue: 'auto',
         ambientColors: true,
         lyricsStyle: 'random',
-        automix: false
+        automix: false, lowResourceMode: false
       },
       lyricsOffsets: {},
       lastQueue: null,
@@ -282,3 +282,4 @@
 
   console.log('[bridge] My Music Android bridge loaded');
 })();
+
