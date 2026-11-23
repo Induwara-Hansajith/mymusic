@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">My Music</string>
+    <string name="playback_channel_name">Playback</string>
+    <string name="playback_channel_desc">Now playing controls</string>
+</resources>

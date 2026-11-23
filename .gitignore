@@ -19,6 +19,15 @@ build/*.cer
 build/*.p12
 build/*.key
 
+# Android
+android/local.properties
+android/.gradle/
+android/**/build/
+android/.idea/
+android/*.iml
+android/captures/
+android/*.jks
+android/*.keystore
 
 __pycache__/
 *.pyc
