@@ -6,7 +6,9 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data: file: blob:; media-src https: file: blob: data:; connect-src https: ws:;">
   <title>My Music</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="mobile.css">
 </head>
 <body>
   <div id="wallpaperBackdrop" aria-hidden="true"></div>
@@ -52,8 +54,8 @@
   <div id="importModal" class="hidden"></div>
   <div id="authModal" class="hidden"></div>
   <div id="introModal" class="hidden"></div>
-  <audio id="audio" crossorigin="anonymous"></audio>
-  <audio id="audioB" crossorigin="anonymous"></audio>
+  <audio id="audio"></audio>
+  <audio id="audioB"></audio>
   <script src="sonara-engine.js"></script>
   <script src="automix-engine.js"></script>
   <script src="live-dj-studio.js"></script>

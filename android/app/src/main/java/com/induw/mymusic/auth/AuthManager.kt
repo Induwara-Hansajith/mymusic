@@ -61,13 +61,36 @@ class AuthManager(context: Context, private val http: OkHttpClient) {
 
     fun isSignedIn(): Boolean = currentSession() != null
 
+    private val loopbackServer = AuthLoopbackServer(appContext, this)
+
     fun startGoogleSignIn() {
-        val url = "${BuildConfig.SUPABASE_URL}/auth/v1/authorize" +
-            "?provider=google&redirect_to=" +
-            Uri.encode("mymusic://auth-callback")
-        appContext.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startGoogleSignInLoopback { }
+    }
+
+    fun startGoogleSignInLoopback(onComplete: (Boolean) -> Unit) {
+        loopbackServer.start(onComplete)
+    }
+
+    suspend fun completeDirectSession(accessToken: String, refreshToken: String?): SupabaseUser? = withContext(Dispatchers.IO) {
+        val session = Session(
+            accessToken = accessToken,
+            refreshToken = refreshToken?.ifBlank { null },
+            expiresIn = 3600
         )
+        storeSession(session)
+        val u = fetchUser()
+        u?.let { saveEmail(it.email) }
+        u
+    }
+
+    suspend fun completeWithCode(code: String): SupabaseUser? = withContext(Dispatchers.IO) {
+        if (exchangeCode(code)) {
+            val u = fetchUser()
+            u?.let { saveEmail(it.email) }
+            u
+        } else {
+            null
+        }
     }
 
     /** Returns true when the intent was an auth callback. */

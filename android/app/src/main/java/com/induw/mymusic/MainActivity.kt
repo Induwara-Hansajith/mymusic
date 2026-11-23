@@ -65,12 +65,13 @@ class MainActivity : ComponentActivity() {
                 allowFileAccess = true
                 allowContentAccess = true
                 cacheMode = WebSettings.LOAD_DEFAULT
-                useWideViewPort = true
-                loadWithOverviewMode = true
+                useWideViewPort = false
+                loadWithOverviewMode = false
                 setSupportZoom(false)
                 setRenderPriority(WebSettings.RenderPriority.HIGH)
                 builtInZoomControls = false
                 displayZoomControls = false
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             }
         }
         webView = wv
@@ -143,20 +144,17 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthRedirect(uri: Uri) {
         val app = application as MyMusicApp
+        if (uri.getQueryParameter("done") == "1") {
+            app.refreshSyncToken()
+            bridge?.notifyAuthStateChanged()
+            return
+        }
         if (app.auth.handleRedirect(uri)) {
             app.refreshSyncToken()
             UiScope.launch {
                 app.auth.completePendingSignIn()
                 app.refreshSyncToken()
-                val email = app.auth.currentEmail()
-                val userObj = if (app.auth.isSignedIn() && email.isNotBlank()) {
-                    JSONObject()
-                        .put("id", email)
-                        .put("email", email)
-                        .put("name", email.substringBefore("@"))
-                        .put("avatarUrl", JSONObject.NULL)
-                } else JSONObject.NULL
-                bridge?.sendEvent("auth:state-changed", JSONObject().put("user", userObj).toString())
+                bridge?.notifyAuthStateChanged()
             }
         }
     }

@@ -70,8 +70,8 @@ const icon = (n, cls = '') =>
 // ---------- dual-deck audio state ----------
 const deckA = $('#audio');
 const deckB = $('#audioB');
-if (deckA) deckA.crossOrigin = 'anonymous';
-if (deckB) deckB.crossOrigin = 'anonymous';
+if (deckA) deckA.removeAttribute('crossorigin');
+if (deckB) deckB.removeAttribute('crossorigin');
 let curAudio = deckA;
 let standbyAudio = deckB;
 let audio = curAudio;
@@ -5083,6 +5083,9 @@ function updateEqBadge() {
 }
 
 function ensureDspGraph() {
+  if (typeof window !== 'undefined' && (window.AndroidNative || (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)))) {
+    return;
+  }
   if (dspCtx && dspCtx.state === 'suspended') { dspCtx.resume().catch(() => {}); }
   if (dspActive) return;
   initAutoMixEngine();

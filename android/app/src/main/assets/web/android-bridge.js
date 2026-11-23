@@ -209,7 +209,8 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
+  function initMobileUi() {
+    if (document.getElementById('sidebarBackdrop')) return;
     const backdrop = document.createElement('div');
     backdrop.id = 'sidebarBackdrop';
     document.body.appendChild(backdrop);
@@ -244,7 +245,7 @@
     }
 
     const navBtns = document.querySelector('.nav-btns');
-    if (navBtns) {
+    if (navBtns && !document.getElementById('btnMobileMenu')) {
       const menuBtn = document.createElement('button');
       menuBtn.id = 'btnMobileMenu';
       menuBtn.className = 'iconbtn';
@@ -278,7 +279,13 @@
         }
       });
     }
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMobileUi);
+  } else {
+    initMobileUi();
+  }
 
   console.log('[bridge] My Music Android bridge loaded');
 })();

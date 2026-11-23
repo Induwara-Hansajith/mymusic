@@ -431,10 +431,13 @@
     }
 
     wireDeckToGraph(deckId, deckEl) {
+      if (typeof window !== 'undefined' && (window.AndroidNative || (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)))) {
+        this.webAudioEnabled = false;
+        return;
+      }
       if (!this.audioCtx || !this.masterGain) return;
       if (this.deckGraphs.has(deckId)) return;
       try {
-        if (!deckEl.crossOrigin) deckEl.crossOrigin = 'anonymous';
         const sourceNode = this.audioCtx.createMediaElementSource(deckEl);
 
         const bassFilter = this.audioCtx.createBiquadFilter();

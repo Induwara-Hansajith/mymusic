@@ -153,11 +153,12 @@ class AndroidNativeBridge(
                 }
 
                 "auth:signin-google" -> {
-                    val authUrl = "${BuildConfig.SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=mymusic://auth-callback"
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    app.auth.startGoogleSignInLoopback { success ->
+                        if (success) {
+                            app.refreshSyncToken()
+                            notifyAuthStateChanged()
+                        }
                     }
-                    activity.startActivity(intent)
                     sendResult(id, true, JSONObject().put("ok", true).put("data", JSONObject().put("opened", true)).toString())
                 }
 
@@ -233,6 +234,23 @@ class AndroidNativeBridge(
             val escaped = jsonResult.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
             webView.evaluateJavascript("window.__onAndroidResult('$id', $success, '$escaped')", null)
         }
+    }
+
+    fun notifyAuthStateChanged() {
+        val email = app.auth.currentEmail()
+        val userObj = if (app.auth.isSignedIn() && email.isNotBlank()) {
+            JSONObject()
+                .put("id", email)
+                .put("email", email)
+                .put("name", email.substringBefore("@"))
+                .put("avatarUrl", JSONObject.NULL)
+        } else {
+            JSONObject.NULL
+        }
+        val payload = JSONObject()
+            .put("user", userObj)
+            .put("sync", JSONObject().put("status", "synced"))
+        sendEvent("auth:state-changed", payload.toString())
     }
 
     fun sendEvent(event: String, jsonPayload: String) {
