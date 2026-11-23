@@ -82,6 +82,18 @@ curl -fsSL https://raw.githubusercontent.com/Induwara-Hansajith/mymusic/main/scr
 - **Application menu**: Right-click the **My Music** icon in your application launcher and choose **Check for Updates**.
 - **Uninstall**: Run `mymusic --update.sh --uninstall` or `./install.sh --uninstall`.
 
+### Android (v1.1.8)
+Native Kotlin / Jetpack Compose app with two flavors, published on the [Android 1.1.8 release](https://github.com/Induwara-Hansajith/mymusic/releases/tag/android_1.1.8):
+
+| Flavor | File | YouTube streaming | Use |
+|---|---|---|---|
+| Play-safe | `My.Music.Mobile.1.1.8.play.apk` | No | Sideloading now / Google Play later |
+| Full | `My.Music.Mobile.1.1.8.full.apk` | Yes (NewPipe Extractor) | GitHub / F-Droid only |
+
+Includes local playback, background playback with lockscreen controls, queue, shuffle/repeat, playlists, liked songs, LRCLIB lyrics, Google sign-in and Supabase cloud sync shared with the desktop `user_libraries` schema. Equalizer, Automix, Sonara visualizer, Live DJ Studio, crossfade, and the offline downloader remain desktop-only.
+
+Build from source: see [`android/README.md`](android/README.md) (Gradle flavors `play` / `full`).
+
 ---
 
 ## System Requirements
