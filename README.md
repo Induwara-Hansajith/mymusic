@@ -90,7 +90,7 @@ Native Kotlin / Jetpack Compose app with two flavors, published on the [Android 
 | Play-safe | `My.Music.Mobile.1.1.8.play.apk` | No | Sideloading now / Google Play later |
 | Full | `My.Music.Mobile.1.1.8.full.apk` | Yes (NewPipe Extractor) | GitHub / F-Droid only |
 
-Includes local playback, background playback with lockscreen controls, queue, shuffle/repeat, playlists, liked songs, LRCLIB lyrics, Google sign-in and Supabase cloud sync shared with the desktop `user_libraries` schema. Equalizer, Automix, Sonara visualizer, Live DJ Studio, crossfade, and the offline downloader remain desktop-only.
+Includes local playback, background playback with lockscreen controls, queue, shuffle/repeat, playlists, liked songs, LRCLIB lyrics, Google sign-in and Supabase cloud sync shared with the desktop `user_libraries` schema. The **equalizer** (framework EQ with presets) and **Auto-Mix** (keep-playing queue top-up) are in both flavors, and the **offline downloader** (MediaStore, saves to `Music/My Music`) is in the Full flavor. **Crossfade** (dual-player gapless hand-off), the **Sonara visualizer** (GPU-heavy canvas for large screens), and **Live DJ Studio** (desktop-sized touch UI) remain desktop-only and are planned for future mobile releases.
 
 Build from source: see [`android/README.md`](android/README.md) (Gradle flavors `play` / `full`).
 
