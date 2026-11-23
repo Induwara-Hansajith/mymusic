@@ -97,24 +97,46 @@ class YoutubeService {
   Future<String?> resolveStreamUrl(String trackId) async {
     final cleanId = trackId.replaceFirst('yt:', '');
     if (_streamCache.containsKey(cleanId)) {
-      return _streamCache[cleanId];
+      final cached = _streamCache[cleanId];
+      if (cached != null && cached.isNotEmpty) return cached;
     }
 
     try {
       final manifest = await _yt.videos.streamsClient.getManifest(cleanId);
       final audioStreams = manifest.audioOnly;
-      if (audioStreams.isEmpty) {
-        debugPrint('[YoutubeService] No audio-only stream for $cleanId');
-        return null;
+      if (audioStreams.isNotEmpty) {
+        // Prioritize AAC / MP4 (itag 140) first for 100% native Android hardware support
+        AudioStreamInfo? selected;
+        final mp4Streams = audioStreams
+            .where((s) => s.container.name.toLowerCase() == 'mp4')
+            .toList();
+        if (mp4Streams.isNotEmpty) {
+          selected = mp4Streams.withHighestBitrate();
+        } else {
+          selected = audioStreams.withHighestBitrate();
+        }
+        final url = selected.url.toString();
+        _streamCache[cleanId] = url;
+        return url;
       }
-      final bestAudio = audioStreams.withHighestBitrate();
-      final url = bestAudio.url.toString();
-      _streamCache[cleanId] = url;
-      return url;
+
+      final muxed = manifest.muxed;
+      if (muxed.isNotEmpty) {
+        final url = muxed.withHighestBitrate().url.toString();
+        _streamCache[cleanId] = url;
+        return url;
+      }
+      debugPrint('[YoutubeService] No audio or muxed streams for $cleanId');
+      return null;
     } catch (e) {
       debugPrint('[YoutubeService] resolveStreamUrl error for $cleanId: $e');
       return null;
     }
+  }
+
+  void invalidateStream(String trackId) {
+    final cleanId = trackId.replaceFirst('yt:', '');
+    _streamCache.remove(cleanId);
   }
 
   Future<List<Track>> getRelatedTracks(String videoId, {int limit = 15}) async {

@@ -20,11 +20,15 @@ class PlayerProvider extends ChangeNotifier {
   LoopMode _loopMode = LoopMode.off;
   bool _shuffleEnabled = false;
 
+  String? _errorMessage;
+  String? get errorMessage => _errorMessage;
+
   StreamSubscription? _stateSub;
   StreamSubscription? _posSub;
   StreamSubscription? _durSub;
   StreamSubscription? _bufSub;
   StreamSubscription? _trackSub;
+  StreamSubscription? _errSub;
 
   PlayerProvider() {
     _init();
@@ -87,6 +91,12 @@ class PlayerProvider extends ChangeNotifier {
       _bufferedPosition = buf;
       notifyListeners();
     });
+
+    _errSub = _playerService.errorStream.listen((err) {
+      _errorMessage = err;
+      _isLoading = false;
+      notifyListeners();
+    });
   }
 
   Future<void> _fetchLyricsForCurrentTrack() async {
@@ -107,6 +117,8 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> playTrack(Track track, {List<Track>? queue, int? index}) async {
+    _errorMessage = null;
+    notifyListeners();
     await _playerService.playTrack(track, newQueue: queue, index: index);
   }
 
@@ -142,6 +154,7 @@ class PlayerProvider extends ChangeNotifier {
     _durSub?.cancel();
     _bufSub?.cancel();
     _trackSub?.cancel();
+    _errSub?.cancel();
     super.dispose();
   }
 }

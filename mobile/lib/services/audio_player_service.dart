@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_session/audio_session.dart';
 import '../models/track.dart';
 import 'youtube_service.dart';
 import 'storage_service.dart';
@@ -18,6 +19,8 @@ class AudioPlayerService {
   int _currentIndex = -1;
   Track? _currentTrack;
   bool _isLoading = false;
+  String? _lastError;
+  int _consecutiveErrors = 0;
 
   final _trackChangeController = StreamController<Track?>.broadcast();
   Stream<Track?> get currentTrackStream => _trackChangeController.stream;
@@ -25,13 +28,28 @@ class AudioPlayerService {
   final _queueChangeController = StreamController<List<Track>>.broadcast();
   Stream<List<Track>> get queueStream => _queueChangeController.stream;
 
+  final _errorController = StreamController<String?>.broadcast();
+  Stream<String?> get errorStream => _errorController.stream;
+
   AudioPlayer get player => _player;
   Track? get currentTrack => _currentTrack;
   List<Track> get queue => List.unmodifiable(_queue);
   int get currentIndex => _currentIndex;
   bool get isLoading => _isLoading;
+  String? get lastError => _lastError;
 
-  void init() {
+  Future<void> init() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (e) {
+      debugPrint('[AudioPlayerService] AudioSession init warning: $e');
+    }
+
+    try {
+      await _player.setVolume(1.0);
+    } catch (_) {}
+
     _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
         next();
@@ -59,6 +77,8 @@ class AudioPlayerService {
     _currentTrack = track;
     _trackChangeController.add(_currentTrack);
     _isLoading = true;
+    _lastError = null;
+    _errorController.add(null);
 
     try {
       String? streamUrl;
@@ -69,11 +89,7 @@ class AudioPlayerService {
       }
 
       if (streamUrl == null || streamUrl.isEmpty) {
-        debugPrint('[AudioPlayerService] Failed to resolve stream for ${track.title}');
-        _isLoading = false;
-        // Skip to next if current track fails
-        next();
-        return;
+        throw Exception('Stream URL could not be resolved for "${track.title}"');
       }
 
       final mediaItem = MediaItem(
@@ -85,21 +101,47 @@ class AudioPlayerService {
         duration: Duration(seconds: track.durationSec),
       );
 
-      final audioSource = AudioSource.uri(
-        Uri.parse(streamUrl),
-        tag: mediaItem,
-      );
+      final AudioSource audioSource;
+      if (track.localPath != null && track.localPath!.isNotEmpty) {
+        audioSource = AudioSource.file(
+          track.localPath!,
+          tag: mediaItem,
+        );
+      } else {
+        audioSource = AudioSource.uri(
+          Uri.parse(streamUrl),
+          headers: const {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity;q=1, *;q=0',
+            'Range': 'bytes=0-',
+            'Referer': 'https://www.youtube.com/',
+          },
+          tag: mediaItem,
+        );
+      }
 
-      await _player.setAudioSource(audioSource);
+      await _player.setAudioSource(audioSource, preload: true);
       await _player.play();
       _isLoading = false;
+      _consecutiveErrors = 0;
 
       StorageService().addRecent(track).catchError((_) {});
     } catch (e) {
       debugPrint('[AudioPlayerService] Play error: $e');
+      _yt.invalidateStream(track.id);
       _isLoading = false;
-      // Skip on unrecoverable playback error
-      next();
+      _lastError = e.toString();
+      _errorController.add(_lastError);
+
+      _consecutiveErrors++;
+      if (_consecutiveErrors < 3 && _queue.length > 1) {
+        await Future.delayed(const Duration(milliseconds: 600));
+        next();
+      } else {
+        _consecutiveErrors = 0;
+      }
     }
   }
 
@@ -147,11 +189,6 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> toggleShuffle() async {
-    final enable = !_player.shuffleModeEnabled;
-    await _player.setShuffleModeEnabled(enable);
-  }
-
   Future<void> cycleLoopMode() async {
     switch (_player.loopMode) {
       case LoopMode.off:
@@ -166,9 +203,15 @@ class AudioPlayerService {
     }
   }
 
+  Future<void> toggleShuffle() async {
+    final enable = !_player.shuffleModeEnabled;
+    await _player.setShuffleModeEnabled(enable);
+  }
+
   void dispose() {
     _player.dispose();
     _trackChangeController.close();
     _queueChangeController.close();
+    _errorController.close();
   }
 }

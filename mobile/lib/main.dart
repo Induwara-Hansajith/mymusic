@@ -27,6 +27,7 @@ Future<void> main() async {
       androidNotificationChannelId: 'com.induw.mymusic.channel.audio',
       androidNotificationChannelName: 'My Music Playback',
       androidNotificationOngoing: true,
+      androidNotificationIcon: 'mipmap/ic_launcher',
     );
   } catch (e) {
     debugPrint('[main] JustAudioBackground init warning: $e');
