@@ -406,7 +406,6 @@ class YoutubeService {
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
       );
       req.headers.set('Accept', '*/*');
-      req.headers.set('Range', 'bytes=0-');
       req.headers.set('Referer', 'https://www.youtube.com/');
       final resp = await req.close();
 

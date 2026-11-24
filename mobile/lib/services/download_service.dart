@@ -34,40 +34,41 @@ class DownloadService {
     _downloadStateController.add(track.id);
 
     try {
-      // 1. Resolve stream URL adhering to desktop sources
-      String? streamUrl;
-      final isYouTubeId = track.id.startsWith('yt:') ||
-          (!track.id.startsWith('saavn:') && track.cleanId.length == 11);
+      // 1. Gather stream candidates adhering to desktop sources
+      final candidates = <String>[];
 
-      if (isYouTubeId) {
-        streamUrl = await _yt.resolveStreamUrl(track.cleanId);
-      }
+      try {
+        final saavnStream = await _saavn.resolveStream(
+          track.title,
+          track.artist,
+          directSongId: track.id.startsWith('saavn:') ? track.id : null,
+        );
+        if (saavnStream != null && saavnStream.url.isNotEmpty) {
+          candidates.add(saavnStream.url);
+        }
+      } catch (_) {}
 
-      if (streamUrl == null || streamUrl.isEmpty) {
+      try {
+        final ytUrl = await _yt.resolveStreamUrl(track.cleanId);
+        if (ytUrl != null && ytUrl.isNotEmpty && !candidates.contains(ytUrl)) {
+          candidates.add(ytUrl);
+        }
+      } catch (_) {}
+
+      if (candidates.isEmpty) {
         try {
-          final saavnStream = await _saavn.resolveStream(
-            track.title,
-            track.artist,
-            directSongId: track.id.startsWith('saavn:') ? track.id : null,
-          );
-          if (saavnStream != null && saavnStream.url.isNotEmpty) {
-            streamUrl = saavnStream.url;
+          final searchCandidates = await _yt.search('${track.title} ${track.artist}', limit: 2);
+          for (final sc in searchCandidates) {
+            final candUrl = await _yt.resolveStreamUrl(sc.cleanId);
+            if (candUrl != null && candUrl.isNotEmpty && !candidates.contains(candUrl)) {
+              candidates.add(candUrl);
+              break;
+            }
           }
         } catch (_) {}
       }
 
-      if ((streamUrl == null || streamUrl.isEmpty) && !isYouTubeId) {
-        streamUrl = await _yt.resolveStreamUrl(track.cleanId);
-      }
-
-      if (streamUrl == null || streamUrl.isEmpty) {
-        final candidates = await _yt.search('${track.title} ${track.artist}', limit: 2);
-        if (candidates.isNotEmpty) {
-          streamUrl = await _yt.resolveStreamUrl(candidates.first.cleanId);
-        }
-      }
-
-      if (streamUrl == null || streamUrl.isEmpty) {
+      if (candidates.isEmpty) {
         throw Exception('Stream URL could not be resolved for download');
       }
 
@@ -81,29 +82,35 @@ class DownloadService {
       final sanitizedId = track.id.replaceAll(RegExp(r'[^\w\-]'), '_');
       final targetFile = File('${downloadsDir.path}/$sanitizedId.mp3');
 
-      // 3. Download bytes
+      // 3. Download bytes with candidate fallback
       final client = http.Client();
+      bool downloaded = false;
       try {
-        final request = http.Request('GET', Uri.parse(streamUrl));
-        if (streamUrl.contains('googlevideo.com')) {
-          request.headers['User-Agent'] =
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
-          request.headers['Accept'] = '*/*';
-          request.headers['Accept-Encoding'] = 'identity;q=1, *;q=0';
-          request.headers['Range'] = 'bytes=0-';
-          request.headers['Referer'] = 'https://www.youtube.com/';
-        }
-        final response = await client.send(request);
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final sink = targetFile.openWrite();
-          await response.stream.pipe(sink);
-          await sink.flush();
-          await sink.close();
-        } else {
-          throw Exception('Download HTTP error: ${response.statusCode}');
+        for (final streamUrl in candidates) {
+          try {
+            final request = http.Request('GET', Uri.parse(streamUrl));
+            if (streamUrl.contains('googlevideo.com')) {
+              request.headers['User-Agent'] =
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
+              request.headers['Referer'] = 'https://www.youtube.com/';
+            }
+            final response = await client.send(request);
+            if (response.statusCode >= 200 && response.statusCode < 300) {
+              final sink = targetFile.openWrite();
+              await response.stream.pipe(sink);
+              await sink.flush();
+              await sink.close();
+              downloaded = true;
+              break;
+            }
+          } catch (_) {}
         }
       } finally {
         client.close();
+      }
+
+      if (!downloaded || !await targetFile.exists() || await targetFile.length() == 0) {
+        throw Exception('Download failed across all stream candidates');
       }
 
       // 4. Save to StorageService

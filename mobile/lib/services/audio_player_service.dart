@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -160,65 +161,62 @@ class AudioPlayerService {
     _errorController.add(null);
 
     try {
-      String? streamUrl;
+      final candidates = <String>[];
+
+      // 1. Local path if available and exists on disk
       if (track.localPath != null && track.localPath!.isNotEmpty) {
-        streamUrl = track.localPath;
-      } else {
-        // 1. Desktop Source Priority: If it's a YouTube ID, resolve direct YouTube stream first
-        final isYouTubeId = track.id.startsWith('yt:') ||
-            (!track.id.startsWith('saavn:') && track.cleanId.length == 11);
-
-        if (isYouTubeId) {
-          try {
-            debugPrint('[AudioPlayerService] Resolving Desktop YouTube stream for "${track.cleanId}"');
-            streamUrl = await _yt.resolveStreamUrl(track.cleanId);
-          } catch (e) {
-            debugPrint('[AudioPlayerService] YouTube direct stream note: $e');
-          }
-        }
-
-        // 2. Secondary / Saavn High-Fidelity 320kbps CDN resolution (Instant playback, zero throttle)
-        if (streamUrl == null || streamUrl.isEmpty) {
-          try {
-            final saavnStream = await _saavn.resolveStream(
-              track.title,
-              track.artist,
-              directSongId: track.id.startsWith('saavn:') ? track.id : null,
-            );
-            if (saavnStream != null && saavnStream.url.isNotEmpty) {
-              streamUrl = saavnStream.url;
-              debugPrint('[AudioPlayerService] Direct 320kbps CDN stream resolved: $streamUrl');
-            }
-          } catch (e) {
-            debugPrint('[AudioPlayerService] Saavn stream resolver note: $e');
-          }
-        }
-
-        // 3. Tertiary fallback: YouTube Direct Video ID resolution (if not yet tried)
-        if ((streamUrl == null || streamUrl.isEmpty) && !isYouTubeId) {
-          debugPrint('[AudioPlayerService] Falling back to YouTube stream resolution for "${track.cleanId}"');
-          streamUrl = await _yt.resolveStreamUrl(track.cleanId);
-        }
-
-        // 4. Quaternary fallback: YouTube Search by title + artist
-        if (streamUrl == null || streamUrl.isEmpty) {
-          debugPrint('[AudioPlayerService] Resolving via YouTube title search: "${track.title} ${track.artist}"');
-          final candidates = await _yt.search('${track.title} ${track.artist}', limit: 3);
-          if (candidates.isNotEmpty) {
-            for (final c in candidates) {
-              if (c.id != track.cleanId) {
-                final candidateUrl = await _yt.resolveStreamUrl(c.id);
-                if (candidateUrl != null && candidateUrl.isNotEmpty) {
-                  streamUrl = candidateUrl;
-                  break;
-                }
-              }
-            }
-          }
+        final f = File(track.localPath!);
+        if (f.existsSync()) {
+          candidates.add(track.localPath!);
         }
       }
 
-      if (streamUrl == null || streamUrl.isEmpty) {
+      // 2. High-Fidelity 320kbps CDN Stream (JioSaavn Akamai CDN)
+      // Instant playback, zero 403 blocks, universal seeking, works globally
+      try {
+        final saavnStream = await _saavn.resolveStream(
+          track.title,
+          track.artist,
+          directSongId: track.id.startsWith('saavn:') ? track.id : null,
+        );
+        if (saavnStream != null && saavnStream.url.isNotEmpty) {
+          candidates.add(saavnStream.url);
+          debugPrint('[AudioPlayerService] Added 320kbps CDN candidate: ${saavnStream.url}');
+        }
+      } catch (e) {
+        debugPrint('[AudioPlayerService] Saavn candidate note: $e');
+      }
+
+      // 3. YouTube Direct Stream URL
+      try {
+        final ytUrl = await _yt.resolveStreamUrl(track.cleanId);
+        if (ytUrl != null && ytUrl.isNotEmpty && !candidates.contains(ytUrl)) {
+          candidates.add(ytUrl);
+          debugPrint('[AudioPlayerService] Added YouTube candidate: $ytUrl');
+        }
+      } catch (e) {
+        debugPrint('[AudioPlayerService] YouTube candidate note: $e');
+      }
+
+      // 4. YouTube Search fallback
+      if (candidates.isEmpty) {
+        try {
+          final searchCandidates = await _yt.search('${track.title} ${track.artist}', limit: 3);
+          for (final sc in searchCandidates) {
+            if (sc.cleanId != track.cleanId) {
+              final searchUrl = await _yt.resolveStreamUrl(sc.cleanId);
+              if (searchUrl != null && searchUrl.isNotEmpty && !candidates.contains(searchUrl)) {
+                candidates.add(searchUrl);
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('[AudioPlayerService] Search candidate note: $e');
+        }
+      }
+
+      if (candidates.isEmpty) {
         throw Exception('Stream URL could not be resolved for "${track.title}"');
       }
 
@@ -231,41 +229,55 @@ class AudioPlayerService {
         duration: Duration(seconds: track.durationSec),
       );
 
-      final AudioSource audioSource;
-      if (track.localPath != null && track.localPath!.isNotEmpty) {
-        audioSource = AudioSource.file(
-          track.localPath!,
-          tag: mediaItem,
-        );
-      } else {
-        final Map<String, String>? headers;
-        if (streamUrl.contains('googlevideo.com')) {
-          headers = const {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Encoding': 'identity;q=1, *;q=0',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Range': 'bytes=0-',
-            'Referer': 'https://www.youtube.com/',
-          };
-        } else {
-          headers = null;
-        }
+      // Cascading multi-candidate playback: if candidate 1 fails setAudioSource, try candidate 2!
+      bool played = false;
+      dynamic lastCandidateErr;
 
-        audioSource = AudioSource.uri(
-          Uri.parse(streamUrl),
-          headers: headers,
-          tag: mediaItem,
-        );
+      for (final streamUrl in candidates) {
+        try {
+          final AudioSource audioSource;
+          if (streamUrl.startsWith('/') || streamUrl.contains(':\\') || streamUrl.contains(':/')) {
+            audioSource = AudioSource.file(
+              streamUrl,
+              tag: mediaItem,
+            );
+          } else {
+            final Map<String, String>? headers;
+            if (streamUrl.contains('googlevideo.com')) {
+              headers = const {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+                'Referer': 'https://www.youtube.com/',
+              };
+            } else {
+              headers = null;
+            }
+
+            audioSource = AudioSource.uri(
+              Uri.parse(streamUrl),
+              headers: headers,
+              tag: mediaItem,
+            );
+          }
+
+          await _player.setAudioSource(audioSource, preload: true);
+          await _player.play();
+          played = true;
+          _isLoading = false;
+          _consecutiveErrors = 0;
+          StorageService().addRecent(track).catchError((_) {});
+          debugPrint('[AudioPlayerService] Successfully started playback for "${track.title}" via: $streamUrl');
+          break;
+        } catch (err) {
+          debugPrint('[AudioPlayerService] Candidate $streamUrl failed: $err, trying next...');
+          lastCandidateErr = err;
+          _yt.invalidateStream(track.id);
+        }
       }
 
-      await _player.setAudioSource(audioSource, preload: true);
-      await _player.play();
-      _isLoading = false;
-      _consecutiveErrors = 0;
-
-      StorageService().addRecent(track).catchError((_) {});
+      if (!played) {
+        throw lastCandidateErr ?? Exception('Playback failed across all candidates for "${track.title}"');
+      }
     } catch (e) {
       debugPrint('[AudioPlayerService] Play error: $e');
       _yt.invalidateStream(track.id);
