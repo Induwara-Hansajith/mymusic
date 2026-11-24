@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/track.dart';
+import 'saavn_service.dart';
 
 class YoutubeService {
   static final YoutubeService _instance = YoutubeService._internal();
@@ -277,21 +278,34 @@ class YoutubeService {
   }
 
   Future<Map<String, List<Track>>> getHomeFeed() async {
+    final saavn = SaavnService();
     try {
-      final liveTopFuture = search('top songs hits 2026', limit: 12);
-      final liveTrendingFuture = search('trending pop music', limit: 12);
-      final liveChillFuture = search('lofi hip hop relax beats', limit: 10);
+      final topHitsFuture = saavn.search('top english songs hits 2026', limit: 12);
+      final trendingFuture = saavn.search('trending viral hits', limit: 12);
+      final lofiFuture = saavn.search('chill lofi beats', limit: 12);
+      final lateNightFuture = saavn.search('late night vibes', limit: 12);
+      final workoutFuture = saavn.search('workout motivation edm', limit: 12);
 
-      final results = await Future.wait([liveTopFuture, liveTrendingFuture, liveChillFuture]);
+      final results = await Future.wait([
+        topHitsFuture,
+        trendingFuture,
+        lofiFuture,
+        lateNightFuture,
+        workoutFuture,
+      ]);
 
       final topHits = results[0].isNotEmpty ? results[0] : getCuratedTopHits();
       final trending = results[1].isNotEmpty ? results[1] : getCuratedLateNight();
-      final chill = results[2].isNotEmpty ? results[2] : getCuratedChill();
+      final lofi = results[2].isNotEmpty ? results[2] : getCuratedChill();
+      final lateNight = results[3].isNotEmpty ? results[3] : getCuratedAfterHours();
+      final workout = results[4].isNotEmpty ? results[4] : getCuratedDeepFocus();
 
       return {
         'Quick Picks': topHits,
         'Trending Now': trending,
-        'Chill & Relax': chill,
+        'Chill & Relax': lofi,
+        'Late Night': lateNight,
+        'Workout Energy': workout,
       };
     } catch (e) {
       debugPrint('[YoutubeService] Home feed network error: $e, using curated library');
@@ -299,6 +313,8 @@ class YoutubeService {
         'Quick Picks': getCuratedTopHits(),
         'Trending Now': getCuratedLateNight(),
         'Chill & Relax': getCuratedChill(),
+        'Late Night': getCuratedAfterHours(),
+        'Workout Energy': getCuratedDeepFocus(),
       };
     }
   }

@@ -71,16 +71,41 @@ class PlaylistScreen extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(22),
-                    child: GridView.count(
-                      crossAxisCount: 2,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: [
-                        Container(color: const Color(0xFF3B1D54), child: const Icon(Icons.music_note, color: Colors.white60)),
-                        Container(color: const Color(0xFF1E3A8A), child: const Icon(Icons.nightlight_round, color: Colors.white60)),
-                        Container(color: const Color(0xFF162D4A), child: const Icon(Icons.water_drop_rounded, color: Colors.white60)),
-                        Container(color: const Color(0xFF4A1828), child: const Icon(Icons.wb_twilight_rounded, color: Colors.white60)),
-                      ],
-                    ),
+                    child: tracks.length >= 4
+                        ? GridView.builder(
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                            ),
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: 4,
+                            itemBuilder: (ctx, i) {
+                              final t = tracks[i];
+                              return t.thumb.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: t.thumb,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, _) => Container(color: AppTheme.panel),
+                                      errorWidget: (_, _, _) => Container(
+                                        color: AppTheme.panel,
+                                        child: const Icon(Icons.music_note, color: Colors.white54),
+                                      ),
+                                    )
+                                  : Container(
+                                      color: AppTheme.panel,
+                                      child: const Icon(Icons.music_note, color: Colors.white54),
+                                    );
+                            },
+                          )
+                        : GridView.count(
+                            crossAxisCount: 2,
+                            physics: const NeverScrollableScrollPhysics(),
+                            children: [
+                              Container(color: const Color(0xFF3B1D54), child: const Icon(Icons.music_note, color: Colors.white60)),
+                              Container(color: const Color(0xFF1E3A8A), child: const Icon(Icons.nightlight_round, color: Colors.white60)),
+                              Container(color: const Color(0xFF162D4A), child: const Icon(Icons.water_drop_rounded, color: Colors.white60)),
+                              Container(color: const Color(0xFF4A1828), child: const Icon(Icons.wb_twilight_rounded, color: Colors.white60)),
+                            ],
+                          ),
                   ),
                 ),
               ),

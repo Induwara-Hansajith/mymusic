@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../services/download_service.dart';
 import '../theme.dart';
 import '../screens/equalizer_screen.dart';
 
@@ -15,13 +17,24 @@ class NowPlayingSheet extends StatefulWidget {
   State<NowPlayingSheet> createState() => _NowPlayingSheetState();
 }
 
-class _NowPlayingSheetState extends State<NowPlayingSheet> {
+class _NowPlayingSheetState extends State<NowPlayingSheet>
+    with SingleTickerProviderStateMixin {
   // 0: Full Now Playing view, 1: Queue & Lyrics view ("Mini player - queue.png")
   int _viewMode = 0;
-  int _selectedVisualizer = 0; // 0: Liquid, 1: Orbit, 2: Bars, 3: Wave
-  final List<String> _visualizers = const ['Liquid', 'Orbit', 'Bars', 'Wave'];
+  int _selectedVisualizer = 0; // 0: Liquid, 1: Orbit, 2: Bars, 3: Wave, 4: Silk
+  final List<String> _visualizers = const ['Liquid', 'Orbit', 'Bars', 'Wave', 'Silk'];
   double _lyricOffsetSec = 0.0;
   final ScrollController _lyricsScrollCtrl = ScrollController();
+  late AnimationController _animCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
+  }
 
   String _formatDuration(Duration d) {
     final m = d.inMinutes;
@@ -31,6 +44,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
 
   @override
   void dispose() {
+    _animCtrl.dispose();
     _lyricsScrollCtrl.dispose();
     super.dispose();
   }
@@ -394,7 +408,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
 
         const SizedBox(height: 14),
 
-        // Bottom Action Bar: Equalizer | ✦ AutoMix | Queue
+        // Bottom Action Bar: Equalizer | Download | ✦ AutoMix | Queue
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(
@@ -402,6 +416,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
             children: [
               IconButton(
                 icon: const Icon(Icons.tune_rounded, color: AppTheme.text, size: 22),
+                tooltip: '10-Band Equalizer',
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -409,11 +424,34 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                   );
                 },
               ),
+              IconButton(
+                icon: Icon(
+                  library.isDownloaded(track.id) ? Icons.download_done_rounded : Icons.download_rounded,
+                  color: library.isDownloaded(track.id) ? Colors.greenAccent : AppTheme.text,
+                  size: 22,
+                ),
+                tooltip: library.isDownloaded(track.id) ? 'Downloaded offline' : 'Download for offline playback',
+                onPressed: () async {
+                  if (!library.isDownloaded(track.id)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Downloading "${track.title}" for offline playback...'),
+                        duration: const Duration(seconds: 2),
+                        backgroundColor: AppTheme.panel,
+                      ),
+                    );
+                    await DownloadService().downloadTrack(track);
+                    if (context.mounted) {
+                      library.refreshDownloaded();
+                    }
+                  }
+                },
+              ),
               InkWell(
                 onTap: () => player.toggleAutoMix(),
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: player.autoMixEnabled ? const Color(0xFF2E2248) : AppTheme.panel,
                     borderRadius: BorderRadius.circular(20),
@@ -443,6 +481,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
               ),
               IconButton(
                 icon: const Icon(Icons.playlist_play_rounded, color: AppTheme.text, size: 26),
+                tooltip: 'Lyrics & Queue',
                 onPressed: () => setState(() => _viewMode = 1),
               ),
             ],
@@ -553,14 +592,22 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                               itemCount: synced.length,
                               itemBuilder: (ctx, i) {
                                 final isCurrent = i == activeIdx;
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Text(
-                                    synced[i].text,
-                                    style: TextStyle(
-                                      color: isCurrent ? Colors.white : AppTheme.muted,
-                                      fontSize: isCurrent ? 18 : 14,
-                                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+                                return GestureDetector(
+                                  onTap: () {
+                                    final seekMs = ((synced[i].timeSec + _lyricOffsetSec) * 1000).toInt();
+                                    if (seekMs >= 0) {
+                                      player.seek(Duration(milliseconds: seekMs));
+                                    }
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                    child: Text(
+                                      synced[i].text,
+                                      style: TextStyle(
+                                        color: isCurrent ? AppTheme.accentLight : AppTheme.muted,
+                                        fontSize: isCurrent ? 18 : 14,
+                                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+                                      ),
                                     ),
                                   ),
                                 );
@@ -635,6 +682,34 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                 ),
               ),
               const SizedBox(height: 10),
+
+              // Animated Visualizer Canvas
+              Container(
+                height: 80,
+                decoration: BoxDecoration(
+                  color: AppTheme.panel,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.line),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AnimatedBuilder(
+                    animation: _animCtrl,
+                    builder: (ctx, _) {
+                      return CustomPaint(
+                        size: const Size(double.infinity, 80),
+                        painter: _VisualizerPainter(
+                          mode: _selectedVisualizer,
+                          progress: _animCtrl.value,
+                          isPlaying: player.isPlaying,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
               SizedBox(
                 height: 38,
                 child: ListView.builder(
@@ -914,5 +989,170 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
         ),
       ),
     );
+  }
+}
+
+class _VisualizerPainter extends CustomPainter {
+  final int mode;
+  final double progress;
+  final bool isPlaying;
+
+  _VisualizerPainter({
+    required this.mode,
+    required this.progress,
+    required this.isPlaying,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    if (w <= 0 || h <= 0) return;
+
+    final baseAlpha = isPlaying ? 1.0 : 0.4;
+    final speed = isPlaying ? progress * 2 * math.pi : 0.0;
+
+    if (mode == 0) {
+      // 1. Liquid (Sine wave with gradient fill)
+      final path = Path();
+      path.moveTo(0, h);
+      for (double x = 0; x <= w; x += 4) {
+        final y = h * 0.55 +
+            math.sin(speed + (x / w) * 3 * math.pi) * (h * 0.22) +
+            math.cos(speed * 0.8 + (x / w) * 2 * math.pi) * (h * 0.1);
+        path.lineTo(x, y);
+      }
+      path.lineTo(w, h);
+      path.close();
+
+      final paint = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF8B5CF6).withValues(alpha: 0.7 * baseAlpha),
+            const Color(0xFF6366F1).withValues(alpha: 0.15 * baseAlpha),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, w, h));
+      canvas.drawPath(path, paint);
+
+      // Line stroke
+      final strokePaint = Paint()
+        ..color = const Color(0xFFC084FC).withValues(alpha: baseAlpha)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5;
+      final strokePath = Path();
+      for (double x = 0; x <= w; x += 4) {
+        final y = h * 0.55 +
+            math.sin(speed + (x / w) * 3 * math.pi) * (h * 0.22) +
+            math.cos(speed * 0.8 + (x / w) * 2 * math.pi) * (h * 0.1);
+        if (x == 0) {
+          strokePath.moveTo(x, y);
+        } else {
+          strokePath.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(strokePath, strokePaint);
+    } else if (mode == 1) {
+      // 2. Orbit (Circular frequency orbit)
+      final center = Offset(w / 2, h / 2);
+      final radius = math.min(w, h) * 0.35;
+      final dotPaint = Paint()..color = const Color(0xFF8B5CF6).withValues(alpha: baseAlpha);
+
+      const count = 16;
+      for (int i = 0; i < count; i++) {
+        final angle = speed + (i * 2 * math.pi / count);
+        final pulsate = isPlaying ? math.sin(speed * 2 + i) * 6 : 0.0;
+        final r = radius + pulsate;
+        final x = center.dx + math.cos(angle) * r;
+        final y = center.dy + math.sin(angle) * r;
+        final dotSize = 3.0 + (math.sin(speed + i) + 1.0) * 1.5;
+        canvas.drawCircle(Offset(x, y), dotSize, dotPaint);
+      }
+    } else if (mode == 2) {
+      // 3. Bars (Equalizer frequency bars with peak caps)
+      const numBars = 24;
+      final barWidth = (w - (numBars - 1) * 4) / numBars;
+      final barPaint = Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Color(0xFF6366F1), Color(0xFFD946EF)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h));
+      final capPaint = Paint()..color = const Color(0xFFF472B6).withValues(alpha: baseAlpha);
+
+      for (int i = 0; i < numBars; i++) {
+        final norm = i / numBars;
+        final factor = isPlaying
+            ? (math.sin(speed * 1.5 + norm * 4 * math.pi).abs() * 0.7 +
+                math.cos(speed * 0.7 + i * 0.5).abs() * 0.3)
+            : 0.15;
+        final barHeight = math.max(6.0, h * 0.75 * factor);
+        final x = i * (barWidth + 4);
+        final y = h - barHeight;
+
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromLTWH(x, y, barWidth, barHeight), const Radius.circular(3)),
+          barPaint,
+        );
+        // Peak cap
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromLTWH(x, math.max(0, y - 4), barWidth, 2), const Radius.circular(1)),
+          capPaint,
+        );
+      }
+    } else if (mode == 3) {
+      // 4. Wave (Oscilloscope neon line)
+      final wavePaint = Paint()
+        ..color = const Color(0xFF38BDF8).withValues(alpha: baseAlpha)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round;
+
+      final path = Path();
+      for (double x = 0; x <= w; x += 3) {
+        final norm = x / w;
+        final envelope = math.sin(norm * math.pi); // Taper at edges
+        final y = h / 2 + (math.sin(speed * 2.5 + norm * 8 * math.pi) * (h * 0.38) * envelope);
+        if (x == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(path, wavePaint);
+    } else {
+      // 5. Silk (Smooth floating ribbon)
+      final silkPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+
+      for (int layer = 0; layer < 3; layer++) {
+        silkPaint.color = (layer == 0
+                ? const Color(0xFFC084FC)
+                : (layer == 1 ? const Color(0xFF818CF8) : const Color(0xFF38BDF8)))
+            .withValues(alpha: (0.7 - layer * 0.2) * baseAlpha);
+
+        final path = Path();
+        for (double x = 0; x <= w; x += 4) {
+          final norm = x / w;
+          final y = h * 0.5 +
+              math.sin(speed * (0.8 + layer * 0.2) + norm * 2.5 * math.pi + layer) * (h * 0.28);
+          if (x == 0) {
+            path.moveTo(x, y);
+          } else {
+            path.lineTo(x, y);
+          }
+        }
+        canvas.drawPath(path, silkPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _VisualizerPainter oldDelegate) {
+    return oldDelegate.mode != mode ||
+        oldDelegate.progress != progress ||
+        oldDelegate.isPlaying != isPlaying;
   }
 }

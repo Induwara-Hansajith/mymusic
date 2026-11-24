@@ -173,13 +173,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_activeTab == 0) {
       // Playlists
       return _buildPlaylistsList(library);
+    } else if (_activeTab == 1) {
+      // Artists
+      return _buildArtistsList(library, player);
+    } else if (_activeTab == 2) {
+      // Albums
+      return _buildAlbumsList(library, player);
     } else if (_activeTab == 3) {
       // Liked songs
-      return _buildTrackList(library.favorites, 'Liked Songs', null);
+      return _buildTrackList(library.favorites, 'Liked Songs', 'No liked songs yet. Tap the heart on any song to save it here.');
     } else if (_activeTab == 4) {
       // Downloaded
-      final downloaded = library.favorites.where((t) => t.localPath != null).toList();
-      return _buildTrackList(downloaded, 'Downloads', 'No downloaded songs yet');
+      final downloaded = library.downloaded;
+      return _buildTrackList(downloaded, 'Downloads', 'No downloaded songs yet. Tap the 3 dots on any song to download for offline playback.');
     } else {
       // History (default)
       final history = library.recentTracks.isNotEmpty
@@ -231,6 +237,113 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       );
     }
+  }
+
+  Widget _buildArtistsList(LibraryProvider library, PlayerProvider player) {
+    final allTracks = [...library.favorites, ...library.recentTracks];
+    final artistMap = <String, List<Track>>{};
+    for (final t in allTracks) {
+      artistMap.putIfAbsent(t.artist, () => []).add(t);
+    }
+
+    if (artistMap.isEmpty) {
+      return const Center(
+        child: Text('Play or like songs to view your top artists.', style: TextStyle(color: AppTheme.muted)),
+      );
+    }
+
+    final artists = artistMap.keys.toList();
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+      itemCount: artists.length,
+      itemBuilder: (ctx, i) {
+        final artist = artists[i];
+        final tracks = artistMap[artist]!;
+        final thumb = tracks.first.thumb;
+
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: thumb.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: thumb,
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) => Container(color: AppTheme.panel),
+                    errorWidget: (_, _, _) => Container(color: AppTheme.panel),
+                  )
+                : Container(
+                    width: 48,
+                    height: 48,
+                    color: AppTheme.panel,
+                    child: const Icon(Icons.person, color: AppTheme.accentLight),
+                  ),
+          ),
+          title: Text(artist, style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.bold)),
+          subtitle: Text('${tracks.length} saved songs', style: const TextStyle(color: AppTheme.muted)),
+          trailing: const Icon(Icons.play_circle_fill_rounded, color: AppTheme.accentLight, size: 28),
+          onTap: () {
+            player.playTrack(tracks.first, queue: tracks, index: 0);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAlbumsList(LibraryProvider library, PlayerProvider player) {
+    final allTracks = [...library.favorites, ...library.recentTracks];
+    final albumMap = <String, List<Track>>{};
+    for (final t in allTracks) {
+      final alb = t.album ?? 'Single / Unassigned';
+      albumMap.putIfAbsent(alb, () => []).add(t);
+    }
+
+    if (albumMap.isEmpty) {
+      return const Center(
+        child: Text('No albums in your library yet.', style: TextStyle(color: AppTheme.muted)),
+      );
+    }
+
+    final albums = albumMap.keys.toList();
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+      itemCount: albums.length,
+      itemBuilder: (ctx, i) {
+        final album = albums[i];
+        final tracks = albumMap[album]!;
+        final thumb = tracks.first.thumb;
+
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: thumb.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: thumb,
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) => Container(color: AppTheme.panel),
+                    errorWidget: (_, _, _) => Container(color: AppTheme.panel),
+                  )
+                : Container(
+                    width: 48,
+                    height: 48,
+                    color: AppTheme.panel,
+                    child: const Icon(Icons.album_rounded, color: AppTheme.accentLight),
+                  ),
+          ),
+          title: Text(album, style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.bold)),
+          subtitle: Text('${tracks.first.artist} · ${tracks.length} tracks', style: const TextStyle(color: AppTheme.muted)),
+          trailing: const Icon(Icons.play_circle_fill_rounded, color: AppTheme.accentLight, size: 28),
+          onTap: () {
+            player.playTrack(tracks.first, queue: tracks, index: 0);
+          },
+        );
+      },
+    );
   }
 
   Widget _buildHistoryRow(Track t, PlayerProvider player, List<Track> queue) {

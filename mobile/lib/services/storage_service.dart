@@ -124,6 +124,46 @@ class StorageService {
     }
   }
 
+  // Downloads / Offline Tracks
+  List<Track> getDownloaded() {
+    final list = prefs.getStringList('mymusic_downloaded') ?? [];
+    return list.map((str) {
+      try {
+        return Track.fromJson(jsonDecode(str) as Map<String, dynamic>);
+      } catch (_) {
+        return null;
+      }
+    }).whereType<Track>().toList();
+  }
+
+  Future<void> saveDownloaded(List<Track> tracks) async {
+    final list = tracks.map((t) => jsonEncode(t.toJson())).toList();
+    await prefs.setStringList('mymusic_downloaded', list);
+  }
+
+  bool isDownloaded(String trackId) {
+    return getDownloaded().any((t) => t.id == trackId);
+  }
+
+  String? getDownloadedPath(String trackId) {
+    final match = getDownloaded().where((t) => t.id == trackId);
+    if (match.isNotEmpty) return match.first.localPath;
+    return null;
+  }
+
+  Future<void> addDownloaded(Track track) async {
+    final list = getDownloaded();
+    list.removeWhere((t) => t.id == track.id);
+    list.insert(0, track);
+    await saveDownloaded(list);
+  }
+
+  Future<void> removeDownloaded(String trackId) async {
+    final list = getDownloaded();
+    list.removeWhere((t) => t.id == trackId);
+    await saveDownloaded(list);
+  }
+
   // Settings
   bool get lowResourceMode => prefs.getBool('setting_low_resource') ?? false;
   Future<void> setLowResourceMode(bool value) async {

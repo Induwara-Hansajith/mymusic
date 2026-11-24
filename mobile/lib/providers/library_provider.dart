@@ -9,6 +9,7 @@ class LibraryProvider extends ChangeNotifier {
   List<Track> _favorites = [];
   List<Track> _recents = [];
   List<Playlist> _playlists = [];
+  List<Track> _downloaded = [];
   bool _lowResourceMode = false;
 
   LibraryProvider() {
@@ -19,14 +20,30 @@ class LibraryProvider extends ChangeNotifier {
   List<Track> get recents => List.unmodifiable(_recents);
   List<Track> get recentTracks => List.unmodifiable(_recents);
   List<Playlist> get playlists => List.unmodifiable(_playlists);
+  List<Track> get downloaded => List.unmodifiable(_downloaded);
   bool get lowResourceMode => _lowResourceMode;
 
   void load() {
     _favorites = _storage.getFavorites();
     _recents = _storage.getRecents();
     _playlists = _storage.getPlaylists();
+    _downloaded = _storage.getDownloaded();
     _lowResourceMode = _storage.lowResourceMode;
     notifyListeners();
+  }
+
+  void refreshDownloaded() {
+    _downloaded = _storage.getDownloaded();
+    notifyListeners();
+  }
+
+  void refreshRecents() {
+    _recents = _storage.getRecents();
+    notifyListeners();
+  }
+
+  bool isDownloaded(String trackId) {
+    return _storage.isDownloaded(trackId);
   }
 
   bool isFavorite(dynamic trackOrId) {

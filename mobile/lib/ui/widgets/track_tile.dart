@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../services/download_service.dart';
 import '../theme.dart';
 
 class TrackTile extends StatelessWidget {
@@ -115,36 +116,85 @@ class TrackTile extends StatelessWidget {
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: AppTheme.muted, size: 20),
             color: AppTheme.panel,
-            onSelected: (val) {
+            onSelected: (val) async {
               if (val == 'playlist') {
                 _showAddToPlaylistDialog(context, track);
+              } else if (val == 'download') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Downloading "${track.title}" for offline playback...'),
+                    duration: const Duration(seconds: 2),
+                    backgroundColor: AppTheme.panel,
+                  ),
+                );
+                await DownloadService().downloadTrack(track);
+                if (context.mounted) {
+                  context.read<LibraryProvider>().refreshDownloaded();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Downloaded "${track.title}"!'),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: const Color(0xFF0F766E),
+                    ),
+                  );
+                }
+              } else if (val == 'delete_download') {
+                await DownloadService().deleteDownload(track.id);
+                if (context.mounted) {
+                  context.read<LibraryProvider>().refreshDownloaded();
+                }
               } else if (val == 'remove' && onRemove != null) {
                 onRemove!();
               }
             },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'playlist',
-                child: Row(
-                  children: [
-                    Icon(Icons.playlist_add, color: AppTheme.text, size: 18),
-                    SizedBox(width: 10),
-                    Text('Add to playlist', style: TextStyle(color: AppTheme.text)),
-                  ],
-                ),
-              ),
-              if (onRemove != null)
+            itemBuilder: (ctx) {
+              final isDownloaded = context.read<LibraryProvider>().isDownloaded(track.id);
+              return [
                 const PopupMenuItem(
-                  value: 'remove',
+                  value: 'playlist',
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                      Icon(Icons.playlist_add, color: AppTheme.text, size: 18),
                       SizedBox(width: 10),
-                      Text('Remove from playlist', style: TextStyle(color: Colors.redAccent)),
+                      Text('Add to playlist', style: TextStyle(color: AppTheme.text)),
                     ],
                   ),
                 ),
-            ],
+                if (!isDownloaded)
+                  const PopupMenuItem(
+                    value: 'download',
+                    child: Row(
+                      children: [
+                        Icon(Icons.download_rounded, color: AppTheme.accentLight, size: 18),
+                        SizedBox(width: 10),
+                        Text('Download offline', style: TextStyle(color: AppTheme.text)),
+                      ],
+                    ),
+                  )
+                else
+                  const PopupMenuItem(
+                    value: 'delete_download',
+                    child: Row(
+                      children: [
+                        Icon(Icons.download_done_rounded, color: Colors.greenAccent, size: 18),
+                        SizedBox(width: 10),
+                        Text('Remove download', style: TextStyle(color: Colors.redAccent)),
+                      ],
+                    ),
+                  ),
+                if (onRemove != null)
+                  const PopupMenuItem(
+                    value: 'remove',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                        SizedBox(width: 10),
+                        Text('Remove from playlist', style: TextStyle(color: Colors.redAccent)),
+                      ],
+                    ),
+                  ),
+              ];
+            },
           ),
         ],
       ),

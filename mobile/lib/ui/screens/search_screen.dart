@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/track.dart';
 import '../../providers/search_provider.dart';
 import '../theme.dart';
 import '../widgets/track_tile.dart';
@@ -24,21 +25,33 @@ class _SearchScreenState extends State<SearchScreen> {
 
   final List<Map<String, dynamic>> _moods = [
     {
+      'title': 'Trending Hits',
+      'color': const Color(0xFF6366F1),
+      'icon': Icons.local_fire_department_rounded,
+      'query': 'top hits 2026 songs',
+    },
+    {
       'title': 'Late night',
       'color': const Color(0xFF3B1D54),
       'icon': Icons.nightlight_round,
       'query': 'late night music vibes',
     },
     {
-      'title': 'Focus',
-      'color': const Color(0xFF162D4A),
-      'icon': Icons.center_focus_strong_rounded,
+      'title': 'Deep Focus',
+      'color': const Color(0xFF0F766E),
+      'icon': Icons.headphones_rounded,
       'query': 'deep focus study instrumental',
     },
     {
-      'title': 'Indie',
-      'color': const Color(0xFF4A2518),
-      'icon': Icons.nature_people_rounded,
+      'title': 'Workout EDM',
+      'color': const Color(0xFFBE123C),
+      'icon': Icons.bolt_rounded,
+      'query': 'workout motivation edm beats',
+    },
+    {
+      'title': 'Chill Acoustic',
+      'color': const Color(0xFFB45309),
+      'icon': Icons.wb_sunny_rounded,
       'query': 'indie acoustic songs',
     },
     {
@@ -47,12 +60,41 @@ class _SearchScreenState extends State<SearchScreen> {
       'icon': Icons.graphic_eq_rounded,
       'query': 'electronic synthwave beats',
     },
+    {
+      'title': 'Pop Pulse',
+      'color': const Color(0xFF831843),
+      'icon': Icons.auto_awesome,
+      'query': 'pop viral hits',
+    },
+    {
+      'title': 'Rock Classics',
+      'color': const Color(0xFF1E293B),
+      'icon': Icons.album_rounded,
+      'query': 'rock classics',
+    },
   ];
 
   @override
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+
+  List<Track> _filteredResults(List<Track> list) {
+    if (_activeFilter == 1) {
+      // Songs
+      return list;
+    } else if (_activeFilter == 2) {
+      // Videos
+      return list.where((t) => t.id.startsWith('yt:') || !t.id.startsWith('saavn:')).toList();
+    } else if (_activeFilter == 3) {
+      // Albums
+      return list.where((t) => t.album != null && t.album!.isNotEmpty).toList();
+    } else if (_activeFilter == 4) {
+      // Artists
+      return list;
+    }
+    return list; // All
   }
 
   void _triggerSearch(String query) {
@@ -189,12 +231,22 @@ class _SearchScreenState extends State<SearchScreen> {
                           child: CircularProgressIndicator(color: AppTheme.accent),
                         )
                       : (search.results.isNotEmpty
-                          ? ListView.builder(
-                              padding: const EdgeInsets.only(bottom: 110),
-                              itemCount: search.results.length,
-                              itemBuilder: (ctx, i) {
-                                final t = search.results[i];
-                                return TrackTile(track: t, queueContext: search.results);
+                          ? Builder(
+                              builder: (ctx) {
+                                final filtered = _filteredResults(search.results);
+                                if (filtered.isEmpty) {
+                                  return const Center(
+                                    child: Text('No results in this category', style: TextStyle(color: AppTheme.muted)),
+                                  );
+                                }
+                                return ListView.builder(
+                                  padding: const EdgeInsets.only(bottom: 110),
+                                  itemCount: filtered.length,
+                                  itemBuilder: (ctx, i) {
+                                    final t = filtered[i];
+                                    return TrackTile(track: t, queueContext: filtered);
+                                  },
+                                );
                               },
                             )
                           : _buildSuggestionsView(search))),
