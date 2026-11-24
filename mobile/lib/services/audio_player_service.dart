@@ -5,6 +5,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_session/audio_session.dart';
 import '../models/track.dart';
 import 'youtube_service.dart';
+import 'saavn_service.dart';
 import 'storage_service.dart';
 
 class AudioPlayerService {
@@ -14,6 +15,7 @@ class AudioPlayerService {
 
   final AudioPlayer _player = AudioPlayer();
   final YoutubeService _yt = YoutubeService();
+  final SaavnService _saavn = SaavnService();
 
   List<Track> _queue = [];
   int _currentIndex = -1;
@@ -161,17 +163,39 @@ class AudioPlayerService {
       if (track.localPath != null && track.localPath!.isNotEmpty) {
         streamUrl = track.localPath;
       } else {
-        streamUrl = await _yt.resolveStreamUrl(track.id);
+        // 1. BitChord Multi-Source Architecture: Primary High-Fidelity 320kbps CDN Stream (Fast, Zero 403, Full seeking)
+        try {
+          final saavnStream = await _saavn.resolveStream(
+            track.title,
+            track.artist,
+            directSongId: track.id.startsWith('saavn:') ? track.id : null,
+          );
+          if (saavnStream != null && saavnStream.url.isNotEmpty) {
+            streamUrl = saavnStream.url;
+            debugPrint('[AudioPlayerService] Direct 320kbps CDN stream resolved: $streamUrl');
+          }
+        } catch (e) {
+          debugPrint('[AudioPlayerService] Saavn stream resolver note: $e');
+        }
 
-        // Fallback: If track id resolution fails or is dummy ID, search YouTube by title + artist
+        // 2. Secondary fallback: YouTube Direct Video ID resolution
         if (streamUrl == null || streamUrl.isEmpty) {
-          debugPrint('[AudioPlayerService] Resolving via title search: "${track.title} ${track.artist}"');
+          debugPrint('[AudioPlayerService] Falling back to YouTube stream resolution for "${track.cleanId}"');
+          streamUrl = await _yt.resolveStreamUrl(track.cleanId);
+        }
+
+        // 3. Tertiary fallback: YouTube Search by title + artist
+        if (streamUrl == null || streamUrl.isEmpty) {
+          debugPrint('[AudioPlayerService] Resolving via YouTube title search: "${track.title} ${track.artist}"');
           final candidates = await _yt.search('${track.title} ${track.artist}', limit: 3);
           if (candidates.isNotEmpty) {
             for (final c in candidates) {
-              streamUrl = await _yt.resolveStreamUrl(c.id);
-              if (streamUrl != null && streamUrl.isNotEmpty) {
-                break;
+              if (c.id != track.cleanId) {
+                final candidateUrl = await _yt.resolveStreamUrl(c.id);
+                if (candidateUrl != null && candidateUrl.isNotEmpty) {
+                  streamUrl = candidateUrl;
+                  break;
+                }
               }
             }
           }
@@ -198,13 +222,20 @@ class AudioPlayerService {
           tag: mediaItem,
         );
       } else {
-        audioSource = AudioSource.uri(
-          Uri.parse(streamUrl),
-          headers: const {
+        final Map<String, String>? headers;
+        if (streamUrl.contains('googlevideo.com')) {
+          headers = const {
             'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
             'Referer': 'https://www.youtube.com/',
-          },
+          };
+        } else {
+          headers = null;
+        }
+
+        audioSource = AudioSource.uri(
+          Uri.parse(streamUrl),
+          headers: headers,
           tag: mediaItem,
         );
       }

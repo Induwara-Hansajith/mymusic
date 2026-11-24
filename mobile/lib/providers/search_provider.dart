@@ -2,9 +2,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/track.dart';
 import '../services/youtube_service.dart';
+import '../services/saavn_service.dart';
 
 class SearchProvider extends ChangeNotifier {
   final YoutubeService _yt = YoutubeService();
+  final SaavnService _saavn = SaavnService();
 
   String _query = '';
   List<Track> _results = [];
@@ -50,7 +52,23 @@ class SearchProvider extends ChangeNotifier {
     _isSearching = true;
     notifyListeners();
 
-    _results = await _yt.search(_query);
+    final saavnFuture = _saavn.search(_query, limit: 15);
+    final ytFuture = _yt.search(_query, limit: 15);
+
+    try {
+      final results = await Future.wait([saavnFuture, ytFuture]);
+      final combined = <Track>[];
+      combined.addAll(results[0]);
+      for (final ytTrack in results[1]) {
+        if (!combined.any((t) => t.title.toLowerCase() == ytTrack.title.toLowerCase())) {
+          combined.add(ytTrack);
+        }
+      }
+      _results = combined.isNotEmpty ? combined : results[1];
+    } catch (_) {
+      _results = await _yt.search(_query);
+    }
+
     _isSearching = false;
     notifyListeners();
   }

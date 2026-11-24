@@ -236,13 +236,16 @@ class AuthSyncService extends ChangeNotifier {
       debugPrint('[AuthSyncService] Starting Google OAuth loopback listener...');
       final listenFuture = _loopback.startAndListen(port: 54321);
 
-      // Launch in system browser
+      // Launch in system in-app browser view (Chrome Custom Tabs) to keep loopback localhost context
       await launchUrl(
         Uri.parse(authUrl),
-        mode: LaunchMode.externalApplication,
+        mode: LaunchMode.inAppBrowserView,
       );
 
       final tokenData = await listenFuture;
+      try {
+        await closeInAppWebView();
+      } catch (_) {}
       if (tokenData != null && tokenData['access_token'] != null && tokenData['access_token']!.isNotEmpty) {
         debugPrint('[AuthSyncService] Successfully received OAuth token via loopback!');
         try {
