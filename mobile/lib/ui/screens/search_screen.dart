@@ -100,7 +100,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _triggerSearch(String query) {
     if (query.trim().isEmpty) return;
     _ctrl.text = query;
-    context.read<SearchProvider>().search(query);
+    context.read<SearchProvider>().search(query, filter: _filters[_activeFilter].toLowerCase());
     if (!_recentSearches.contains(query)) {
       setState(() {
         _recentSearches.insert(0, query);
@@ -192,7 +192,10 @@ class _SearchScreenState extends State<SearchScreen> {
                       itemBuilder: (ctx, i) {
                         final isSel = _activeFilter == i;
                         return GestureDetector(
-                          onTap: () => setState(() => _activeFilter = i),
+                          onTap: () {
+                            setState(() => _activeFilter = i);
+                            context.read<SearchProvider>().setFilter(_filters[i].toLowerCase());
+                          },
                           child: Container(
                             margin: const EdgeInsets.only(right: 8),
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

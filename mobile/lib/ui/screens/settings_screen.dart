@@ -452,6 +452,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             _buildSettingRow(
+              title: 'Song sources',
+              subtitle: 'Desktop YouTube Music · 320 kbps CDN fallback',
+              trailing: const Text(
+                'Desktop parity ›',
+                style: TextStyle(color: AppTheme.accentLight, fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              onTap: () {
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.panel,
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppTheme.line,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Song Sources & Desktop Parity',
+                          style: TextStyle(color: AppTheme.text, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'My Music Mobile streams songs using the exact same multi-engine architecture as desktop My Music:\n\n'
+                          '• Desktop YouTube Music: High-bitrate m4a/opus streams extracted with Android client manifests.\n'
+                          '• High-Fidelity 320 kbps CDN: Fast Akamai/Cloudfront audio delivery with zero throttling.\n'
+                          '• Auto-Fallback & Radio: Automatic title+artist matching and dynamic radio queue continuation.\n'
+                          '• LRCLIB Synced Lyrics: Millisecond-synced lyrics with live seeking.',
+                          style: TextStyle(color: AppTheme.subtitle, fontSize: 13, height: 1.5),
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.accent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Got it', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
               title: 'Download quality',
               subtitle: 'High · 256 kbps AAC',
               trailing: const Text(

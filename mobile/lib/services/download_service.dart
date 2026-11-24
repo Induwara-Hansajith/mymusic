@@ -34,20 +34,29 @@ class DownloadService {
     _downloadStateController.add(track.id);
 
     try {
-      // 1. Resolve stream URL
+      // 1. Resolve stream URL adhering to desktop sources
       String? streamUrl;
-      try {
-        final saavnStream = await _saavn.resolveStream(
-          track.title,
-          track.artist,
-          directSongId: track.id.startsWith('saavn:') ? track.id : null,
-        );
-        if (saavnStream != null && saavnStream.url.isNotEmpty) {
-          streamUrl = saavnStream.url;
-        }
-      } catch (_) {}
+      final isYouTubeId = track.id.startsWith('yt:') ||
+          (!track.id.startsWith('saavn:') && track.cleanId.length == 11);
+
+      if (isYouTubeId) {
+        streamUrl = await _yt.resolveStreamUrl(track.cleanId);
+      }
 
       if (streamUrl == null || streamUrl.isEmpty) {
+        try {
+          final saavnStream = await _saavn.resolveStream(
+            track.title,
+            track.artist,
+            directSongId: track.id.startsWith('saavn:') ? track.id : null,
+          );
+          if (saavnStream != null && saavnStream.url.isNotEmpty) {
+            streamUrl = saavnStream.url;
+          }
+        } catch (_) {}
+      }
+
+      if ((streamUrl == null || streamUrl.isEmpty) && !isYouTubeId) {
         streamUrl = await _yt.resolveStreamUrl(track.cleanId);
       }
 
@@ -78,7 +87,10 @@ class DownloadService {
         final request = http.Request('GET', Uri.parse(streamUrl));
         if (streamUrl.contains('googlevideo.com')) {
           request.headers['User-Agent'] =
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
+          request.headers['Accept'] = '*/*';
+          request.headers['Accept-Encoding'] = 'identity;q=1, *;q=0';
+          request.headers['Range'] = 'bytes=0-';
           request.headers['Referer'] = 'https://www.youtube.com/';
         }
         final response = await client.send(request);

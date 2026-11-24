@@ -25,6 +25,7 @@ class AudioPlayerService {
   bool _autoMixEnabled = true;
   double _speed = 1.0;
   bool _pitchLock = true;
+  int _consecutiveErrors = 0;
 
   // 10-band EQ gains in dB (-12 to +12)
   final List<double> _eqBands = [4.0, 6.0, 3.0, -1.0, -3.0, 0.0, 3.0, 5.0, 4.0, 2.0];
@@ -163,28 +164,43 @@ class AudioPlayerService {
       if (track.localPath != null && track.localPath!.isNotEmpty) {
         streamUrl = track.localPath;
       } else {
-        // 1. BitChord Multi-Source Architecture: Primary High-Fidelity 320kbps CDN Stream (Fast, Zero 403, Full seeking)
-        try {
-          final saavnStream = await _saavn.resolveStream(
-            track.title,
-            track.artist,
-            directSongId: track.id.startsWith('saavn:') ? track.id : null,
-          );
-          if (saavnStream != null && saavnStream.url.isNotEmpty) {
-            streamUrl = saavnStream.url;
-            debugPrint('[AudioPlayerService] Direct 320kbps CDN stream resolved: $streamUrl');
+        // 1. Desktop Source Priority: If it's a YouTube ID, resolve direct YouTube stream first
+        final isYouTubeId = track.id.startsWith('yt:') ||
+            (!track.id.startsWith('saavn:') && track.cleanId.length == 11);
+
+        if (isYouTubeId) {
+          try {
+            debugPrint('[AudioPlayerService] Resolving Desktop YouTube stream for "${track.cleanId}"');
+            streamUrl = await _yt.resolveStreamUrl(track.cleanId);
+          } catch (e) {
+            debugPrint('[AudioPlayerService] YouTube direct stream note: $e');
           }
-        } catch (e) {
-          debugPrint('[AudioPlayerService] Saavn stream resolver note: $e');
         }
 
-        // 2. Secondary fallback: YouTube Direct Video ID resolution
+        // 2. Secondary / Saavn High-Fidelity 320kbps CDN resolution (Instant playback, zero throttle)
         if (streamUrl == null || streamUrl.isEmpty) {
+          try {
+            final saavnStream = await _saavn.resolveStream(
+              track.title,
+              track.artist,
+              directSongId: track.id.startsWith('saavn:') ? track.id : null,
+            );
+            if (saavnStream != null && saavnStream.url.isNotEmpty) {
+              streamUrl = saavnStream.url;
+              debugPrint('[AudioPlayerService] Direct 320kbps CDN stream resolved: $streamUrl');
+            }
+          } catch (e) {
+            debugPrint('[AudioPlayerService] Saavn stream resolver note: $e');
+          }
+        }
+
+        // 3. Tertiary fallback: YouTube Direct Video ID resolution (if not yet tried)
+        if ((streamUrl == null || streamUrl.isEmpty) && !isYouTubeId) {
           debugPrint('[AudioPlayerService] Falling back to YouTube stream resolution for "${track.cleanId}"');
           streamUrl = await _yt.resolveStreamUrl(track.cleanId);
         }
 
-        // 3. Tertiary fallback: YouTube Search by title + artist
+        // 4. Quaternary fallback: YouTube Search by title + artist
         if (streamUrl == null || streamUrl.isEmpty) {
           debugPrint('[AudioPlayerService] Resolving via YouTube title search: "${track.title} ${track.artist}"');
           final candidates = await _yt.search('${track.title} ${track.artist}', limit: 3);
@@ -226,7 +242,11 @@ class AudioPlayerService {
         if (streamUrl.contains('googlevideo.com')) {
           headers = const {
             'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity;q=1, *;q=0',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Range': 'bytes=0-',
             'Referer': 'https://www.youtube.com/',
           };
         } else {
@@ -243,15 +263,19 @@ class AudioPlayerService {
       await _player.setAudioSource(audioSource, preload: true);
       await _player.play();
       _isLoading = false;
+      _consecutiveErrors = 0;
 
       StorageService().addRecent(track).catchError((_) {});
     } catch (e) {
       debugPrint('[AudioPlayerService] Play error: $e');
       _yt.invalidateStream(track.id);
       _isLoading = false;
+      _consecutiveErrors++;
       _lastError = 'Playback failed for "${track.title}": $e';
       _errorController.add(_lastError);
-      // Do NOT blindly call next() to avoid infinite skip loops across playlists
+      if (_consecutiveErrors >= 3) {
+        debugPrint('[AudioPlayerService] Halted auto-skip after $_consecutiveErrors consecutive errors.');
+      }
     }
   }
 
@@ -284,7 +308,27 @@ class AudioPlayerService {
     if (_queue.isEmpty) return;
     int nextIdx = _currentIndex + 1;
     if (nextIdx >= _queue.length) {
-      nextIdx = 0;
+      if (_autoMixEnabled && _currentTrack != null) {
+        try {
+          final radioTracks = await _yt.getRadio(
+            _currentTrack!.cleanId,
+            title: _currentTrack!.title,
+            artist: _currentTrack!.artist,
+          );
+          final newTracks = radioTracks
+              .where((r) => !_queue.any((q) => q.cleanId == r.cleanId))
+              .toList();
+          if (newTracks.isNotEmpty) {
+            _queue.addAll(newTracks);
+            _queueChangeController.add(_queue);
+          }
+        } catch (e) {
+          debugPrint('[AudioPlayerService] AutoMix radio replenishment note: $e');
+        }
+      }
+      if (nextIdx >= _queue.length) {
+        nextIdx = 0;
+      }
     }
     await playTrack(_queue[nextIdx], index: nextIdx);
   }

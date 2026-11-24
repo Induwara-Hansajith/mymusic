@@ -5,13 +5,22 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/track.dart';
 import 'saavn_service.dart';
 
+class _CachedStream {
+  final String url;
+  final DateTime expiresAt;
+
+  const _CachedStream({required this.url, required this.expiresAt});
+
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+}
+
 class YoutubeService {
   static final YoutubeService _instance = YoutubeService._internal();
   factory YoutubeService() => _instance;
   YoutubeService._internal();
 
   final YoutubeExplode _yt = YoutubeExplode();
-  final Map<String, String> _streamCache = {};
+  final Map<String, _CachedStream> _streamCache = {};
 
   // Permanent high-quality curated tracks matching the prototype designs
   static const Track trackVioletHour = Track(
@@ -217,12 +226,25 @@ class YoutubeService {
         ),
       ];
 
-  Future<List<Track>> search(String query, {int limit = 25}) async {
+  /// Category-aware search matching desktop My Music (ytm.search with filter)
+  Future<List<Track>> search(String query, {String? filter, int limit = 25}) async {
     final q = query.trim();
     if (q.isEmpty) return [];
 
+    String effectiveQuery = q;
+    final f = (filter ?? 'all').toLowerCase();
+    if (f == 'songs') {
+      effectiveQuery = '$q audio';
+    } else if (f == 'videos') {
+      effectiveQuery = '$q music video';
+    } else if (f == 'albums') {
+      effectiveQuery = '$q full album';
+    } else if (f == 'artists') {
+      effectiveQuery = '$q official channel';
+    }
+
     try {
-      final searchResults = await _yt.search.search(q);
+      final searchResults = await _yt.search.search(effectiveQuery);
       final tracks = <Track>[];
       for (final item in searchResults) {
         if (tracks.length >= limit) break;
@@ -238,7 +260,7 @@ class YoutubeService {
       }
       return tracks;
     } catch (e) {
-      debugPrint('[YoutubeService] Search error: $e');
+      debugPrint('[YoutubeService] Search error ($filter): $e');
       return [];
     }
   }
@@ -319,11 +341,17 @@ class YoutubeService {
     }
   }
 
+  /// Resolves the best audio stream URL for a given YouTube track ID
+  /// Adheres to desktop format selection (prioritizes AAC/m4a, then WebM/Opus)
+  /// Caches resolved URLs for ~4.5 hours matching desktop My Music
   Future<String?> resolveStreamUrl(String trackId) async {
     final cleanId = trackId.replaceFirst('yt:', '');
     if (_streamCache.containsKey(cleanId)) {
-      final cached = _streamCache[cleanId];
-      if (cached != null && cached.isNotEmpty) return cached;
+      final cached = _streamCache[cleanId]!;
+      if (!cached.isExpired && cached.url.isNotEmpty) {
+        return cached.url;
+      }
+      _streamCache.remove(cleanId);
     }
 
     try {
@@ -333,6 +361,7 @@ class YoutubeService {
 
       if (audioStreams.isNotEmpty) {
         AudioStreamInfo? selected;
+        // Prioritize audio/mp4 (AAC itag 140) for universal Android hardware playback
         final mp4Streams = audioStreams
             .where((s) => s.container.name.toLowerCase() == 'mp4')
             .toList();
@@ -352,7 +381,11 @@ class YoutubeService {
       }
 
       final resolvedUrl = await _resolveRedirect(rawUrl);
-      _streamCache[cleanId] = resolvedUrl;
+      _streamCache[cleanId] = _CachedStream(
+        url: resolvedUrl,
+        expiresAt: DateTime.now().add(const Duration(hours: 4, minutes: 30)),
+      );
+      _pruneCache();
       return resolvedUrl;
     } catch (e) {
       debugPrint('[YoutubeService] resolveStreamUrl error for $cleanId: $e');
@@ -370,8 +403,10 @@ class YoutubeService {
       req.maxRedirects = 5;
       req.headers.set(
         'User-Agent',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
       );
+      req.headers.set('Accept', '*/*');
+      req.headers.set('Range', 'bytes=0-');
       req.headers.set('Referer', 'https://www.youtube.com/');
       final resp = await req.close();
 
@@ -396,6 +431,50 @@ class YoutubeService {
     _streamCache.remove(cleanId);
   }
 
+  void _pruneCache() {
+    _streamCache.removeWhere((_, v) => v.isExpired);
+    if (_streamCache.length > 50) {
+      final keysToRemove = _streamCache.keys.take(_streamCache.length - 40).toList();
+      for (final k in keysToRemove) {
+        _streamCache.remove(k);
+      }
+    }
+  }
+
+  /// Radio continuation matching desktop ytm:radio
+  /// Returns recommended tracks based on current track ID and title/artist
+  Future<List<Track>> getRadio(String videoId, {String? title, String? artist, int limit = 20}) async {
+    final cleanId = videoId.replaceFirst('yt:', '');
+    final tracks = <Track>[];
+
+    // 1. Direct YouTube related videos
+    try {
+      final related = await getRelatedTracks(cleanId, limit: limit);
+      tracks.addAll(related);
+    } catch (e) {
+      debugPrint('[YoutubeService] getRadio related error: $e');
+    }
+
+    // 2. Fallback search if fewer than 5 tracks found (matches desktop ytm:radio fallback)
+    if (tracks.length < 5 && (title != null || artist != null)) {
+      try {
+        final query = [artist, title].where((s) => s != null && s.isNotEmpty).join(' ');
+        if (query.isNotEmpty) {
+          final searchFallback = await search(query, filter: 'songs', limit: limit);
+          for (final t in searchFallback) {
+            if (t.cleanId != cleanId && !tracks.any((x) => x.cleanId == t.cleanId)) {
+              tracks.add(t);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[YoutubeService] getRadio fallback search error: $e');
+      }
+    }
+
+    return tracks.take(limit).toList();
+  }
+
   Future<List<Track>> getRelatedTracks(String videoId, {int limit = 15}) async {
     final cleanId = videoId.replaceFirst('yt:', '');
     try {
@@ -416,5 +495,30 @@ class YoutubeService {
       debugPrint('[YoutubeService] getRelatedTracks error: $e');
     }
     return [];
+  }
+
+  /// Resolves YouTube playlist tracks (for desktop import:url parity)
+  Future<List<Track>> getPlaylistTracks(String playlistIdOrUrl) async {
+    try {
+      final playlist = await _yt.playlists.get(playlistIdOrUrl);
+      final videos = await _yt.playlists.getVideos(playlist.id).take(50).toList();
+      return videos.map((v) => Track(
+        id: v.id.value,
+        title: v.title,
+        artist: v.author,
+        durationSec: v.duration?.inSeconds ?? 180,
+        thumb: v.thumbnails.highResUrl.isNotEmpty
+            ? v.thumbnails.highResUrl
+            : 'https://i.ytimg.com/vi/${v.id.value}/hqdefault.jpg',
+        album: playlist.title,
+      )).toList();
+    } catch (e) {
+      debugPrint('[YoutubeService] getPlaylistTracks error: $e');
+      return [];
+    }
+  }
+
+  void dispose() {
+    _yt.close();
   }
 }
