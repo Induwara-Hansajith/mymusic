@@ -20,7 +20,6 @@ class AudioPlayerService {
   Track? _currentTrack;
   bool _isLoading = false;
   String? _lastError;
-  int _consecutiveErrors = 0;
   bool _autoMixEnabled = true;
   double _speed = 1.0;
   bool _pitchLock = true;
@@ -69,7 +68,7 @@ class AudioPlayerService {
       if (state.processingState == ProcessingState.completed) {
         final pos = _player.position;
         final dur = _player.duration;
-        // Only advance if track actually played to near completion (not premature stream drop)
+        // Only advance to next track if track actually played to near completion
         if (dur != null && dur.inSeconds > 5 && pos.inSeconds >= dur.inSeconds - 3) {
           next();
         }
@@ -85,6 +84,15 @@ class AudioPlayerService {
         _isLoading = false;
       },
     );
+  }
+
+  void setInitialTrack(Track track, List<Track> queue) {
+    _currentTrack = track;
+    _queue = List.from(queue);
+    _currentIndex = _queue.indexOf(track);
+    if (_currentIndex == -1) _currentIndex = 0;
+    _trackChangeController.add(_currentTrack);
+    _queueChangeController.add(_queue);
   }
 
   void setAutoMix(bool enabled) {
@@ -154,6 +162,20 @@ class AudioPlayerService {
         streamUrl = track.localPath;
       } else {
         streamUrl = await _yt.resolveStreamUrl(track.id);
+
+        // Fallback: If track id resolution fails or is dummy ID, search YouTube by title + artist
+        if (streamUrl == null || streamUrl.isEmpty) {
+          debugPrint('[AudioPlayerService] Resolving via title search: "${track.title} ${track.artist}"');
+          final candidates = await _yt.search('${track.title} ${track.artist}', limit: 3);
+          if (candidates.isNotEmpty) {
+            for (final c in candidates) {
+              streamUrl = await _yt.resolveStreamUrl(c.id);
+              if (streamUrl != null && streamUrl.isNotEmpty) {
+                break;
+              }
+            }
+          }
+        }
       }
 
       if (streamUrl == null || streamUrl.isEmpty) {
@@ -176,7 +198,6 @@ class AudioPlayerService {
           tag: mediaItem,
         );
       } else {
-        // Supply browser headers without hardcoded byte range so ExoPlayer manages range buffering
         audioSource = AudioSource.uri(
           Uri.parse(streamUrl),
           headers: const {
@@ -191,23 +212,15 @@ class AudioPlayerService {
       await _player.setAudioSource(audioSource, preload: true);
       await _player.play();
       _isLoading = false;
-      _consecutiveErrors = 0;
 
       StorageService().addRecent(track).catchError((_) {});
     } catch (e) {
       debugPrint('[AudioPlayerService] Play error: $e');
       _yt.invalidateStream(track.id);
       _isLoading = false;
-      _lastError = 'Playback failed: $e';
+      _lastError = 'Playback failed for "${track.title}": $e';
       _errorController.add(_lastError);
-
-      _consecutiveErrors++;
-      if (_consecutiveErrors < 3 && _queue.length > 1) {
-        await Future.delayed(const Duration(milliseconds: 600));
-        next();
-      } else {
-        _consecutiveErrors = 0;
-      }
+      // Do NOT blindly call next() to avoid infinite skip loops across playlists
     }
   }
 
@@ -224,7 +237,13 @@ class AudioPlayerService {
     await _player.setShuffleModeEnabled(next);
   }
 
-  Future<void> resume() async => _player.play();
+  Future<void> resume() async {
+    if (_player.audioSource == null && _currentTrack != null) {
+      await playTrack(_currentTrack!);
+    } else {
+      await _player.play();
+    }
+  }
   Future<void> pause() async => _player.pause();
   Future<void> stop() async => _player.stop();
 

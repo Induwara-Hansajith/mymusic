@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../models/track.dart';
+import '../../models/playlist.dart';
 import '../../services/youtube_service.dart';
 import '../../providers/player_provider.dart';
-import '../../providers/library_provider.dart';
 import '../theme.dart';
 import 'equalizer_screen.dart';
 import 'playlist_screen.dart';
@@ -19,7 +19,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final YoutubeService _yt = YoutubeService();
   Map<String, List<Track>> _feed = {};
-  bool _isLoading = true;
 
   @override
   void initState() {
@@ -28,12 +27,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadFeed() async {
-    setState(() => _isLoading = true);
     final data = await _yt.getHomeFeed();
     if (mounted) {
       setState(() {
         _feed = data;
-        _isLoading = false;
       });
     }
   }
@@ -47,24 +44,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: AppTheme.bg,
-        body: Center(
-          child: CircularProgressIndicator(color: AppTheme.accent),
-        ),
-      );
-    }
-
     final player = context.watch<PlayerProvider>();
-    final library = context.watch<LibraryProvider>();
 
-    final quickPicks = _feed['Quick Picks'] ?? [];
-    final trending = _feed['Trending Now'] ?? [];
-    final chill = _feed['Chill & Relax'] ?? [];
+    final recentlyPlayed = [
+      YoutubeService.trackVioletHour,
+      YoutubeService.trackMoonstruck,
+      YoutubeService.trackTidal,
+      ...(_feed['Quick Picks'] ?? YoutubeService.getCuratedTopHits()).where(
+        (t) => t.id != YoutubeService.trackVioletHour.id &&
+               t.id != YoutubeService.trackMoonstruck.id &&
+               t.id != YoutubeService.trackTidal.id,
+      ),
+    ];
 
-    // Combine recent tracks with quick picks for "Recently played"
-    final recentList = library.recentTracks.isNotEmpty ? library.recentTracks : quickPicks;
+    final newReleases = [
+      YoutubeService.trackSundown,
+      YoutubeService.trackBlueRoom,
+      YoutubeService.trackOrbit,
+      ...(_feed['Trending Now'] ?? YoutubeService.getCuratedLateNight()).where(
+        (t) => t.id != YoutubeService.trackSundown.id &&
+               t.id != YoutubeService.trackBlueRoom.id &&
+               t.id != YoutubeService.trackOrbit.id,
+      ),
+    ];
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
@@ -76,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
             children: [
-              // Header
+              // Top Bar Greeting & Equalizer Button
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -131,21 +133,19 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
               SizedBox(
                 height: 180,
-                child: recentList.isNotEmpty
-                    ? ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: recentList.length,
-                        itemBuilder: (ctx, i) {
-                          final t = recentList[i];
-                          return _buildSquareCard(
-                            track: t,
-                            title: t.title,
-                            subtitle: t.artist,
-                            onTap: () => player.playTrack(t, queue: recentList, index: i),
-                          );
-                        },
-                      )
-                    : _buildPlaceholderRow(player),
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: recentlyPlayed.length,
+                  itemBuilder: (ctx, i) {
+                    final t = recentlyPlayed[i];
+                    return _buildSquareCard(
+                      track: t,
+                      title: t.title,
+                      subtitle: t.artist,
+                      onTap: () => player.playTrack(t, queue: recentlyPlayed, index: i),
+                    );
+                  },
+                ),
               ),
 
               const SizedBox(height: 24),
@@ -168,9 +168,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => PlaylistScreen(
-                              playlist: library.playlists.isNotEmpty
-                                  ? library.playlists.first
-                                  : null,
+                              playlist: Playlist(
+                                id: 'after_hours',
+                                name: 'After hours',
+                                tracks: YoutubeService.getCuratedAfterHours(),
+                                createdAt: DateTime.now(),
+                              ),
                             ),
                           ),
                         );
@@ -182,20 +185,40 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.water_drop_rounded,
                       color: const Color(0xFF1E3A8A),
                       onTap: () {
-                        if (chill.isNotEmpty) {
-                          player.playTrack(chill.first, queue: chill);
-                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PlaylistScreen(
+                              playlist: Playlist(
+                                id: 'deep_focus',
+                                name: 'Deep focus',
+                                tracks: YoutubeService.getCuratedDeepFocus(),
+                                createdAt: DateTime.now(),
+                              ),
+                            ),
+                          ),
+                        );
                       },
                     ),
                     _buildCuratedCard(
                       title: 'Slow burn',
                       subtitle: 'A softer landing',
                       icon: Icons.wb_twilight_rounded,
-                      color: const Color(0xFF831843),
+                      color: const Color(0xFF5A1E2D),
                       onTap: () {
-                        if (quickPicks.length > 2) {
-                          player.playTrack(quickPicks[2], queue: quickPicks);
-                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PlaylistScreen(
+                              playlist: Playlist(
+                                id: 'slow_burn',
+                                name: 'Slow burn',
+                                tracks: YoutubeService.getCuratedSlowBurn(),
+                                createdAt: DateTime.now(),
+                              ),
+                            ),
+                          ),
+                        );
                       },
                     ),
                   ],
@@ -209,21 +232,19 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
               SizedBox(
                 height: 180,
-                child: trending.isNotEmpty
-                    ? ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: trending.length,
-                        itemBuilder: (ctx, i) {
-                          final t = trending[i];
-                          return _buildSquareCard(
-                            track: t,
-                            title: t.title,
-                            subtitle: t.artist,
-                            onTap: () => player.playTrack(t, queue: trending, index: i),
-                          );
-                        },
-                      )
-                    : _buildPlaceholderRow(player),
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: newReleases.length,
+                  itemBuilder: (ctx, i) {
+                    final t = newReleases[i];
+                    return _buildSquareCard(
+                      track: t,
+                      title: t.title,
+                      subtitle: t.artist,
+                      onTap: () => player.playTrack(t, queue: newReleases, index: i),
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -394,34 +415,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildPlaceholderRow(PlayerProvider player) {
-    return Row(
-      children: [
-        _buildCuratedCard(
-          title: 'Violet hour',
-          subtitle: 'Luna Bay',
-          icon: Icons.music_note_rounded,
-          color: const Color(0xFF5B21B6),
-          onTap: () {},
-        ),
-        _buildCuratedCard(
-          title: 'Moonstruck',
-          subtitle: 'Solace',
-          icon: Icons.nightlight_round,
-          color: const Color(0xFF831843),
-          onTap: () {},
-        ),
-        _buildCuratedCard(
-          title: 'Tidal',
-          subtitle: 'Onda',
-          icon: Icons.water_drop_rounded,
-          color: const Color(0xFF1E3A8A),
-          onTap: () {},
-        ),
-      ],
     );
   }
 }

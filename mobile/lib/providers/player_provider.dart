@@ -5,16 +5,17 @@ import '../models/track.dart';
 import '../models/lyrics.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/youtube_service.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final AudioPlayerService _playerService = AudioPlayerService();
   final LyricsService _lyricsService = LyricsService();
 
-  Track? _currentTrack;
+  Track? _currentTrack = YoutubeService.trackVioletHour;
   LyricsData _lyrics = const LyricsData();
   bool _isLoading = false;
   Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
+  Duration _duration = const Duration(seconds: 222);
   Duration _bufferedPosition = Duration.zero;
   bool _isPlaying = false;
   LoopMode _loopMode = LoopMode.off;
@@ -68,6 +69,10 @@ class PlayerProvider extends ChangeNotifier {
 
   void _init() {
     _playerService.init();
+    _playerService.setInitialTrack(
+      YoutubeService.trackVioletHour,
+      YoutubeService.getCuratedAfterHours(),
+    );
 
     _trackSub = _playerService.currentTrackStream.listen((track) {
       _currentTrack = track;

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../models/track.dart';
+import '../../services/youtube_service.dart';
 import '../theme.dart';
 import '../widgets/track_tile.dart';
 import 'playlist_screen.dart';
@@ -183,11 +185,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final history = library.recentTracks.isNotEmpty
           ? library.recentTracks
           : [
-              Track(id: '1', title: 'Violet hour', artist: 'Luna Bay', durationSec: 222, thumb: ''),
-              Track(id: '2', title: 'Moonstruck', artist: 'Solace', durationSec: 248, thumb: ''),
-              Track(id: '3', title: 'Undertow', artist: 'Onda', durationSec: 236, thumb: ''),
-              Track(id: '4', title: 'Sundown', artist: 'Daydream', durationSec: 201, thumb: ''),
-              Track(id: '5', title: 'Satellite', artist: 'Luna Bay', durationSec: 252, thumb: ''),
+              YoutubeService.trackVioletHour,
+              YoutubeService.trackMoonstruck,
+              YoutubeService.trackUndertow,
+              YoutubeService.trackSundown,
+              YoutubeService.trackSatellite,
             ];
 
       return ListView(
@@ -247,14 +249,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppTheme.panel,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.music_note_rounded, color: AppTheme.accentLight, size: 22),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: t.thumb.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: t.thumb,
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        placeholder: (_, _) => Container(
+                          width: 44,
+                          height: 44,
+                          color: AppTheme.panel,
+                          child: const Icon(Icons.music_note, color: AppTheme.muted, size: 20),
+                        ),
+                        errorWidget: (_, _, _) => Container(
+                          width: 44,
+                          height: 44,
+                          color: const Color(0xFF3B1D54),
+                          child: const Icon(Icons.music_note, color: Colors.white70, size: 20),
+                        ),
+                      )
+                    : Container(
+                        width: 44,
+                        height: 44,
+                        color: const Color(0xFF3B1D54),
+                        child: const Icon(Icons.music_note_rounded, color: AppTheme.accentLight, size: 22),
+                      ),
               ),
               const SizedBox(width: 14),
               Expanded(

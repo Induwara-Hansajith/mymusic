@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart';
+import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/library_provider.dart';
 import '../theme.dart';
@@ -700,67 +701,107 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                   final qTrack = entry.value;
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: qTrack.thumb.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: qTrack.thumb,
-                                  width: 44,
-                                  height: 44,
-                                  fit: BoxFit.cover,
-                                )
-                              : Container(
-                                  width: 44,
-                                  height: 44,
-                                  color: AppTheme.panel,
-                                  child: const Icon(Icons.music_note, color: AppTheme.muted),
-                                ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                qTrack.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppTheme.text,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                idx == 0 && player.autoMixEnabled
-                                    ? '${qTrack.artist} · Crossfade in 6s'
-                                    : '${qTrack.artist} · ${qTrack.durationFormatted}',
-                                style: TextStyle(
-                                  color: idx == 0 && player.autoMixEnabled
-                                      ? AppTheme.accentLight
-                                      : AppTheme.muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
+                    child: InkWell(
+                      onTap: () => player.playTrack(qTrack, index: idx),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: qTrack.thumb.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: qTrack.thumb,
+                                    width: 44,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    width: 44,
+                                    height: 44,
+                                    color: AppTheme.panel,
+                                    child: const Icon(Icons.music_note, color: AppTheme.muted),
+                                  ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.more_horiz, color: AppTheme.muted, size: 20),
-                          onPressed: () {},
-                        ),
-                      ],
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  qTrack.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppTheme.text,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  idx == 0 && player.autoMixEnabled
+                                      ? '${qTrack.artist} · Crossfade in 6s'
+                                      : '${qTrack.artist} · ${qTrack.durationFormatted}',
+                                  style: TextStyle(
+                                    color: idx == 0 && player.autoMixEnabled
+                                        ? AppTheme.accentLight
+                                        : AppTheme.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.more_horiz, color: AppTheme.muted, size: 20),
+                            onPressed: () {},
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 })
               else ...[
-                _buildMockQueueItem('Moonstruck', 'Solace · Crossfade in 6s'),
+                _buildMockQueueItem(
+                  'Moonstruck',
+                  'Solace · Crossfade in 6s',
+                  onTap: () => player.playTrack(
+                    const Track(
+                      id: 'TUVcZfQe-Kw',
+                      title: 'Moonstruck',
+                      artist: 'Solace',
+                      durationSec: 248,
+                      thumb: 'https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg',
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 8),
-                _buildMockQueueItem('Undertow', 'Onda · 3:56'),
+                _buildMockQueueItem(
+                  'Undertow',
+                  'Onda · 3:56',
+                  onTap: () => player.playTrack(
+                    const Track(
+                      id: 'd5gx_qLp_i8',
+                      title: 'Undertow',
+                      artist: 'Onda',
+                      durationSec: 236,
+                      thumb: 'https://i.ytimg.com/vi/d5gx_qLp_i8/hqdefault.jpg',
+                    ),
+                  ),
+                ),
               ],
+              const SizedBox(height: 16),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Playing from After hours',
+                  style: TextStyle(
+                    color: AppTheme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -827,46 +868,50 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
     );
   }
 
-  Widget _buildMockQueueItem(String title, String subtitle) {
+  Widget _buildMockQueueItem(String title, String subtitle, {VoidCallback? onTap}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppTheme.panel,
-              borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppTheme.panel,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.music_note, color: AppTheme.accentLight),
             ),
-            child: const Icon(Icons.music_note, color: AppTheme.accentLight),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppTheme.text,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppTheme.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: AppTheme.muted, fontSize: 12),
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_horiz, color: AppTheme.muted, size: 20),
-            onPressed: () {},
-          ),
-        ],
+            IconButton(
+              icon: const Icon(Icons.more_horiz, color: AppTheme.muted, size: 20),
+              onPressed: () {},
+            ),
+          ],
+        ),
       ),
     );
   }
