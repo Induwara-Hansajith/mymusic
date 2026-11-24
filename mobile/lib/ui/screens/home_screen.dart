@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import '../../models/track.dart';
 import '../../services/youtube_service.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/library_provider.dart';
 import '../theme.dart';
-import '../widgets/track_tile.dart';
+import 'equalizer_screen.dart';
+import 'playlist_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,168 +38,390 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.accent),
+      return const Scaffold(
+        backgroundColor: AppTheme.bg,
+        body: Center(
+          child: CircularProgressIndicator(color: AppTheme.accent),
+        ),
       );
     }
+
+    final player = context.watch<PlayerProvider>();
+    final library = context.watch<LibraryProvider>();
 
     final quickPicks = _feed['Quick Picks'] ?? [];
     final trending = _feed['Trending Now'] ?? [];
     final chill = _feed['Chill & Relax'] ?? [];
 
+    // Combine recent tracks with quick picks for "Recently played"
+    final recentList = library.recentTracks.isNotEmpty ? library.recentTracks : quickPicks;
+
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                gradient: const LinearGradient(
-                  colors: [AppTheme.accent, AppTheme.accent2],
+      backgroundColor: AppTheme.bg,
+      body: SafeArea(
+        child: RefreshIndicator(
+          color: AppTheme.accent,
+          backgroundColor: AppTheme.panel,
+          onRefresh: _loadFeed,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'MY MUSIC',
+                        style: TextStyle(
+                          color: AppTheme.subtitle,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _getGreeting(),
+                        style: const TextStyle(
+                          color: AppTheme.text,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.panel,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.line),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.tune_rounded, color: AppTheme.text, size: 22),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const EqualizerScreen()),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Section 1: Recently played
+              _buildSectionHeader('Recently played', onSeeAll: () {}),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 180,
+                child: recentList.isNotEmpty
+                    ? ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: recentList.length,
+                        itemBuilder: (ctx, i) {
+                          final t = recentList[i];
+                          return _buildSquareCard(
+                            track: t,
+                            title: t.title,
+                            subtitle: t.artist,
+                            onTap: () => player.playTrack(t, queue: recentList, index: i),
+                          );
+                        },
+                      )
+                    : _buildPlaceholderRow(player),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Section 2: Made for you
+              _buildSectionHeader('Made for you', onSeeAll: () {}),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 180,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _buildCuratedCard(
+                      title: 'After hours',
+                      subtitle: 'Your daily mix',
+                      icon: Icons.nightlife_rounded,
+                      color: const Color(0xFF4C1D95),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PlaylistScreen(
+                              playlist: library.playlists.isNotEmpty
+                                  ? library.playlists.first
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildCuratedCard(
+                      title: 'Deep focus',
+                      subtitle: 'Made for your mind',
+                      icon: Icons.water_drop_rounded,
+                      color: const Color(0xFF1E3A8A),
+                      onTap: () {
+                        if (chill.isNotEmpty) {
+                          player.playTrack(chill.first, queue: chill);
+                        }
+                      },
+                    ),
+                    _buildCuratedCard(
+                      title: 'Slow burn',
+                      subtitle: 'A softer landing',
+                      icon: Icons.wb_twilight_rounded,
+                      color: const Color(0xFF831843),
+                      onTap: () {
+                        if (quickPicks.length > 2) {
+                          player.playTrack(quickPicks[2], queue: quickPicks);
+                        }
+                      },
+                    ),
+                  ],
                 ),
               ),
-              child: const Icon(Icons.music_note, color: Colors.white, size: 18),
+
+              const SizedBox(height: 24),
+
+              // Section 3: New releases
+              _buildSectionHeader('New releases', onSeeAll: () {}),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 180,
+                child: trending.isNotEmpty
+                    ? ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: trending.length,
+                        itemBuilder: (ctx, i) {
+                          final t = trending[i];
+                          return _buildSquareCard(
+                            track: t,
+                            title: t.title,
+                            subtitle: t.artist,
+                            onTap: () => player.playTrack(t, queue: trending, index: i),
+                          );
+                        },
+                      )
+                    : _buildPlaceholderRow(player),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, {VoidCallback? onSeeAll}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: AppTheme.text,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        if (onSeeAll != null)
+          GestureDetector(
+            onTap: onSeeAll,
+            child: const Text(
+              'See all',
+              style: TextStyle(
+                color: AppTheme.muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-            const SizedBox(width: 10),
-            const Text('My Music'),
-          ],
-        ),
-      ),
-      body: RefreshIndicator(
-        color: AppTheme.accent,
-        backgroundColor: AppTheme.panel,
-        onRefresh: _loadFeed,
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 90),
-          children: [
-            if (quickPicks.isNotEmpty) ...[
-              _buildSectionHeader('Quick Picks'),
-              SizedBox(
-                height: 195,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  itemCount: quickPicks.length,
-                  itemBuilder: (ctx, i) {
-                    final t = quickPicks[i];
-                    return _buildCardItem(context, t, quickPicks, i);
-                  },
-                ),
-              ),
-            ],
-            if (trending.isNotEmpty) ...[
-              _buildSectionHeader('Trending Now'),
-              ...trending.take(8).map((t) => TrackTile(track: t, queueContext: trending)),
-            ],
-            if (chill.isNotEmpty) ...[
-              _buildSectionHeader('Chill & Relax'),
-              SizedBox(
-                height: 195,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  itemCount: chill.length,
-                  itemBuilder: (ctx, i) {
-                    final t = chill[i];
-                    return _buildCardItem(context, t, chill, i);
-                  },
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: AppTheme.text,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.2,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCardItem(BuildContext context, Track track, List<Track> queue, int index) {
-    final player = context.read<PlayerProvider>();
-    return Container(
-      width: 135,
-      margin: const EdgeInsets.only(right: 12),
-      child: GestureDetector(
-        onTap: () => player.playTrack(track, queue: queue, index: index),
+  Widget _buildSquareCard({
+    required Track track,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 128,
+        margin: const EdgeInsets.only(right: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  CachedNetworkImage(
-                    imageUrl: track.thumb,
-                    width: 135,
-                    height: 135,
-                    fit: BoxFit.cover,
-                    placeholder: (_, _) => Container(
-                      width: 135,
-                      height: 135,
+              borderRadius: BorderRadius.circular(18),
+              child: track.thumb.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: track.thumb,
+                      width: 128,
+                      height: 128,
+                      fit: BoxFit.cover,
+                      placeholder: (_, _) => Container(
+                        width: 128,
+                        height: 128,
+                        color: AppTheme.panel,
+                        child: const Icon(Icons.music_note, color: AppTheme.muted),
+                      ),
+                      errorWidget: (_, _, _) => Container(
+                        width: 128,
+                        height: 128,
+                        color: AppTheme.panel,
+                        child: const Icon(Icons.music_note, color: AppTheme.muted),
+                      ),
+                    )
+                  : Container(
+                      width: 128,
+                      height: 128,
                       color: AppTheme.panel,
                       child: const Icon(Icons.music_note, color: AppTheme.muted),
                     ),
-                    errorWidget: (_, _, _) => Container(
-                      width: 135,
-                      height: 135,
-                      color: AppTheme.panel,
-                      child: const Icon(Icons.music_note, color: AppTheme.muted),
-                    ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.all(6),
-                    padding: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      color: AppTheme.accent,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 18),
-                  ),
-                ],
-              ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
-              track.title,
+              title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppTheme.text,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 2),
             Text(
-              track.artist,
+              subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppTheme.muted,
-                fontSize: 12,
+                fontSize: 11,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCuratedCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 128,
+        margin: const EdgeInsets.only(right: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 128,
+              height: 128,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(18),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    color.withValues(alpha: 0.8),
+                    color,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Icon(icon, color: Colors.white70, size: 40),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppTheme.text,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppTheme.muted,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholderRow(PlayerProvider player) {
+    return Row(
+      children: [
+        _buildCuratedCard(
+          title: 'Violet hour',
+          subtitle: 'Luna Bay',
+          icon: Icons.music_note_rounded,
+          color: const Color(0xFF5B21B6),
+          onTap: () {},
+        ),
+        _buildCuratedCard(
+          title: 'Moonstruck',
+          subtitle: 'Solace',
+          icon: Icons.nightlight_round,
+          color: const Color(0xFF831843),
+          onTap: () {},
+        ),
+        _buildCuratedCard(
+          title: 'Tidal',
+          subtitle: 'Onda',
+          icon: Icons.water_drop_rounded,
+          color: const Color(0xFF1E3A8A),
+          onTap: () {},
+        ),
+      ],
     );
   }
 }

@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_sync_service.dart';
-import '../../providers/library_provider.dart';
+import '../../providers/player_provider.dart';
 import '../theme.dart';
-import '../widgets/glass_card.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -14,242 +13,512 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthSyncService _auth = AuthSyncService();
+  bool _discordPresence = true;
   bool _isSyncing = false;
+
+  void _showEmailAuthModal(BuildContext context) {
+    final emailCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    bool isSignUp = false;
+    String? errorMsg;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          decoration: const BoxDecoration(
+            color: AppTheme.panel,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.line,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isSignUp ? 'Create Supabase Account' : 'Sign In with Email',
+                style: const TextStyle(
+                  color: AppTheme.text,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Sync your playlists and listening history across desktop and mobile.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 13),
+              ),
+              const SizedBox(height: 18),
+              if (errorMsg != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(errorMsg!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                style: const TextStyle(color: AppTheme.text),
+                decoration: InputDecoration(
+                  hintText: 'Email address',
+                  hintStyle: const TextStyle(color: AppTheme.muted),
+                  filled: true,
+                  fillColor: AppTheme.bg2,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                style: const TextStyle(color: AppTheme.text),
+                decoration: InputDecoration(
+                  hintText: 'Password',
+                  hintStyle: const TextStyle(color: AppTheme.muted),
+                  filled: true,
+                  fillColor: AppTheme.bg2,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () async {
+                    final email = emailCtrl.text.trim();
+                    final pass = passCtrl.text;
+                    if (email.isEmpty || pass.isEmpty) {
+                      setModalState(() => errorMsg = 'Please enter email and password');
+                      return;
+                    }
+                    setModalState(() => errorMsg = null);
+                    if (isSignUp) {
+                      final err = await _auth.signUpWithPassword(email, pass);
+                      if (err != null) {
+                        setModalState(() => errorMsg = err);
+                      } else {
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        setState(() {});
+                      }
+                    } else {
+                      final err = await _auth.signInWithPassword(email, pass);
+                      if (err != null) {
+                        setModalState(() => errorMsg = err);
+                      } else {
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        setState(() {});
+                      }
+                    }
+                  },
+                  child: Text(
+                    isSignUp ? 'Sign Up' : 'Sign In',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: () => setModalState(() => isSignUp = !isSignUp),
+                  child: Text(
+                    isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up',
+                    style: const TextStyle(color: AppTheme.subtitle, fontSize: 13),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final library = context.watch<LibraryProvider>();
+    final player = context.watch<PlayerProvider>();
     final isSignedIn = _auth.isSignedIn;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
-        children: [
-          // Account & Cloud Sync Section
-          const Text(
-            'ACCOUNT & CLOUD SYNC',
-            style: TextStyle(
-              color: AppTheme.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.8,
+      backgroundColor: AppTheme.bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+          children: [
+            // Header
+            const Text(
+              'YOUR SPACE, YOUR SOUND',
+              style: TextStyle(
+                color: AppTheme.subtitle,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.0,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          GlassCard(
-            child: isSignedIn
-                ? Column(
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 24,
-                            backgroundColor: AppTheme.accent,
-                            child: Text(
-                              _auth.displayName.isNotEmpty
-                                  ? _auth.displayName[0].toUpperCase()
-                                  : 'U',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
+            const SizedBox(height: 2),
+            const Text(
+              'Settings',
+              style: TextStyle(
+                color: AppTheme.text,
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Card 1: Account / Sync Card
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppTheme.panel,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: AppTheme.line),
+              ),
+              child: isSignedIn
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: AppTheme.accent,
+                              child: Text(
+                                _auth.displayName.isNotEmpty
+                                    ? _auth.displayName[0].toUpperCase()
+                                    : 'M',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
                               ),
                             ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _auth.displayName,
+                                    style: const TextStyle(
+                                      color: AppTheme.text,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _auth.userEmail ?? 'Signed in',
+                                    style: const TextStyle(color: AppTheme.muted, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: AppTheme.line),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                icon: _isSyncing
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.sync_rounded, color: AppTheme.accentLight, size: 18),
+                                label: const Text('Sync Now', style: TextStyle(color: AppTheme.text)),
+                                onPressed: _isSyncing
+                                    ? null
+                                    : () async {
+                                        setState(() => _isSyncing = true);
+                                        await _auth.syncNow();
+                                        setState(() => _isSyncing = false);
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Synced with Supabase Cloud')),
+                                          );
+                                        }
+                                      },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: AppTheme.line),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
+                                label: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
+                                onPressed: () async {
+                                  await _auth.signOut();
+                                  setState(() {});
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Take your music everywhere.',
+                          style: TextStyle(
+                            color: AppTheme.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _auth.displayName,
-                                  style: const TextStyle(
-                                    color: AppTheme.text,
-                                    fontSize: 16,
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Sync playlists, likes, and listening history.',
+                          style: TextStyle(color: AppTheme.muted, fontSize: 13),
+                        ),
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            // Google button
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: Colors.black87,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.black87, size: 26),
+                                label: const Text(
+                                  'Google',
+                                  style: TextStyle(
+                                    color: Colors.black87,
                                     fontWeight: FontWeight.bold,
+                                    fontSize: 15,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _auth.userEmail ?? '',
-                                  style: const TextStyle(
-                                    color: AppTheme.muted,
-                                    fontSize: 13,
+                                onPressed: () async {
+                                  final ok = await _auth.signInWithGoogle();
+                                  if (!ok && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Starting Google sign-in in browser...')),
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Email button
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF232336),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    side: const BorderSide(color: AppTheme.line),
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: AppTheme.line),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                icon: const Icon(Icons.email_outlined, color: Colors.white70, size: 20),
+                                label: const Text(
+                                  'Email',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
                                 ),
+                                onPressed: () => _showEmailAuthModal(context),
                               ),
-                              icon: _isSyncing
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Icon(Icons.sync, color: AppTheme.accent, size: 18),
-                              label: const Text('Sync Now', style: TextStyle(color: AppTheme.text)),
-                              onPressed: _isSyncing
-                                  ? null
-                                  : () async {
-                                      setState(() => _isSyncing = true);
-                                      await _auth.syncNow();
-                                      setState(() => _isSyncing = false);
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Synced with Supabase Cloud')),
-                                        );
-                                      }
-                                    },
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: AppTheme.line),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              icon: const Icon(Icons.logout, color: Colors.redAccent, size: 18),
-                              label: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
-                              onPressed: () async {
-                                await _auth.signOut();
-                                setState(() {});
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Sign In to Sync Playlists',
-                        style: TextStyle(
-                          color: AppTheme.text,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Keep your liked songs, custom playlists, and listening history in sync with My Music Desktop.',
-                        style: TextStyle(color: AppTheme.muted, fontSize: 13),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.black87,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          icon: const Icon(Icons.account_circle, color: Colors.black87),
-                          label: const Text(
-                            'Sign In with Google',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                          ),
-                          onPressed: () async {
-                            final ok = await _auth.signInWithGoogle();
-                            if (ok) {
-                              setState(() {});
-                            }
-                          },
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Settings list
+            _buildSettingRow(
+              title: 'Cloud sync',
+              subtitle: 'Sign in to back up your library',
+              trailing: Text(
+                isSignedIn ? 'Connected' : 'Sign in',
+                style: const TextStyle(color: AppTheme.subtitle, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              onTap: () {
+                if (!isSignedIn) {
+                  _showEmailAuthModal(context);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
+              title: 'Discord presence',
+              subtitle: 'Share what is playing',
+              trailing: Switch(
+                value: _discordPresence,
+                activeTrackColor: AppTheme.accent,
+                activeThumbColor: Colors.white,
+                onChanged: (v) => setState(() => _discordPresence = v),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
+              title: 'Wallpaper',
+              subtitle: 'Aurora · follows album artwork',
+              trailing: const Text(
+                'Change ›',
+                style: TextStyle(color: AppTheme.muted, fontSize: 14),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
+              title: 'Accent override',
+              subtitle: 'Dynamic · sampled from artwork',
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.accent,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Performance & Playback
-          const Text(
-            'PERFORMANCE & PLAYBACK',
-            style: TextStyle(
-              color: AppTheme.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          GlassCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('Low Resource Mode', style: TextStyle(color: AppTheme.text)),
-                  subtitle: const Text(
-                    'Optimizes image memory and reduces background animations on budget phones',
-                    style: TextStyle(color: AppTheme.muted, fontSize: 12),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Dynamic ›',
+                    style: TextStyle(color: AppTheme.muted, fontSize: 14),
                   ),
-                  activeThumbColor: AppTheme.accent,
-                  value: library.lowResourceMode,
-                  onChanged: (val) => library.setLowResourceMode(val),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
+              title: 'AutoMix',
+              subtitle: 'Seamless 6-second crossfade',
+              trailing: Switch(
+                value: player.autoMixEnabled,
+                activeTrackColor: AppTheme.accent,
+                activeThumbColor: Colors.white,
+                onChanged: (_) => player.toggleAutoMix(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
+              title: 'Download quality',
+              subtitle: 'High · 256 kbps AAC',
+              trailing: const Text(
+                'High ›',
+                style: TextStyle(color: AppTheme.muted, fontSize: 14),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
+              title: 'Accessibility',
+              subtitle: 'Dynamic Type · VoiceOver · Reduce Motion',
+              trailing: const Text(
+                'Open ›',
+                style: TextStyle(color: AppTheme.muted, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-          const SizedBox(height: 24),
-
-          // About
-          const Text(
-            'ABOUT',
-            style: TextStyle(
-              color: AppTheme.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.8,
+  Widget _buildSettingRow({
+    required String title,
+    required String subtitle,
+    required Widget trailing,
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppTheme.panel,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.line),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppTheme.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: AppTheme.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          const GlassCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'My Music Mobile',
-                  style: TextStyle(color: AppTheme.text, fontWeight: FontWeight.bold, fontSize: 15),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Version 1.1.8 • High Performance Flutter Native Engine',
-                  style: TextStyle(color: AppTheme.muted, fontSize: 13),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'Features: Direct YouTube Music audio streaming, LRCLIB synchronized lyrics, dual-deck background player, local & cloud sync.',
-                  style: TextStyle(color: AppTheme.muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ],
+            trailing,
+          ],
+        ),
       ),
     );
   }

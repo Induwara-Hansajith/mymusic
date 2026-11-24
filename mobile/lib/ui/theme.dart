@@ -1,25 +1,28 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const Color bg = Color(0xFF07090E);
-  static const Color bg2 = Color(0xFF0D1017);
-  static const Color panel = Color(0xFF141824);
-  static const Color panelCard = Color(0xFF0E121C);
+  static const Color bg = Color(0xFF08080E);
+  static const Color bg2 = Color(0xFF0E0E18);
+  static const Color panel = Color(0xFF141422);
+  static const Color panelCard = Color(0xFF161626);
   static const Color accent = Color(0xFF8B5CF6);
-  static const Color accent2 = Color(0xFF6D3EE0);
+  static const Color accentLight = Color(0xFFA78BFA);
+  static const Color accentDark = Color(0xFF7C3AED);
   static const Color accentPink = Color(0xFFEC4899);
-  static const Color line = Color(0x1FFFFFFF);
-  static const Color text = Color(0xFFEEF2F8);
-  static const Color muted = Color(0xFF95A0B5);
+  static const Color line = Color(0xFF232338);
+  static const Color text = Color(0xFFFFFFFF);
+  static const Color muted = Color(0xFF9CA3AF);
+  static const Color subtitle = Color(0xFFA78BFA);
 
   static ThemeData get darkTheme {
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: bg,
       primaryColor: accent,
+      fontFamily: 'Roboto',
       colorScheme: const ColorScheme.dark(
         primary: accent,
-        secondary: accentPink,
+        secondary: accentLight,
         surface: panel,
       ),
       appBarTheme: const AppBarTheme(
@@ -28,15 +31,17 @@ class AppTheme {
         centerTitle: false,
         titleTextStyle: TextStyle(
           color: text,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.2,
+          fontSize: 24,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
         ),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: Color(0xF207090E),
-        selectedItemColor: accent,
-        unselectedItemColor: muted,
+        backgroundColor: Color(0xF508080E),
+        selectedItemColor: accentLight,
+        unselectedItemColor: Color(0xFF6B7280),
+        selectedLabelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),

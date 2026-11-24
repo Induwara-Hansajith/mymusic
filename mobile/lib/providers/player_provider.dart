@@ -46,6 +46,12 @@ class PlayerProvider extends ChangeNotifier {
   List<Track> get queue => _playerService.queue;
   int get currentIndex => _playerService.currentIndex;
 
+  bool get autoMixEnabled => _playerService.autoMixEnabled;
+  double get speed => _playerService.speed;
+  bool get pitchLock => _playerService.pitchLock;
+  List<double> get eqBands => _playerService.eqBands;
+  String get eqPreset => _playerService.eqPreset;
+
   int get currentLyricIndex {
     if (_lyrics.synced.isEmpty) return -1;
     final posSec = _position.inMilliseconds / 1000.0;
@@ -132,7 +138,6 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> next() async => _playerService.next();
   Future<void> previous() async => _playerService.previous();
-
   Future<void> seek(Duration pos) async => _playerService.seek(pos);
 
   Future<void> cycleLoopMode() async {
@@ -144,6 +149,46 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> toggleShuffle() async {
     await _playerService.toggleShuffle();
     _shuffleEnabled = _playerService.player.shuffleModeEnabled;
+    notifyListeners();
+  }
+
+  void toggleAutoMix() {
+    _playerService.setAutoMix(!_playerService.autoMixEnabled);
+    notifyListeners();
+  }
+
+  void setPlaybackSpeed(double speed) {
+    _playerService.setPlaybackSpeed(speed);
+    notifyListeners();
+  }
+
+  void togglePitchLock() {
+    _playerService.setPitchLock(!_playerService.pitchLock);
+    notifyListeners();
+  }
+
+  void setEqBand(int index, double gainDb) {
+    _playerService.setEqBand(index, gainDb);
+    notifyListeners();
+  }
+
+  void setEqPreset(String preset, List<double> gains) {
+    _playerService.setEqPreset(preset, gains);
+    notifyListeners();
+  }
+
+  void resetEq() {
+    _playerService.resetEq();
+    notifyListeners();
+  }
+
+  void reorderQueue(int oldIndex, int newIndex) {
+    _playerService.reorderQueue(oldIndex, newIndex);
+    notifyListeners();
+  }
+
+  void removeFromQueue(int index) {
+    _playerService.removeFromQueue(index);
     notifyListeners();
   }
 

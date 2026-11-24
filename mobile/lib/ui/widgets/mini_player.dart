@@ -29,37 +29,37 @@ class MiniPlayer extends StatelessWidget {
         );
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: AppTheme.panel.withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(16),
+          color: const Color(0xFF161626),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(color: AppTheme.line),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-              color: Colors.black45,
-              blurRadius: 16,
-              offset: Offset(0, 4),
+              color: Colors.black.withValues(alpha: 0.5),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Top progress indicator bar
+              // Subtle Progress Bar
               LinearProgressIndicator(
                 value: progress,
-                minHeight: 2.5,
+                minHeight: 2.0,
                 backgroundColor: Colors.transparent,
                 valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accent),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Row(
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                       child: track.thumb.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: track.thumb,
@@ -69,21 +69,21 @@ class MiniPlayer extends StatelessWidget {
                               placeholder: (_, _) => Container(
                                 width: 44,
                                 height: 44,
-                                color: AppTheme.bg2,
+                                color: AppTheme.panel,
                                 child: const Icon(Icons.music_note, color: AppTheme.muted, size: 20),
                               ),
                               errorWidget: (_, _, _) => Container(
                                 width: 44,
                                 height: 44,
-                                color: AppTheme.bg2,
+                                color: AppTheme.panel,
                                 child: const Icon(Icons.music_note, color: AppTheme.muted, size: 20),
                               ),
                             )
                           : Container(
                               width: 44,
                               height: 44,
-                              color: AppTheme.bg2,
-                              child: const Icon(Icons.music_note, color: AppTheme.muted, size: 20),
+                              color: const Color(0xFF3B1D54),
+                              child: const Icon(Icons.music_note, color: Colors.white60, size: 20),
                             ),
                     ),
                     const SizedBox(width: 12),
@@ -98,8 +98,8 @@ class MiniPlayer extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: AppTheme.text,
-                              fontWeight: FontWeight.bold,
                               fontSize: 14,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -108,37 +108,30 @@ class MiniPlayer extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: AppTheme.muted,
+                              color: AppTheme.subtitle,
                               fontSize: 12,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    if (player.isLoading)
-                      const Padding(
-                        padding: EdgeInsets.all(10),
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accent),
-                          ),
-                        ),
-                      )
-                    else
-                      IconButton(
-                        icon: Icon(
-                          player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                          color: AppTheme.accent,
-                          size: 36,
-                        ),
-                        onPressed: player.togglePlay,
-                      ),
                     IconButton(
-                      icon: const Icon(Icons.skip_next, color: AppTheme.text, size: 26),
-                      onPressed: player.next,
+                      icon: player.isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(color: AppTheme.accent, strokeWidth: 2),
+                            )
+                          : Icon(
+                              player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              color: AppTheme.text,
+                              size: 28,
+                            ),
+                      onPressed: () => player.togglePlay(),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.skip_next_rounded, color: AppTheme.text, size: 26),
+                      onPressed: () => player.next(),
                     ),
                   ],
                 ),

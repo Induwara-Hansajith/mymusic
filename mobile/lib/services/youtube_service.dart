@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -73,9 +74,9 @@ class YoutubeService {
 
   Future<Map<String, List<Track>>> getHomeFeed() async {
     try {
-      final quickPicksFuture = search('top hits songs', limit: 12);
-      final trendingFuture = search('trending music 2026', limit: 12);
-      final chillFuture = search('lofi chill beats', limit: 10);
+      final quickPicksFuture = search('top hits songs 2026', limit: 12);
+      final trendingFuture = search('popular music trending', limit: 12);
+      final chillFuture = search('lofi hip hop relax chill', limit: 10);
 
       final results = await Future.wait([quickPicksFuture, trendingFuture, chillFuture]);
 
@@ -104,8 +105,10 @@ class YoutubeService {
     try {
       final manifest = await _yt.videos.streamsClient.getManifest(cleanId);
       final audioStreams = manifest.audioOnly;
+      String rawUrl = '';
+
       if (audioStreams.isNotEmpty) {
-        // Prioritize AAC / MP4 (itag 140) first for 100% native Android hardware support
+        // Prioritize AAC / MP4 (itag 140) first for universal Android hardware decode
         AudioStreamInfo? selected;
         final mp4Streams = audioStreams
             .where((s) => s.container.name.toLowerCase() == 'mp4')
@@ -115,22 +118,50 @@ class YoutubeService {
         } else {
           selected = audioStreams.withHighestBitrate();
         }
-        final url = selected.url.toString();
-        _streamCache[cleanId] = url;
-        return url;
+        rawUrl = selected.url.toString();
+      } else if (manifest.muxed.isNotEmpty) {
+        rawUrl = manifest.muxed.withHighestBitrate().url.toString();
       }
 
-      final muxed = manifest.muxed;
-      if (muxed.isNotEmpty) {
-        final url = muxed.withHighestBitrate().url.toString();
-        _streamCache[cleanId] = url;
-        return url;
+      if (rawUrl.isEmpty) {
+        debugPrint('[YoutubeService] No stream found for $cleanId');
+        return null;
       }
-      debugPrint('[YoutubeService] No audio or muxed streams for $cleanId');
-      return null;
+
+      // Resolve any 302 redirects beforehand so ExoPlayer connects directly to destination CDN node
+      final resolvedUrl = await _resolveRedirect(rawUrl);
+      _streamCache[cleanId] = resolvedUrl;
+      return resolvedUrl;
     } catch (e) {
       debugPrint('[YoutubeService] resolveStreamUrl error for $cleanId: $e');
       return null;
+    }
+  }
+
+  Future<String> _resolveRedirect(String initialUrl) async {
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+      final req = await client.openUrl('HEAD', Uri.parse(initialUrl));
+      req.followRedirects = true;
+      req.maxRedirects = 5;
+      req.headers.set(
+        'User-Agent',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      );
+      req.headers.set('Referer', 'https://www.youtube.com/');
+      final resp = await req.close();
+      final finalUrl = req.uri.toString();
+      if (resp.statusCode == 200 || resp.statusCode == 206) {
+        return finalUrl;
+      }
+      return initialUrl;
+    } catch (e) {
+      debugPrint('[YoutubeService] _resolveRedirect warning: $e');
+      return initialUrl;
+    } finally {
+      client?.close();
     }
   }
 
@@ -156,12 +187,8 @@ class YoutubeService {
         )).toList();
       }
     } catch (e) {
-      debugPrint('[YoutubeService] getRelatedTracks fallback: $e');
+      debugPrint('[YoutubeService] getRelatedTracks error: $e');
     }
-    return search('music radio', limit: limit);
-  }
-
-  void dispose() {
-    _yt.close();
+    return [];
   }
 }

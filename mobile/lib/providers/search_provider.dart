@@ -16,6 +16,9 @@ class SearchProvider extends ChangeNotifier {
   List<Track> get results => List.unmodifiable(_results);
   List<String> get suggestions => List.unmodifiable(_suggestions);
   bool get isSearching => _isSearching;
+  bool get isLoading => _isSearching;
+
+  Future<void> search(String queryToSearch) => executeSearch(queryToSearch);
 
   void onQueryChanged(String newQuery) {
     _query = newQuery;

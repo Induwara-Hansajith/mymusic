@@ -78,6 +78,10 @@ class StorageService {
     await prefs.setStringList('mymusic_recent', enc);
   }
 
+  Future<void> clearRecents() async {
+    await prefs.remove('mymusic_recent');
+  }
+
   // Playlists
   List<Playlist> getPlaylists() {
     final list = prefs.getStringList('mymusic_playlists') ?? [];

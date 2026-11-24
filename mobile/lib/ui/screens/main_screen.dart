@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'search_screen.dart';
 import 'library_screen.dart';
+import 'wrapped_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/mini_player.dart';
 
@@ -19,6 +20,7 @@ class _MainScreenState extends State<MainScreen> {
     HomeScreen(),
     SearchScreen(),
     LibraryScreen(),
+    WrappedScreen(),
     SettingsScreen(),
   ];
 
@@ -45,22 +47,27 @@ class _MainScreenState extends State<MainScreen> {
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
+            activeIcon: Icon(Icons.home_rounded),
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.search_outlined),
-            activeIcon: Icon(Icons.search),
+            icon: Icon(Icons.search_rounded),
+            activeIcon: Icon(Icons.search_rounded),
             label: 'Search',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.library_music_outlined),
-            activeIcon: Icon(Icons.library_music),
+            icon: Icon(Icons.auto_stories_outlined),
+            activeIcon: Icon(Icons.auto_stories_rounded),
             label: 'Library',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.bar_chart_rounded),
+            activeIcon: Icon(Icons.bar_chart_rounded),
+            label: 'Wrapped',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
+            activeIcon: Icon(Icons.settings_rounded),
             label: 'Settings',
           ),
         ],

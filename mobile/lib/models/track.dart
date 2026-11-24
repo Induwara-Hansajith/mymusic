@@ -19,6 +19,12 @@ class Track {
 
   String get cleanId => id.startsWith('yt:') ? id.substring(3) : id;
 
+  String get durationFormatted {
+    final m = durationSec ~/ 60;
+    final s = durationSec % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,

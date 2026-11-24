@@ -21,6 +21,13 @@ class AudioPlayerService {
   bool _isLoading = false;
   String? _lastError;
   int _consecutiveErrors = 0;
+  bool _autoMixEnabled = true;
+  double _speed = 1.0;
+  bool _pitchLock = true;
+
+  // 10-band EQ gains in dB (-12 to +12)
+  final List<double> _eqBands = [4.0, 6.0, 3.0, -1.0, -3.0, 0.0, 3.0, 5.0, 4.0, 2.0];
+  String _eqPreset = 'Warm & spacious';
 
   final _trackChangeController = StreamController<Track?>.broadcast();
   Stream<Track?> get currentTrackStream => _trackChangeController.stream;
@@ -31,12 +38,20 @@ class AudioPlayerService {
   final _errorController = StreamController<String?>.broadcast();
   Stream<String?> get errorStream => _errorController.stream;
 
+  final _autoMixController = StreamController<bool>.broadcast();
+  Stream<bool> get autoMixStream => _autoMixController.stream;
+
   AudioPlayer get player => _player;
   Track? get currentTrack => _currentTrack;
   List<Track> get queue => List.unmodifiable(_queue);
   int get currentIndex => _currentIndex;
   bool get isLoading => _isLoading;
   String? get lastError => _lastError;
+  bool get autoMixEnabled => _autoMixEnabled;
+  double get speed => _speed;
+  bool get pitchLock => _pitchLock;
+  List<double> get eqBands => List.unmodifiable(_eqBands);
+  String get eqPreset => _eqPreset;
 
   Future<void> init() async {
     try {
@@ -52,9 +67,62 @@ class AudioPlayerService {
 
     _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
-        next();
+        final pos = _player.position;
+        final dur = _player.duration;
+        // Only advance if track actually played to near completion (not premature stream drop)
+        if (dur != null && dur.inSeconds > 5 && pos.inSeconds >= dur.inSeconds - 3) {
+          next();
+        }
       }
     });
+
+    _player.playbackEventStream.listen(
+      (_) {},
+      onError: (Object e, StackTrace st) {
+        debugPrint('[AudioPlayerService] Playback event error: $e');
+        _lastError = 'Playback error: $e';
+        _errorController.add(_lastError);
+        _isLoading = false;
+      },
+    );
+  }
+
+  void setAutoMix(bool enabled) {
+    _autoMixEnabled = enabled;
+    _autoMixController.add(_autoMixEnabled);
+  }
+
+  Future<void> setPlaybackSpeed(double speed) async {
+    _speed = speed.clamp(0.5, 2.0);
+    try {
+      await _player.setSpeed(_speed);
+    } catch (e) {
+      debugPrint('[AudioPlayerService] setPlaybackSpeed error: $e');
+    }
+  }
+
+  void setPitchLock(bool lock) {
+    _pitchLock = lock;
+  }
+
+  void setEqBand(int index, double gainDb) {
+    if (index >= 0 && index < _eqBands.length) {
+      _eqBands[index] = gainDb.clamp(-12.0, 12.0);
+    }
+  }
+
+  void setEqPreset(String preset, List<double> gains) {
+    _eqPreset = preset;
+    for (int i = 0; i < _eqBands.length && i < gains.length; i++) {
+      _eqBands[i] = gains[i].clamp(-12.0, 12.0);
+    }
+  }
+
+  void resetEq() {
+    _eqPreset = 'Flat';
+    for (int i = 0; i < _eqBands.length; i++) {
+      _eqBands[i] = 0.0;
+    }
   }
 
   Future<void> playTrack(Track track, {List<Track>? newQueue, int? index}) async {
@@ -108,14 +176,12 @@ class AudioPlayerService {
           tag: mediaItem,
         );
       } else {
+        // Supply browser headers without hardcoded byte range so ExoPlayer manages range buffering
         audioSource = AudioSource.uri(
           Uri.parse(streamUrl),
           headers: const {
             'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Encoding': 'identity;q=1, *;q=0',
-            'Range': 'bytes=0-',
             'Referer': 'https://www.youtube.com/',
           },
           tag: mediaItem,
@@ -132,7 +198,7 @@ class AudioPlayerService {
       debugPrint('[AudioPlayerService] Play error: $e');
       _yt.invalidateStream(track.id);
       _isLoading = false;
-      _lastError = e.toString();
+      _lastError = 'Playback failed: $e';
       _errorController.add(_lastError);
 
       _consecutiveErrors++;
@@ -145,6 +211,19 @@ class AudioPlayerService {
     }
   }
 
+  Future<void> cycleLoopMode() async {
+    final current = _player.loopMode;
+    final next = current == LoopMode.off
+        ? LoopMode.all
+        : (current == LoopMode.all ? LoopMode.one : LoopMode.off);
+    await _player.setLoopMode(next);
+  }
+
+  Future<void> toggleShuffle() async {
+    final next = !_player.shuffleModeEnabled;
+    await _player.setShuffleModeEnabled(next);
+  }
+
   Future<void> resume() async => _player.play();
   Future<void> pause() async => _player.pause();
   Future<void> stop() async => _player.stop();
@@ -153,65 +232,53 @@ class AudioPlayerService {
 
   Future<void> next() async {
     if (_queue.isEmpty) return;
-    if (_currentIndex + 1 < _queue.length) {
-      _currentIndex++;
-      await playTrack(_queue[_currentIndex]);
-    } else if (_player.loopMode == LoopMode.all) {
-      _currentIndex = 0;
-      await playTrack(_queue[0]);
-    } else {
-      // Auto fetch radio/recommended tracks when approaching queue end
-      if (_currentTrack != null) {
-        final related = await _yt.getRelatedTracks(_currentTrack!.id, limit: 10);
-        if (related.isNotEmpty) {
-          _queue.addAll(related);
-          _queueChangeController.add(_queue);
-          _currentIndex++;
-          await playTrack(_queue[_currentIndex]);
-          return;
-        }
-      }
-      await _player.stop();
+    int nextIdx = _currentIndex + 1;
+    if (nextIdx >= _queue.length) {
+      nextIdx = 0;
     }
+    await playTrack(_queue[nextIdx], index: nextIdx);
   }
 
   Future<void> previous() async {
     if (_queue.isEmpty) return;
     if (_player.position.inSeconds > 3) {
-      await _player.seek(Duration.zero);
+      await seek(Duration.zero);
       return;
     }
-    if (_currentIndex > 0) {
-      _currentIndex--;
-      await playTrack(_queue[_currentIndex]);
-    } else {
-      await _player.seek(Duration.zero);
+    int prevIdx = _currentIndex - 1;
+    if (prevIdx < 0) {
+      prevIdx = _queue.length - 1;
     }
+    await playTrack(_queue[prevIdx], index: prevIdx);
   }
 
-  Future<void> cycleLoopMode() async {
-    switch (_player.loopMode) {
-      case LoopMode.off:
-        await _player.setLoopMode(LoopMode.all);
-        break;
-      case LoopMode.all:
-        await _player.setLoopMode(LoopMode.one);
-        break;
-      case LoopMode.one:
-        await _player.setLoopMode(LoopMode.off);
-        break;
+  void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _queue.length || newIndex < 0 || newIndex > _queue.length) {
+      return;
     }
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    final item = _queue.removeAt(oldIndex);
+    _queue.insert(newIndex, item);
+    if (_currentTrack != null) {
+      _currentIndex = _queue.indexOf(_currentTrack!);
+    }
+    _queueChangeController.add(_queue);
   }
 
-  Future<void> toggleShuffle() async {
-    final enable = !_player.shuffleModeEnabled;
-    await _player.setShuffleModeEnabled(enable);
+  void removeFromQueue(int index) {
+    if (index < 0 || index >= _queue.length) return;
+    _queue.removeAt(index);
+    if (_currentTrack != null) {
+      _currentIndex = _queue.indexOf(_currentTrack!);
+    }
+    _queueChangeController.add(_queue);
   }
 
-  void dispose() {
-    _player.dispose();
-    _trackChangeController.close();
-    _queueChangeController.close();
-    _errorController.close();
+  void clearQueue() {
+    _queue.clear();
+    _currentIndex = -1;
+    _queueChangeController.add(_queue);
   }
 }

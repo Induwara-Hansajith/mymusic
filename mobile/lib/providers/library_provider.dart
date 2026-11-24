@@ -17,6 +17,7 @@ class LibraryProvider extends ChangeNotifier {
 
   List<Track> get favorites => List.unmodifiable(_favorites);
   List<Track> get recents => List.unmodifiable(_recents);
+  List<Track> get recentTracks => List.unmodifiable(_recents);
   List<Playlist> get playlists => List.unmodifiable(_playlists);
   bool get lowResourceMode => _lowResourceMode;
 
@@ -28,8 +29,16 @@ class LibraryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool isFavorite(Track track) {
-    return _favorites.any((t) => t.id == track.id);
+  bool isFavorite(dynamic trackOrId) {
+    if (trackOrId is Track) return _favorites.any((t) => t.id == trackOrId.id);
+    if (trackOrId is String) return _favorites.any((t) => t.id == trackOrId);
+    return false;
+  }
+
+  Future<void> clearHistory() async {
+    await _storage.clearRecents();
+    _recents = [];
+    notifyListeners();
   }
 
   Future<void> toggleFavorite(Track track) async {
