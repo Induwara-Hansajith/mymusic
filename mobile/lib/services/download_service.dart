@@ -48,22 +48,23 @@ class DownloadService {
         }
       } catch (_) {}
 
-      try {
-        final ytUrl = await _yt.resolveStreamUrl(track.cleanId);
-        if (ytUrl != null && ytUrl.isNotEmpty && !candidates.contains(ytUrl)) {
+      final yt = _yt;
+      final ytUrls = await yt.resolveStreamCandidates(track.cleanId);
+      for (final ytUrl in ytUrls) {
+        if (!candidates.contains(ytUrl)) {
           candidates.add(ytUrl);
         }
-      } catch (_) {}
+      }
 
       if (candidates.isEmpty) {
         try {
           final searchCandidates = await _yt.search('${track.title} ${track.artist}', limit: 2);
           for (final sc in searchCandidates) {
-            final candUrl = await _yt.resolveStreamUrl(sc.cleanId);
-            if (candUrl != null && candUrl.isNotEmpty && !candidates.contains(candUrl)) {
-              candidates.add(candUrl);
-              break;
+            final candUrls = await _yt.resolveStreamCandidates(sc.cleanId);
+            for (final u in candUrls) {
+              if (!candidates.contains(u)) candidates.add(u);
             }
+            if (candidates.isNotEmpty) break;
           }
         } catch (_) {}
       }
@@ -90,9 +91,7 @@ class DownloadService {
           try {
             final request = http.Request('GET', Uri.parse(streamUrl));
             if (streamUrl.contains('googlevideo.com')) {
-              request.headers['User-Agent'] =
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
-              request.headers['Referer'] = 'https://www.youtube.com/';
+              request.headers['User-Agent'] = YoutubeService.androidClientUserAgent;
             }
             final response = await client.send(request);
             if (response.statusCode >= 200 && response.statusCode < 300) {

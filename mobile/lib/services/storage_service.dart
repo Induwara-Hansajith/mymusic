@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track.dart';
 import '../models/playlist.dart';
+import '../models/ytm_models.dart';
 
 class StorageService {
   static final StorageService _instance = StorageService._internal();
@@ -435,5 +436,32 @@ class StorageService {
         rawOff.map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0)),
       );
     }
+  }
+
+  // ---------------- Home Shelves Disk Cache (instant cold start) ----------------
+  List<YtmHomeShelf> getCachedHomeShelves() {
+    final raw = prefs.getString('mymusic_home_shelves_cache');
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw);
+      if (list is List) {
+        return list
+            .whereType<Map>()
+            .map((m) => YtmHomeShelf.fromJson(Map<String, dynamic>.from(m)))
+            .where((s) => !s.isEmpty)
+            .toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  Future<void> saveCachedHomeShelves(List<YtmHomeShelf> shelves) async {
+    if (shelves.isEmpty) return;
+    try {
+      await prefs.setString(
+        'mymusic_home_shelves_cache',
+        jsonEncode(shelves.map((s) => s.toJson()).toList()),
+      );
+    } catch (_) {}
   }
 }

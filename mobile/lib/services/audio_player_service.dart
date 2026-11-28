@@ -135,10 +135,11 @@ class AudioPlayerService {
 
     try {
       await _player.setVolume(_volume);
-      await _applySpeedAndPitch();
-      await _applyHardwareDsp();
+      if (_speed != 1.0 || !_pitchLock) {
+        await _applySpeedAndPitch();
+      }
     } catch (e) {
-      debugPrint('[AudioPlayerService] Initial DSP setup warning: $e');
+      debugPrint('[AudioPlayerService] Initial player setup warning: $e');
     }
 
     _startOrbitLoopIfNeeded();
@@ -500,16 +501,16 @@ class AudioPlayerService {
         }
       }
 
-      // LoudnessEnhancer for Reverb Acoustic Presence / Club Punch
-      double targetGainMb = 0.0;
-      if (_djReverbPreset == 'studio') targetGainMb = 120.0;
-      if (_djReverbPreset == 'club') targetGainMb = 260.0;
-      if (_djReverbPreset == 'arena') targetGainMb = 380.0;
-      if (_djBassPunch) targetGainMb += 140.0;
+      // LoudnessEnhancer expects decibels (Java multiplies by 100 for milliBels).
+      double targetGainDb = 0.0;
+      if (_djReverbPreset == 'studio') targetGainDb = 1.2;
+      if (_djReverbPreset == 'club') targetGainDb = 2.6;
+      if (_djReverbPreset == 'arena') targetGainDb = 3.8;
+      if (_djBassPunch) targetGainDb += 1.4;
 
-      await _loudness.setEnabled(targetGainMb > 0);
-      if (targetGainMb > 0) {
-        await _loudness.setTargetGain(targetGainMb);
+      await _loudness.setEnabled(targetGainDb > 0);
+      if (targetGainDb > 0) {
+        await _loudness.setTargetGain(targetGainDb);
       }
     } catch (e) {
       debugPrint('[AudioPlayerService] Hardware DSP apply note: $e');
@@ -530,6 +531,62 @@ class AudioPlayerService {
     return 0.0;
   }
 
+  int _playRequestId = 0;
+
+  Future<bool> _tryStartCandidate(
+    Track track,
+    String streamUrl,
+    MediaItem mediaItem,
+    bool fadeIn,
+    int reqId,
+  ) async {
+    if (reqId != _playRequestId) return false;
+    try {
+      final AudioSource audioSource;
+      if (streamUrl.startsWith('/') || streamUrl.contains(':\\') || streamUrl.contains(':/')) {
+        audioSource = AudioSource.file(streamUrl, tag: mediaItem);
+      } else {
+        final Map<String, String>? headers = streamUrl.contains('googlevideo.com')
+            ? const {'User-Agent': YoutubeService.androidClientUserAgent}
+            : null;
+        audioSource = AudioSource.uri(
+          Uri.parse(streamUrl),
+          headers: headers,
+          tag: mediaItem,
+        );
+      }
+
+      await _player.setVolume(fadeIn ? 0.05 : _volume);
+      await _player
+          .setAudioSource(audioSource, preload: true)
+          .timeout(const Duration(seconds: 10));
+      if (reqId != _playRequestId) return false;
+
+      if (_speed != 1.0 || !_pitchLock) {
+        await _applySpeedAndPitch();
+      }
+      await _player.play();
+      if (reqId != _playRequestId) return false;
+
+      unawaited(_applyHardwareDsp());
+      if (fadeIn) {
+        unawaited(_fadeInPlayer());
+      }
+      _isLoading = false;
+      _consecutiveErrors = 0;
+      _storage.addRecent(track).catchError((_) {});
+      return true;
+    } catch (err) {
+      debugPrint('[AudioPlayerService] Candidate failed ($err): $streamUrl');
+      if (reqId == _playRequestId) {
+        try {
+          await _player.stop();
+        } catch (_) {}
+      }
+      return false;
+    }
+  }
+
   Future<void> playTrack(
     Track track, {
     List<Track>? newQueue,
@@ -538,6 +595,7 @@ class AudioPlayerService {
     bool fadeIn = false,
     bool isAutoAdvance = false,
   }) async {
+    final reqId = ++_playRequestId;
     _mixTimer?.cancel();
     _autoMixTriggeredForTrack = false;
     _statsRecordedForTrackId = null;
@@ -568,60 +626,12 @@ class AudioPlayerService {
     }
 
     _currentTrack = track;
-    _trackChangeController.add(_currentTrack);
     _isLoading = true;
     _lastError = null;
     _errorController.add(null);
+    _trackChangeController.add(_currentTrack);
 
     try {
-      final candidates = <String>[];
-
-      // 1. Offline downloaded file if present
-      final offlinePath = track.localPath ?? _storage.getDownloadedPath(track.id);
-      if (offlinePath != null && offlinePath.isNotEmpty && File(offlinePath).existsSync()) {
-        candidates.add(offlinePath);
-      }
-
-      // 2. 320kbps Akamai CDN Stream (JioSaavn)
-      try {
-        final saavnStream = await _saavn.resolveStream(
-          track.title,
-          track.artist,
-          directSongId: track.id.startsWith('saavn:') ? track.id : null,
-        );
-        if (saavnStream != null && saavnStream.url.isNotEmpty) {
-          candidates.add(saavnStream.url);
-        }
-      } catch (_) {}
-
-      // 3. YouTube Direct Stream URL
-      try {
-        final ytUrl = await _yt.resolveStreamUrl(track.cleanId);
-        if (ytUrl != null && ytUrl.isNotEmpty && !candidates.contains(ytUrl)) {
-          candidates.add(ytUrl);
-        }
-      } catch (_) {}
-
-      // 4. YouTube Search fallback
-      if (candidates.isEmpty) {
-        try {
-          final searchCandidates = await _yt.search('${track.title} ${track.artist}', limit: 3);
-          for (final sc in searchCandidates) {
-            if (sc.cleanId != track.cleanId) {
-              final searchUrl = await _yt.resolveStreamUrl(sc.cleanId);
-              if (searchUrl != null && searchUrl.isNotEmpty && !candidates.contains(searchUrl)) {
-                candidates.add(searchUrl);
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (candidates.isEmpty) {
-        throw Exception('Stream URL could not be resolved for "${track.title}"');
-      }
-
       final mediaItem = MediaItem(
         id: track.id,
         album: track.album ?? 'My Music',
@@ -631,65 +641,88 @@ class AudioPlayerService {
         duration: Duration(seconds: track.durationSec),
       );
 
-      bool played = false;
-      dynamic lastCandidateErr;
+      // 1. Instant offline downloaded playback if present
+      final offlinePath = track.localPath ?? _storage.getDownloadedPath(track.id);
+      if (offlinePath != null && offlinePath.isNotEmpty && File(offlinePath).existsSync()) {
+        if (await _tryStartCandidate(track, offlinePath, mediaItem, fadeIn, reqId)) {
+          return;
+        }
+      }
 
-      for (final streamUrl in candidates) {
-        try {
-          final AudioSource audioSource;
-          if (streamUrl.startsWith('/') || streamUrl.contains(':\\') || streamUrl.contains(':/')) {
-            audioSource = AudioSource.file(streamUrl, tag: mediaItem);
-          } else {
-            final Map<String, String>? headers;
-            if (streamUrl.contains('googlevideo.com')) {
-              headers = const {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Accept-Encoding': 'identity;q=1, *;q=0',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Range': 'bytes=0-',
-                'Referer': 'https://www.youtube.com/',
-              };
-            } else {
-              headers = null;
-            }
-            audioSource = AudioSource.uri(
-              Uri.parse(streamUrl),
-              headers: headers,
-              tag: mediaItem,
-            );
-          }
+      if (reqId != _playRequestId) return;
 
-          await _player.setVolume(fadeIn ? 0.05 : _volume);
-          await _player.setAudioSource(audioSource, preload: true);
-          await _applySpeedAndPitch();
-          await _applyHardwareDsp();
-          await _player.play();
-          if (fadeIn) {
-            unawaited(_fadeInPlayer());
+      final tried = <String>{};
+
+      if (track.id.startsWith('saavn:')) {
+        final saavnStream = await _saavn
+            .resolveStream(track.title, track.artist, directSongId: track.id)
+            .timeout(const Duration(seconds: 5), onTimeout: () => null);
+        if (reqId != _playRequestId) return;
+        if (saavnStream != null && saavnStream.url.isNotEmpty) {
+          tried.add(saavnStream.url);
+          if (await _tryStartCandidate(track, saavnStream.url, mediaItem, fadeIn, reqId)) {
+            return;
           }
-          played = true;
-          _isLoading = false;
-          _consecutiveErrors = 0;
-          _storage.addRecent(track).catchError((_) {});
-          break;
-        } catch (err) {
-          lastCandidateErr = err;
+        }
+      } else {
+        // Resolve Saavn (strict match) & YouTube (verified 200/206 candidates) concurrently
+        final ytFuture = _yt.resolveStreamCandidates(track.cleanId);
+        final saavnStream = await _saavn
+            .resolveStream(track.title, track.artist)
+            .timeout(const Duration(milliseconds: 2600), onTimeout: () => null);
+        if (reqId != _playRequestId) return;
+
+        if (saavnStream != null && saavnStream.url.isNotEmpty) {
+          tried.add(saavnStream.url);
+          if (await _tryStartCandidate(track, saavnStream.url, mediaItem, fadeIn, reqId)) {
+            return;
+          }
+        }
+
+        final ytCandidates = await ytFuture;
+        if (reqId != _playRequestId) return;
+        for (final url in ytCandidates) {
+          if (tried.contains(url)) continue;
+          tried.add(url);
+          if (await _tryStartCandidate(track, url, mediaItem, fadeIn, reqId)) {
+            return;
+          }
+        }
+        if (ytCandidates.isNotEmpty) {
           _yt.invalidateStream(track.id);
         }
       }
 
-      if (!played) {
-        throw lastCandidateErr ?? Exception('Playback failed for "${track.title}"');
+      // Final fallback: search alternate YouTube video by title + artist
+      if (reqId != _playRequestId) return;
+      final searchCandidates = await _yt
+          .search('${track.title} ${track.artist}', limit: 3)
+          .timeout(const Duration(seconds: 6), onTimeout: () => const []);
+      for (final sc in searchCandidates) {
+        if (reqId != _playRequestId) return;
+        if (sc.cleanId == track.cleanId) continue;
+        final urls = await _yt.resolveStreamCandidates(sc.cleanId);
+        for (final u in urls) {
+          if (tried.contains(u)) continue;
+          tried.add(u);
+          if (await _tryStartCandidate(track, u, mediaItem, fadeIn, reqId)) {
+            return;
+          }
+        }
       }
+
+      throw Exception('No playable audio stream available for "${track.title}"');
     } catch (e) {
+      if (reqId != _playRequestId) return;
       debugPrint('[AudioPlayerService] Play error: $e');
       _yt.invalidateStream(track.id);
+      try {
+        await _player.stop();
+      } catch (_) {}
       _isLoading = false;
       _isMixing = false;
       _consecutiveErrors++;
-      _lastError = 'Playback failed for "${track.title}": $e';
+      _lastError = 'Could not play "${track.title}". Check network or try another track.';
       _errorController.add(_lastError);
     }
   }

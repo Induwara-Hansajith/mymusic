@@ -18,6 +18,24 @@ class YtmAlbum {
     this.year = '',
     this.tracks = const [],
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'artist': artist,
+        if (artistId != null) 'artistId': artistId,
+        'thumb': thumb,
+        'year': year,
+      };
+
+  factory YtmAlbum.fromJson(Map<String, dynamic> json) => YtmAlbum(
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? 'Album',
+        artist: json['artist'] as String? ?? '',
+        artistId: json['artistId'] as String?,
+        thumb: json['thumb'] as String? ?? '',
+        year: json['year'] as String? ?? '',
+      );
 }
 
 class YtmArtist {
@@ -40,6 +58,18 @@ class YtmArtist {
     this.videos = const [],
     this.playlists = const [],
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'thumb': thumb,
+      };
+
+  factory YtmArtist.fromJson(Map<String, dynamic> json) => YtmArtist(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? 'Artist',
+        thumb: json['thumb'] as String? ?? '',
+      );
 }
 
 class YtmPlaylistRef {
@@ -56,6 +86,20 @@ class YtmPlaylistRef {
     this.thumb = '',
     this.tracks = const [],
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'owner': owner,
+        'thumb': thumb,
+      };
+
+  factory YtmPlaylistRef.fromJson(Map<String, dynamic> json) => YtmPlaylistRef(
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? 'Playlist',
+        owner: json['owner'] as String? ?? '',
+        thumb: json['thumb'] as String? ?? '',
+      );
 }
 
 class YtmHomeShelf {
@@ -81,6 +125,44 @@ class YtmHomeShelf {
       albums.isEmpty &&
       artists.isEmpty &&
       playlists.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'songs': songs.map((t) => t.toJson()).toList(),
+        'videos': videos.map((t) => t.toJson()).toList(),
+        'albums': albums.map((a) => a.toJson()).toList(),
+        'artists': artists.map((a) => a.toJson()).toList(),
+        'playlists': playlists.map((p) => p.toJson()).toList(),
+      };
+
+  factory YtmHomeShelf.fromJson(Map<String, dynamic> json) => YtmHomeShelf(
+        title: json['title'] as String? ?? 'For you',
+        songs: (json['songs'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => Track.fromJson(Map<String, dynamic>.from(m)))
+            .where((t) => t.id.isNotEmpty)
+            .toList(),
+        videos: (json['videos'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => Track.fromJson(Map<String, dynamic>.from(m)))
+            .where((t) => t.id.isNotEmpty)
+            .toList(),
+        albums: (json['albums'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => YtmAlbum.fromJson(Map<String, dynamic>.from(m)))
+            .where((a) => a.id.isNotEmpty)
+            .toList(),
+        artists: (json['artists'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => YtmArtist.fromJson(Map<String, dynamic>.from(m)))
+            .where((a) => a.id.isNotEmpty)
+            .toList(),
+        playlists: (json['playlists'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => YtmPlaylistRef.fromJson(Map<String, dynamic>.from(m)))
+            .where((p) => p.id.isNotEmpty)
+            .toList(),
+      );
 }
 
 class YtmSearchResult {

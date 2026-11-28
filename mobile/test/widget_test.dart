@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mymusic_mobile/main.dart';
 import 'package:mymusic_mobile/models/track.dart';
+import 'package:mymusic_mobile/models/ytm_models.dart';
 import 'package:mymusic_mobile/services/storage_service.dart';
 
 void main() {
@@ -65,6 +66,19 @@ void main() {
     });
     expect(storage.getSettingsMap()['wallpaperDim'], 50.0);
     expect(storage.getSettingsMap()['lyricsStyle'], 'karaoke');
+
+    await storage.saveCachedHomeShelves([
+      const YtmHomeShelf(
+        title: 'Quick Picks',
+        songs: [track],
+        albums: [YtmAlbum(id: 'MPREb_1', title: 'Dawn FM', artist: 'The Weeknd')],
+      ),
+    ]);
+    final cachedShelves = storage.getCachedHomeShelves();
+    expect(cachedShelves.length, 1);
+    expect(cachedShelves.first.title, 'Quick Picks');
+    expect(cachedShelves.first.songs.first.id, 'yt:t1');
+    expect(cachedShelves.first.albums.first.id, 'MPREb_1');
   });
 
   testWidgets('App smoke test', (WidgetTester tester) async {

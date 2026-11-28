@@ -374,6 +374,7 @@ class AuthSyncService extends ChangeNotifier {
       'sb_publishable_Xt2LF3sA6V-kn6Rmx9Criw_iCkkkdhK';
 
   bool _initialized = false;
+  Future<void>? _initFuture;
   bool get isInitialized => _initialized;
 
   CloudSyncStatus _syncStatus = CloudSyncStatus.idle;
@@ -392,14 +393,19 @@ class AuthSyncService extends ChangeNotifier {
   final AuthLoopbackServer _loopback = AuthLoopbackServer();
   StreamSubscription<AuthState>? _authSub;
 
-  Future<void> init() async {
-    if (_initialized) return;
+  Future<void> init() {
+    if (_initialized) return Future.value();
+    return _initFuture ??= _doInit();
+  }
+
+  Future<void> _doInit() async {
     try {
       await Supabase.initialize(
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
       );
       _initialized = true;
+      notifyListeners();
 
       _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
         debugPrint('[AuthSyncService] Auth state changed: ${data.event}');
@@ -410,12 +416,13 @@ class AuthSyncService extends ChangeNotifier {
       });
 
       if (isSignedIn) {
-        Future.delayed(const Duration(seconds: 2), () {
+        Future.delayed(const Duration(milliseconds: 800), () {
           syncNow();
         });
       }
     } catch (e) {
       debugPrint('[AuthSyncService] Supabase init warning: $e');
+      _initFuture = null;
     }
   }
 

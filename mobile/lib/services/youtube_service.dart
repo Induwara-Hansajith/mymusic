@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -7,11 +8,11 @@ import '../models/ytm_models.dart';
 import 'saavn_service.dart';
 import 'ytm_innertube_service.dart';
 
-class _CachedStream {
-  final String url;
+class _CachedStreamList {
+  final List<String> urls;
   final DateTime expiresAt;
 
-  const _CachedStream({required this.url, required this.expiresAt});
+  const _CachedStreamList({required this.urls, required this.expiresAt});
 
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }
@@ -19,73 +20,80 @@ class _CachedStream {
 class YoutubeService {
   static final YoutubeService _instance = YoutubeService._internal();
   factory YoutubeService() => _instance;
-  YoutubeService._internal();
+  YoutubeService._internal() {
+    _probeClient.connectionTimeout = const Duration(seconds: 4);
+  }
+
+  static const String androidClientUserAgent =
+      'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip';
 
   final YoutubeExplode _yt = YoutubeExplode();
   final YtmInnertubeService _innertube = YtmInnertubeService();
-  final Map<String, _CachedStream> _streamCache = {};
+  final http.Client _http = http.Client();
+  final HttpClient _probeClient = HttpClient();
+  final Map<String, _CachedStreamList> _streamCache = {};
 
   static const Track trackVioletHour = Track(
-    id: 'ygTZZpVHNtI',
-    title: 'Violet hour',
-    artist: 'Luna Bay',
-    durationSec: 222,
-    thumb: 'https://i.ytimg.com/vi/ygTZZpVHNtI/hqdefault.jpg',
+    id: '4NRXx6U8ABQ',
+    title: 'Blinding Lights',
+    artist: 'The Weeknd',
+    durationSec: 200,
+    thumb: 'https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg',
   );
 
   static const Track trackMoonstruck = Track(
     id: 'TUVcZfQe-Kw',
-    title: 'Moonstruck',
-    artist: 'Solace',
-    durationSec: 248,
+    title: 'Levitating',
+    artist: 'Dua Lipa',
+    durationSec: 203,
     thumb: 'https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg',
   );
 
   static const Track trackTidal = Track(
     id: 'GCdwKhTtNNw',
-    title: 'Tidal',
-    artist: 'Onda',
-    durationSec: 210,
+    title: 'Sweater Weather',
+    artist: 'The Neighbourhood',
+    durationSec: 240,
     thumb: 'https://i.ytimg.com/vi/GCdwKhTtNNw/hqdefault.jpg',
   );
 
   static const Track trackUndertow = Track(
     id: 'd5gx_qLp_i8',
-    title: 'Undertow',
-    artist: 'Onda',
-    durationSec: 236,
+    title: 'Birds of a Feather',
+    artist: 'Billie Eilish',
+    durationSec: 196,
     thumb: 'https://i.ytimg.com/vi/d5gx_qLp_i8/hqdefault.jpg',
   );
 
   static const Track trackSundown = Track(
     id: 'H5v3kku4y6Q',
-    title: 'Sundown',
-    artist: 'Daydream',
-    durationSec: 201,
+    title: 'As It Was',
+    artist: 'Harry Styles',
+    durationSec: 167,
     thumb: 'https://i.ytimg.com/vi/H5v3kku4y6Q/hqdefault.jpg',
   );
 
   static const Track trackBlueRoom = Track(
-    id: '4NRXx6U8ABQ',
-    title: 'Blue room',
-    artist: 'Onda',
-    durationSec: 225,
-    thumb: 'https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg',
+    id: 'JGwWNGJdvx8',
+    title: 'Shape of You',
+    artist: 'Ed Sheeran',
+    durationSec: 233,
+    thumb: 'https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg',
   );
 
   static const Track trackOrbit = Track(
     id: 'ApXoWvfEYVU',
-    title: 'Orbit',
-    artist: 'Luna Bay',
-    durationSec: 250,
+    title: 'Sunflower',
+    artist: 'Post Malone, Swae Lee',
+    durationSec: 158,
     thumb: 'https://i.ytimg.com/vi/ApXoWvfEYVU/hqdefault.jpg',
   );
 
   static const Track trackSatellite = Track(
     id: 'K3QzzggA_-s',
-    title: 'Satellite',
-    artist: 'Luna Bay',
-    durationSec: 252,
+    title: 'Slow Dancing in the Dark',
+    artist: 'Joji',
+    durationSec: 209,
     thumb: 'https://i.ytimg.com/vi/K3QzzggA_-s/hqdefault.jpg',
   );
 
@@ -114,27 +122,7 @@ class YoutubeService {
         trackVioletHour,
         trackMoonstruck,
         trackTidal,
-        const Track(
-          id: '4NRXx6U8ABQ',
-          title: 'Blinding Lights',
-          artist: 'The Weeknd',
-          durationSec: 200,
-          thumb: 'https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg',
-        ),
-        const Track(
-          id: 'TUVcZfQe-Kw',
-          title: 'Levitating',
-          artist: 'Dua Lipa',
-          durationSec: 203,
-          thumb: 'https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg',
-        ),
-        const Track(
-          id: 'H5v3kku4y6Q',
-          title: 'As It Was',
-          artist: 'Harry Styles',
-          durationSec: 167,
-          thumb: 'https://i.ytimg.com/vi/H5v3kku4y6Q/hqdefault.jpg',
-        ),
+        trackSundown,
         const Track(
           id: 'ic8j13piAhQ',
           title: 'Cruel Summer',
@@ -142,44 +130,14 @@ class YoutubeService {
           durationSec: 178,
           thumb: 'https://i.ytimg.com/vi/ic8j13piAhQ/hqdefault.jpg',
         ),
-        const Track(
-          id: 'ApXoWvfEYVU',
-          title: 'Sunflower',
-          artist: 'Post Malone, Swae Lee',
-          durationSec: 158,
-          thumb: 'https://i.ytimg.com/vi/ApXoWvfEYVU/hqdefault.jpg',
-        ),
-        const Track(
-          id: 'd5gx_qLp_i8',
-          title: 'Birds of a Feather',
-          artist: 'Billie Eilish',
-          durationSec: 196,
-          thumb: 'https://i.ytimg.com/vi/d5gx_qLp_i8/hqdefault.jpg',
-        ),
+        trackOrbit,
+        trackUndertow,
       ];
 
   static List<Track> getCuratedLateNight() => [
-        const Track(
-          id: 'ygTZZpVHNtI',
-          title: 'After Hours',
-          artist: 'The Weeknd',
-          durationSec: 361,
-          thumb: 'https://i.ytimg.com/vi/ygTZZpVHNtI/hqdefault.jpg',
-        ),
-        const Track(
-          id: 'GCdwKhTtNNw',
-          title: 'Sweater Weather',
-          artist: 'The Neighbourhood',
-          durationSec: 240,
-          thumb: 'https://i.ytimg.com/vi/GCdwKhTtNNw/hqdefault.jpg',
-        ),
-        const Track(
-          id: 'K3QzzggA_-s',
-          title: 'Slow Dancing in the Dark',
-          artist: 'Joji',
-          durationSec: 209,
-          thumb: 'https://i.ytimg.com/vi/K3QzzggA_-s/hqdefault.jpg',
-        ),
+        trackVioletHour,
+        trackTidal,
+        trackSatellite,
         const Track(
           id: '34Na4j8AVgA',
           title: 'Starboy',
@@ -187,13 +145,7 @@ class YoutubeService {
           durationSec: 230,
           thumb: 'https://i.ytimg.com/vi/34Na4j8AVgA/hqdefault.jpg',
         ),
-        const Track(
-          id: 'JGwWNGJdvx8',
-          title: 'Shape of You',
-          artist: 'Ed Sheeran',
-          durationSec: 233,
-          thumb: 'https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg',
-        ),
+        trackBlueRoom,
       ];
 
   static List<Track> getCuratedChill() => [
@@ -265,7 +217,7 @@ class YoutubeService {
     }
 
     try {
-      final searchResults = await _yt.search.search(effectiveQuery);
+      final searchResults = await _yt.search.search(effectiveQuery).timeout(const Duration(seconds: 7));
       final tracks = <Track>[];
       for (final item in searchResults) {
         if (tracks.length >= limit) break;
@@ -294,7 +246,7 @@ class YoutubeService {
     try {
       final url = Uri.parse(
           'https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=${Uri.encodeComponent(q)}');
-      final resp = await http.get(url).timeout(const Duration(seconds: 5));
+      final resp = await _http.get(url).timeout(const Duration(seconds: 4));
       if (resp.statusCode == 200) {
         final body = resp.body;
         final start = body.indexOf('[[');
@@ -350,79 +302,96 @@ class YoutubeService {
     }
   }
 
-  Future<String?> resolveStreamUrl(String trackId) async {
+  /// Resolves verified playable stream URLs for a YouTube video ID.
+  /// Probes adaptive audio and muxed mp4 (`itag=18`) concurrently so 403/SABR
+  /// adaptive URLs never stall ExoPlayer, while returning playback-ready URLs.
+  Future<List<String>> resolveStreamCandidates(String trackId) async {
     final cleanId = trackId.replaceFirst('yt:', '');
+    if (cleanId.isEmpty || cleanId.startsWith('saavn:')) return const [];
+
     if (_streamCache.containsKey(cleanId)) {
       final cached = _streamCache[cleanId]!;
-      if (!cached.isExpired && cached.url.isNotEmpty) {
-        return cached.url;
+      if (!cached.isExpired && cached.urls.isNotEmpty) {
+        return cached.urls;
       }
       _streamCache.remove(cleanId);
     }
 
     try {
-      final manifest = await _yt.videos.streamsClient.getManifest(cleanId);
-      final audioStreams = manifest.audioOnly;
-      String rawUrl = '';
+      final manifest = await _yt.videos.streamsClient
+          .getManifest(
+            cleanId,
+            ytClients: [YoutubeApiClient.androidSdkless],
+            requireWatchPage: false,
+          )
+          .timeout(const Duration(seconds: 7));
 
-      if (audioStreams.isNotEmpty) {
-        AudioStreamInfo? selected;
-        final mp4Streams = audioStreams
-            .where((s) => s.container.name.toLowerCase() == 'mp4')
-            .toList();
-        if (mp4Streams.isNotEmpty) {
-          selected = mp4Streams.withHighestBitrate();
-        } else {
-          selected = audioStreams.withHighestBitrate();
-        }
-        rawUrl = selected.url.toString();
-      } else if (manifest.muxed.isNotEmpty) {
-        rawUrl = manifest.muxed.withHighestBitrate().url.toString();
-      }
+      final mp4Audio = manifest.audioOnly
+          .where((s) => s.container.name.toLowerCase() == 'mp4')
+          .toList()
+        ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
 
-      if (rawUrl.isEmpty) return null;
+      final otherAudio = manifest.audioOnly
+          .where((s) => s.container.name.toLowerCase() != 'mp4')
+          .toList()
+        ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
 
-      final resolvedUrl = await _resolveRedirect(rawUrl);
-      _streamCache[cleanId] = _CachedStream(
-        url: resolvedUrl,
+      final mp4Muxed = manifest.muxed
+          .where((s) => s.container.name.toLowerCase() == 'mp4')
+          .toList()
+        ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+
+      final ordered = <StreamInfo>[
+        if (mp4Audio.isNotEmpty) mp4Audio.first,
+        if (mp4Muxed.isNotEmpty) mp4Muxed.first,
+        if (mp4Audio.length > 1) mp4Audio[1],
+        if (otherAudio.isNotEmpty) otherAudio.first,
+        ...manifest.muxed.where((s) => !mp4Muxed.contains(s)).take(1),
+      ];
+
+      if (ordered.isEmpty) return const [];
+
+      // Probe top candidates concurrently with Range 0-1023 to drop 403/dead URLs before ExoPlayer
+      final probeResults = await Future.wait(
+        ordered.map((s) async {
+          final raw = s.url.toString();
+          final ok = await _probeStreamUrl(raw);
+          return ok ? raw : null;
+        }),
+      );
+
+      final verified = probeResults.whereType<String>().toList();
+      if (verified.isEmpty) return const [];
+
+      _streamCache[cleanId] = _CachedStreamList(
+        urls: verified,
         expiresAt: DateTime.now().add(const Duration(hours: 4, minutes: 30)),
       );
       _pruneCache();
-      return resolvedUrl;
+      return verified;
     } catch (e) {
-      debugPrint('[YoutubeService] resolveStreamUrl error for $cleanId: $e');
-      return null;
+      debugPrint('[YoutubeService] resolveStreamCandidates error for $cleanId: $e');
+      return const [];
     }
   }
 
-  Future<String> _resolveRedirect(String initialUrl) async {
-    HttpClient? client;
-    try {
-      client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 8);
-      final req = await client.openUrl('HEAD', Uri.parse(initialUrl));
-      req.followRedirects = true;
-      req.maxRedirects = 5;
-      req.headers.set(
-        'User-Agent',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-      );
-      req.headers.set('Accept', '*/*');
-      req.headers.set('Referer', 'https://www.youtube.com/');
-      final resp = await req.close();
+  Future<String?> resolveStreamUrl(String trackId) async {
+    final list = await resolveStreamCandidates(trackId);
+    return list.isNotEmpty ? list.first : null;
+  }
 
-      if (resp.redirects.isNotEmpty) {
-        return resp.redirects.last.location.toString();
-      }
-      final locationHeader = resp.headers.value(HttpHeaders.locationHeader);
-      if (locationHeader != null && locationHeader.isNotEmpty) {
-        return locationHeader;
-      }
-      return initialUrl;
+  Future<bool> _probeStreamUrl(String url) async {
+    try {
+      final req = await _probeClient
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 3));
+      req.headers.set('User-Agent', androidClientUserAgent);
+      req.headers.set('Range', 'bytes=0-1023');
+      final resp = await req.close().timeout(const Duration(seconds: 3));
+      await resp.drain<void>();
+      return resp.statusCode == 200 || resp.statusCode == 206;
     } catch (_) {
-      return initialUrl;
-    } finally {
-      client?.close();
+      return false;
     }
   }
 
@@ -474,8 +443,8 @@ class YoutubeService {
   Future<List<Track>> getRelatedTracks(String videoId, {int limit = 15}) async {
     final cleanId = videoId.replaceFirst('yt:', '');
     try {
-      final video = await _yt.videos.get(cleanId);
-      final related = await _yt.videos.getRelatedVideos(video);
+      final video = await _yt.videos.get(cleanId).timeout(const Duration(seconds: 5));
+      final related = await _yt.videos.getRelatedVideos(video).timeout(const Duration(seconds: 6));
       if (related != null && related.isNotEmpty) {
         return related
             .take(limit)
@@ -517,6 +486,8 @@ class YoutubeService {
   }
 
   void dispose() {
+    _probeClient.close(force: true);
+    _http.close();
     _yt.close();
   }
 }

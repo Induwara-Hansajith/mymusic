@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -33,7 +34,7 @@ Future<void> main() async {
   }
 
   await StorageService().init();
-  await AuthSyncService().init();
+  unawaited(AuthSyncService().init());
 
   runApp(const MyMusicApp());
 }

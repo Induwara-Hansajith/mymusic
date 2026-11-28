@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/track.dart';
 import '../../models/ytm_models.dart';
+import '../../services/storage_service.dart';
 import '../../services/youtube_service.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/library_provider.dart';
@@ -29,6 +30,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final StorageService _storage = StorageService();
   final YoutubeService _yt = YoutubeService();
   List<YtmHomeShelf> _ytmShelves = [];
   Map<String, List<Track>> _fallbackFeed = {};
@@ -38,24 +40,40 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    final cached = _storage.getCachedHomeShelves();
+    if (cached.isNotEmpty) {
+      _ytmShelves = cached;
+      _loadingFeed = false;
+    }
     _loadFeed();
   }
 
   Future<void> _loadFeed() async {
-    setState(() => _loadingFeed = true);
+    if (_ytmShelves.isEmpty && _fallbackFeed.isEmpty && mounted) {
+      setState(() => _loadingFeed = true);
+    }
+    // Kick off top-artist art fetches concurrently alongside the home browse call.
+    final artistArtFuture = _resolveTopArtistThumbs();
     final shelves = await _yt.getYtmHomeShelves();
+    if (shelves.isNotEmpty) {
+      _storage.saveCachedHomeShelves(shelves);
+    }
     Map<String, List<Track>> fallback = {};
-    if (shelves.isEmpty) {
+    if (shelves.isEmpty && _ytmShelves.isEmpty) {
       fallback = await _yt.getHomeFeed();
     }
     if (mounted) {
       setState(() {
-        _ytmShelves = shelves;
-        _fallbackFeed = fallback;
+        if (shelves.isNotEmpty) {
+          _ytmShelves = shelves;
+        }
+        if (fallback.isNotEmpty) {
+          _fallbackFeed = fallback;
+        }
         _loadingFeed = false;
       });
     }
-    _resolveTopArtistThumbs();
+    await artistArtFuture;
   }
 
   Future<void> _resolveTopArtistThumbs() async {
@@ -64,6 +82,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final sorted = artists.entries.toList()
       ..sort((a, b) => (((b.value as Map)['plays'] as num?)?.toInt() ?? 0)
           .compareTo(((a.value as Map)['plays'] as num?)?.toInt() ?? 0));
+
+    final pending = <Future<void>>[];
     for (final entry in sorted.take(6)) {
       final info = Map<String, dynamic>.from(entry.value as Map);
       final existing = info['thumb'] as String?;
@@ -72,13 +92,18 @@ class _HomeScreenState extends State<HomeScreen> {
         continue;
       }
       if (_resolvedArtistThumbs.containsKey(entry.key)) continue;
-      final thumb = await _yt.resolveArtistThumb(
-        entry.key,
-        artistId: info['id'] as String?,
-      );
-      if (thumb != null && thumb.isNotEmpty && mounted) {
-        setState(() => _resolvedArtistThumbs[entry.key] = thumb);
-      }
+      pending.add(() async {
+        final thumb = await _yt.resolveArtistThumb(
+          entry.key,
+          artistId: info['id'] as String?,
+        );
+        if (thumb != null && thumb.isNotEmpty && mounted) {
+          setState(() => _resolvedArtistThumbs[entry.key] = thumb);
+        }
+      }());
+    }
+    if (pending.isNotEmpty) {
+      await Future.wait(pending);
     }
   }
 

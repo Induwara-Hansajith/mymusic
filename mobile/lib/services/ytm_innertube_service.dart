@@ -27,6 +27,7 @@ class YtmInnertubeService {
     'playlists': 'EgWKAQIoAWoMEAMQBBAJEAoQBRAV',
   };
 
+  final http.Client _http = http.Client();
   final Map<String, YtmAlbum> _albumCache = {};
   final Map<String, YtmArtist> _artistCache = {};
   final Map<String, String> _artistThumbCache = {};
@@ -36,7 +37,7 @@ class YtmInnertubeService {
     Map<String, dynamic> body,
   ) async {
     try {
-      final resp = await http
+      final resp = await _http
           .post(
             Uri.parse('$_endpoint/$path?prettyPrint=false'),
             headers: const {

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/audio_player_service.dart';
 import '../../services/auth_sync_service.dart';
 import '../theme.dart';
 import '../widgets/aurora_backdrop.dart';
@@ -42,11 +44,25 @@ class _MainScreenState extends State<MainScreen> {
   final List<_NavRoute> _fwd = [];
   _NavRoute _current = const _NavRoute('home');
   bool _showSuggestions = false;
+  StreamSubscription<String?>? _errSub;
 
   @override
   void initState() {
     super.initState();
     _auth.addListener(_onAuthChanged);
+    _errSub = AudioPlayerService().errorStream.listen((msg) {
+      if (!mounted || msg == null || msg.isEmpty) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(msg, style: const TextStyle(color: Colors.white)),
+            backgroundColor: const Color(0xFFB91C1C),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+    });
     _searchFocus.addListener(() {
       if (mounted) {
         setState(() => _showSuggestions = _searchFocus.hasFocus);
@@ -60,6 +76,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    _errSub?.cancel();
     _auth.removeListener(_onAuthChanged);
     _searchCtrl.dispose();
     _searchFocus.dispose();

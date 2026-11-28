@@ -8,6 +8,7 @@ class LyricsService {
   factory LyricsService() => _instance;
   LyricsService._internal();
 
+  final http.Client _http = http.Client();
   final Map<String, LyricsData> _cache = {};
   final Map<String, String> _transCache = {};
 
@@ -25,39 +26,19 @@ class LyricsService {
       final cleanTitle = _cleanSongTitle(title);
       final cleanArtist = _cleanArtistName(artist);
 
-      // 1. Direct lrclib /api/get
-      final uri = Uri.https('lrclib.net', '/api/get', {
-        'track_name': cleanTitle,
-        'artist_name': cleanArtist,
-        if (durationSec != null && durationSec > 0)
-          'duration': durationSec.toString(),
-      });
-
-      final resp = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (resp.statusCode == 200) {
-        final json = jsonDecode(resp.body) as Map<String, dynamic>;
-        final data = _parseLrcPayload(
-          json['syncedLyrics'] as String?,
-          json['plainLyrics'] as String?,
-        );
-        if (!data.isEmpty) {
-          _cache[trackId] = data;
-          return data;
-        }
-      }
-
-      // 2. Fallback lrclib /api/search matching desktop ytm.js scoring
+      // Single fast LRCLIB search request (returns synced + plain candidates scored by match)
       final searchUri = Uri.https('lrclib.net', '/api/search', {
         'q': '$cleanTitle $cleanArtist'.trim(),
       });
-      final searchResp =
-          await http.get(searchUri).timeout(const Duration(seconds: 8));
+      final searchResp = await _http
+          .get(searchUri, headers: const {'User-Agent': 'MyMusic/1.1.9 (Android)'})
+          .timeout(const Duration(seconds: 6));
       if (searchResp.statusCode == 200) {
         final list = jsonDecode(searchResp.body);
         if (list is List && list.isNotEmpty) {
           final items = list.whereType<Map<String, dynamic>>().toList();
-          items.sort((a, b) => _scoreItem(b, cleanTitle, cleanArtist)
-              .compareTo(_scoreItem(a, cleanTitle, cleanArtist)));
+          items.sort((a, b) => _scoreItem(b, cleanTitle, cleanArtist, durationSec)
+              .compareTo(_scoreItem(a, cleanTitle, cleanArtist, durationSec)));
           final best = items.first;
           final data = _parseLrcPayload(
             best['syncedLyrics'] as String?,
@@ -69,6 +50,28 @@ class LyricsService {
           }
         }
       }
+
+      // Direct /api/get fallback if search returned empty
+      final uri = Uri.https('lrclib.net', '/api/get', {
+        'track_name': cleanTitle,
+        'artist_name': cleanArtist,
+        if (durationSec != null && durationSec > 0)
+          'duration': durationSec.toString(),
+      });
+      final resp = await _http
+          .get(uri, headers: const {'User-Agent': 'MyMusic/1.1.9 (Android)'})
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final json = jsonDecode(resp.body) as Map<String, dynamic>;
+        final data = _parseLrcPayload(
+          json['syncedLyrics'] as String?,
+          json['plainLyrics'] as String?,
+        );
+        if (!data.isEmpty) {
+          _cache[trackId] = data;
+          return data;
+        }
+      }
     } catch (e) {
       debugPrint('[LyricsService] Error fetching lyrics: $e');
     }
@@ -78,13 +81,17 @@ class LyricsService {
     return empty;
   }
 
-  int _scoreItem(Map<String, dynamic> x, String title, String artist) {
+  int _scoreItem(Map<String, dynamic> x, String title, String artist, int? durSec) {
     int s = 0;
     final aName = (x['artistName'] as String? ?? '').toLowerCase();
     final tName = (x['trackName'] as String? ?? '').toLowerCase();
-    if (artist.isNotEmpty && aName.contains(artist.toLowerCase())) s += 2;
-    if (title.isNotEmpty && tName.contains(title.toLowerCase())) s += 2;
-    if ((x['syncedLyrics'] as String? ?? '').isNotEmpty) s += 1;
+    if (artist.isNotEmpty && aName.contains(artist.toLowerCase())) s += 3;
+    if (title.isNotEmpty && tName.contains(title.toLowerCase())) s += 3;
+    if ((x['syncedLyrics'] as String? ?? '').isNotEmpty) s += 2;
+    if (durSec != null && durSec > 0 && x['duration'] is num) {
+      final diff = ((x['duration'] as num).round() - durSec).abs();
+      if (diff <= 4) s += 2;
+    }
     return s;
   }
 
@@ -123,7 +130,7 @@ class LyricsService {
         'dt': 't',
         'q': clean.length > 4000 ? clean.substring(0, 4000) : clean,
       });
-      final resp = await http.get(uri).timeout(const Duration(seconds: 8));
+      final resp = await _http.get(uri).timeout(const Duration(seconds: 7));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         if (data is List && data.isNotEmpty && data[0] is List) {
@@ -158,9 +165,7 @@ class LyricsService {
 
   String _cleanArtistName(String raw) {
     return raw
-        .replaceAll(RegExp(r' - Topic$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'VEVO$', caseSensitive: false), '')
-        .split(RegExp(r'[,|]'))
+        .split(RegExp(r'[,&]|feat\.|ft\.', caseSensitive: false))
         .first
         .trim();
   }

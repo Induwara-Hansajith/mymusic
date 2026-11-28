@@ -107,7 +107,8 @@ class PlayerProvider extends ChangeNotifier {
 
     _stateSub = _playerService.player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
-      _isLoading = state.processingState == ProcessingState.buffering ||
+      _isLoading = _playerService.isLoading ||
+          state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
       notifyListeners();
     });
