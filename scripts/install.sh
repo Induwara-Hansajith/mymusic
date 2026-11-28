@@ -13,7 +13,7 @@
 #   mymusic --update
 #
 # Install from local archive:
-#   ./install.sh /path/to/My.Music.1.1.8.tar.gz
+#   ./install.sh /path/to/My.Music.1.1.9.tar.gz
 #
 # Uninstall:
 #   ./install.sh --uninstall
@@ -24,7 +24,7 @@ set -e
 REPO="Induwara-Hansajith/mymusic"
 APP_NAME="mymusic"
 APP_DISPLAY_NAME="My Music"
-FALLBACK_VERSION="1.1.8"
+FALLBACK_VERSION="1.1.9"
 
 # Terminal formatting
 if [ -t 1 ]; then
@@ -178,7 +178,7 @@ else
   if [ -z "${DOWNLOAD_URL}" ]; then
     log_warn "Could not query GitHub releases API directly (possible rate limit). Using fallback version v${FALLBACK_VERSION}."
     TARGET_VERSION="${FALLBACK_VERSION}"
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/my_music_V8/My.Music.${FALLBACK_VERSION}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/my_music_V9/My.Music.${FALLBACK_VERSION}.tar.gz"
   fi
 
   if [ "${CHECK_ONLY}" = "true" ]; then
