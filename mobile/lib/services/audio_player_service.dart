@@ -21,9 +21,47 @@ class AudioPlayerService {
 
   AudioPlayerService._internal() {
     _player = AudioPlayer(
+      useProxyForRequestHeaders: false,
       audioPipeline: AudioPipeline(
         androidAudioEffects: [_equalizer, _loudness],
       ),
+    );
+  }
+
+  /// Returns true only for local filesystem paths and `file://` URIs.
+  /// Network URLs (`http://`, `https://`) must never match `:/` as a drive path.
+  @visibleForTesting
+  static bool isLocalAudioPath(String source) {
+    final trimmed = source.trim();
+    if (trimmed.isEmpty) return false;
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return false;
+    }
+    if (uri != null && uri.scheme == 'file') {
+      return true;
+    }
+    return trimmed.startsWith('/') ||
+        RegExp(r'^[A-Za-z]:[/\\]').hasMatch(trimmed);
+  }
+
+  /// Builds the appropriate [AudioSource] for a local file path or network stream URL.
+  @visibleForTesting
+  static AudioSource buildAudioSource(String streamUrl, MediaItem mediaItem) {
+    if (isLocalAudioPath(streamUrl)) {
+      final parsed = Uri.tryParse(streamUrl.trim());
+      if (parsed != null && parsed.scheme == 'file') {
+        return AudioSource.uri(parsed, tag: mediaItem);
+      }
+      return AudioSource.file(streamUrl.trim(), tag: mediaItem);
+    }
+    final Map<String, String>? headers = streamUrl.contains('googlevideo.com')
+        ? const {'User-Agent': YoutubeService.androidClientUserAgent}
+        : null;
+    return AudioSource.uri(
+      Uri.parse(streamUrl),
+      headers: headers,
+      tag: mediaItem,
     );
   }
 
@@ -533,6 +571,52 @@ class AudioPlayerService {
 
   int _playRequestId = 0;
 
+  Future<bool> _startAudioSource(
+    Track track,
+    AudioSource audioSource,
+    bool fadeIn,
+    int reqId,
+    String debugLabel,
+  ) async {
+    if (reqId != _playRequestId) return false;
+    try {
+      await _player.setVolume(fadeIn ? 0.05 : _volume);
+      await _player
+          .setAudioSource(audioSource, preload: true)
+          .timeout(const Duration(seconds: 12));
+      if (reqId != _playRequestId) return false;
+
+      if (_speed != 1.0 || !_pitchLock) {
+        await _applySpeedAndPitch();
+      }
+      _isLoading = false;
+      _consecutiveErrors = 0;
+      _dspStateController.add(null);
+
+      // just_audio's play() Future resolves only on completion, pause, or stop.
+      unawaited(
+        _player.play().catchError((Object e, StackTrace st) {
+          debugPrint('[AudioPlayerService] Playback error ($debugLabel): $e');
+        }),
+      );
+
+      unawaited(_applyHardwareDsp());
+      if (fadeIn) {
+        unawaited(_fadeInPlayer());
+      }
+      _storage.addRecent(track).catchError((_) {});
+      return true;
+    } catch (err) {
+      debugPrint('[AudioPlayerService] Candidate failed ($err): $debugLabel');
+      if (reqId == _playRequestId) {
+        try {
+          await _player.stop();
+        } catch (_) {}
+      }
+      return false;
+    }
+  }
+
   Future<bool> _tryStartCandidate(
     Track track,
     String streamUrl,
@@ -541,50 +625,13 @@ class AudioPlayerService {
     int reqId,
   ) async {
     if (reqId != _playRequestId) return false;
-    try {
-      final AudioSource audioSource;
-      if (streamUrl.startsWith('/') || streamUrl.contains(':\\') || streamUrl.contains(':/')) {
-        audioSource = AudioSource.file(streamUrl, tag: mediaItem);
-      } else {
-        final Map<String, String>? headers = streamUrl.contains('googlevideo.com')
-            ? const {'User-Agent': YoutubeService.androidClientUserAgent}
-            : null;
-        audioSource = AudioSource.uri(
-          Uri.parse(streamUrl),
-          headers: headers,
-          tag: mediaItem,
-        );
-      }
-
-      await _player.setVolume(fadeIn ? 0.05 : _volume);
-      await _player
-          .setAudioSource(audioSource, preload: true)
-          .timeout(const Duration(seconds: 10));
-      if (reqId != _playRequestId) return false;
-
-      if (_speed != 1.0 || !_pitchLock) {
-        await _applySpeedAndPitch();
-      }
-      await _player.play();
-      if (reqId != _playRequestId) return false;
-
-      unawaited(_applyHardwareDsp());
-      if (fadeIn) {
-        unawaited(_fadeInPlayer());
-      }
-      _isLoading = false;
-      _consecutiveErrors = 0;
-      _storage.addRecent(track).catchError((_) {});
-      return true;
-    } catch (err) {
-      debugPrint('[AudioPlayerService] Candidate failed ($err): $streamUrl');
-      if (reqId == _playRequestId) {
-        try {
-          await _player.stop();
-        } catch (_) {}
-      }
-      return false;
-    }
+    return _startAudioSource(
+      track,
+      buildAudioSource(streamUrl, mediaItem),
+      fadeIn,
+      reqId,
+      streamUrl,
+    );
   }
 
   Future<void> playTrack(
@@ -691,6 +738,8 @@ class AudioPlayerService {
         if (ytCandidates.isNotEmpty) {
           _yt.invalidateStream(track.id);
         }
+
+
       }
 
       // Final fallback: search alternate YouTube video by title + artist
@@ -769,7 +818,11 @@ class AudioPlayerService {
     if (_player.audioSource == null && _currentTrack != null) {
       await playTrack(_currentTrack!);
     } else {
-      await _player.play();
+      unawaited(
+        _player.play().catchError((Object e) {
+          debugPrint('[AudioPlayerService] resume play error: $e');
+        }),
+      );
     }
   }
 

@@ -96,14 +96,17 @@ class PlayerProvider extends ChangeNotifier {
 
     _trackSub = _playerService.currentTrackStream.listen((track) {
       _currentTrack = track;
-      _isLoading = _playerService.isLoading;
+      _isLoading = _computeIsLoading();
       _lyricOffsetMs = track != null ? _storage.getLyricOffsetMs(track.id) : 0;
       _fetchLyricsForCurrentTrack();
       notifyListeners();
     });
 
     _queueSub = _playerService.queueStream.listen((_) => notifyListeners());
-    _dspSub = _playerService.dspStateStream.listen((_) => notifyListeners());
+    _dspSub = _playerService.dspStateStream.listen((_) {
+      _isLoading = _computeIsLoading();
+      notifyListeners();
+    });
 
     _stateSub = _playerService.player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
@@ -133,6 +136,13 @@ class PlayerProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     });
+  }
+
+  bool _computeIsLoading() {
+    final state = _playerService.player.playerState;
+    return _playerService.isLoading ||
+        state.processingState == ProcessingState.buffering ||
+        state.processingState == ProcessingState.loading;
   }
 
   void reloadSyncedSettings() {

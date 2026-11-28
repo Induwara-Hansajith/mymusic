@@ -8,6 +8,18 @@ import '../models/ytm_models.dart';
 import 'saavn_service.dart';
 import 'ytm_innertube_service.dart';
 
+class BoundedAudioCandidate {
+  final String url;
+  final int totalBytes;
+  final String contentType;
+
+  const BoundedAudioCandidate({
+    required this.url,
+    required this.totalBytes,
+    required this.contentType,
+  });
+}
+
 class _CachedStreamList {
   final List<String> urls;
   final DateTime expiresAt;
@@ -58,11 +70,11 @@ class YoutubeService {
   );
 
   static const Track trackUndertow = Track(
-    id: 'd5gx_qLp_i8',
+    id: 'V9PVRfjEBTI',
     title: 'Birds of a Feather',
     artist: 'Billie Eilish',
-    durationSec: 196,
-    thumb: 'https://i.ytimg.com/vi/d5gx_qLp_i8/hqdefault.jpg',
+    durationSec: 210,
+    thumb: 'https://i.ytimg.com/vi/V9PVRfjEBTI/hqdefault.jpg',
   );
 
   static const Track trackSundown = Track(
@@ -90,11 +102,11 @@ class YoutubeService {
   );
 
   static const Track trackSatellite = Track(
-    id: 'K3QzzggA_-s',
+    id: 'K3Qzzggn--s',
     title: 'Slow Dancing in the Dark',
     artist: 'Joji',
-    durationSec: 209,
-    thumb: 'https://i.ytimg.com/vi/K3QzzggA_-s/hqdefault.jpg',
+    durationSec: 218,
+    thumb: 'https://i.ytimg.com/vi/K3Qzzggn--s/hqdefault.jpg',
   );
 
   static List<Track> getCuratedAfterHours() => [
@@ -150,33 +162,27 @@ class YoutubeService {
 
   static List<Track> getCuratedChill() => [
         const Track(
-          id: 'jfKfPfyJRdk',
-          title: 'Lofi Hip Hop Beats',
-          artist: 'Lofi Girl',
-          durationSec: 180,
-          thumb: 'https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg',
-        ),
-        const Track(
-          id: '5yx6BWlEVcY',
-          title: 'Chillhop Daydreams',
-          artist: 'Chillhop Music',
-          durationSec: 195,
-          thumb: 'https://i.ytimg.com/vi/5yx6BWlEVcY/hqdefault.jpg',
-        ),
-        const Track(
-          id: 'DWcJFNfaw9c',
-          title: 'Midnight Coffee',
-          artist: 'Kupla',
-          durationSec: 160,
-          thumb: 'https://i.ytimg.com/vi/DWcJFNfaw9c/hqdefault.jpg',
-        ),
-        const Track(
-          id: '_7Pz8qE49vY',
-          title: 'Snowman Melody',
+          id: '9_quEmGP6YI',
+          title: 'Snowman',
           artist: 'WYS',
-          durationSec: 184,
-          thumb: 'https://i.ytimg.com/vi/_7Pz8qE49vY/hqdefault.jpg',
+          durationSec: 195,
+          thumb: 'https://i.ytimg.com/vi/9_quEmGP6YI/hqdefault.jpg',
         ),
+        const Track(
+          id: 'BIwGZbKXUro',
+          title: 'lofi coffee shop',
+          artist: 'nightcity.',
+          durationSec: 114,
+          thumb: 'https://i.ytimg.com/vi/BIwGZbKXUro/hqdefault.jpg',
+        ),
+        const Track(
+          id: 'hoDvh7v9QP0',
+          title: 'Synthetic',
+          artist: 'The Midnight',
+          durationSec: 200,
+          thumb: 'https://i.ytimg.com/vi/hoDvh7v9QP0/hqdefault.jpg',
+        ),
+        trackSatellite,
       ];
 
   Future<List<YtmHomeShelf>> getYtmHomeShelves() => _innertube.getHomeShelves();
@@ -204,8 +210,23 @@ class YoutubeService {
     final q = query.trim();
     if (q.isEmpty) return [];
 
-    String effectiveQuery = q;
     final f = (filter ?? 'all').toLowerCase();
+    // Prefer YT Music Innertube search first: youtube_explode_dart's web search parser
+    // throws NoSuchMethodError on some rich search layouts.
+    try {
+      final ytmFilter = f == 'videos' ? 'videos' : 'songs';
+      final ytm = await _innertube.search(q, ytmFilter).timeout(const Duration(seconds: 7));
+      final list = ytmFilter == 'videos'
+          ? ytm.videos
+          : [...ytm.songs, ...ytm.videos];
+      if (list.isNotEmpty) {
+        return list.take(limit).toList();
+      }
+    } catch (e) {
+      debugPrint('[YoutubeService] Innertube search fallback note ($filter): $e');
+    }
+
+    String effectiveQuery = q;
     if (f == 'songs') {
       effectiveQuery = '$q audio';
     } else if (f == 'videos') {
@@ -302,9 +323,49 @@ class YoutubeService {
     }
   }
 
+  /// Prioritizes streams playable directly by ExoPlayer and DownloadManager without
+  /// bounded byte-range chunking: muxed MP4 (`itag=18`) returns HTTP 200 on un-ranged GET,
+  /// while adaptive `mp4Audio` (`itag=140`) often requires bounded ranges.
+  @visibleForTesting
+  static List<T> prioritizeDirectStreams<T>({
+    required List<T> mp4Muxed,
+    required List<T> mp4Audio,
+    required List<T> otherMuxed,
+    required List<T> otherAudio,
+  }) =>
+      [
+        ...mp4Muxed.take(2),
+        ...otherMuxed.take(1),
+        ...mp4Audio.take(2),
+        ...otherAudio.take(1),
+      ];
+
+  Future<StreamManifest?> _fetchManifest(String cleanId) async {
+    for (final client in const [
+      YoutubeApiClient.androidSdkless,
+      YoutubeApiClient.android,
+    ]) {
+      try {
+        final manifest = await _yt.videos.streamsClient
+            .getManifest(
+              cleanId,
+              ytClients: [client],
+              requireWatchPage: false,
+            )
+            .timeout(const Duration(seconds: 7));
+        if (manifest.muxed.isNotEmpty || manifest.audioOnly.isNotEmpty) {
+          return manifest;
+        }
+      } catch (e) {
+        debugPrint('[YoutubeService] Manifest fetch note ($cleanId): $e');
+      }
+    }
+    return null;
+  }
+
   /// Resolves verified playable stream URLs for a YouTube video ID.
-  /// Probes adaptive audio and muxed mp4 (`itag=18`) concurrently so 403/SABR
-  /// adaptive URLs never stall ExoPlayer, while returning playback-ready URLs.
+  /// Prioritizes muxed mp4 (`itag=18`) first and probes with open un-ranged GET
+  /// so ExoPlayer and Android DownloadManager never hit HTTP 403.
   Future<List<String>> resolveStreamCandidates(String trackId) async {
     final cleanId = trackId.replaceFirst('yt:', '');
     if (cleanId.isEmpty || cleanId.startsWith('saavn:')) return const [];
@@ -318,13 +379,8 @@ class YoutubeService {
     }
 
     try {
-      final manifest = await _yt.videos.streamsClient
-          .getManifest(
-            cleanId,
-            ytClients: [YoutubeApiClient.androidSdkless],
-            requireWatchPage: false,
-          )
-          .timeout(const Duration(seconds: 7));
+      final manifest = await _fetchManifest(cleanId);
+      if (manifest == null) return const [];
 
       final mp4Audio = manifest.audioOnly
           .where((s) => s.container.name.toLowerCase() == 'mp4')
@@ -341,17 +397,21 @@ class YoutubeService {
           .toList()
         ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
 
-      final ordered = <StreamInfo>[
-        if (mp4Audio.isNotEmpty) mp4Audio.first,
-        if (mp4Muxed.isNotEmpty) mp4Muxed.first,
-        if (mp4Audio.length > 1) mp4Audio[1],
-        if (otherAudio.isNotEmpty) otherAudio.first,
-        ...manifest.muxed.where((s) => !mp4Muxed.contains(s)).take(1),
-      ];
+      final otherMuxed = manifest.muxed
+          .where((s) => s.container.name.toLowerCase() != 'mp4')
+          .toList()
+        ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+
+      final ordered = prioritizeDirectStreams<StreamInfo>(
+        mp4Muxed: mp4Muxed,
+        mp4Audio: mp4Audio,
+        otherMuxed: otherMuxed,
+        otherAudio: otherAudio,
+      );
 
       if (ordered.isEmpty) return const [];
 
-      // Probe top candidates concurrently with Range 0-1023 to drop 403/dead URLs before ExoPlayer
+      // Probe top candidates concurrently using an un-ranged GET matching ExoPlayer/DownloadManager.
       final probeResults = await Future.wait(
         ordered.map((s) async {
           final raw = s.url.toString();
@@ -375,21 +435,108 @@ class YoutubeService {
     }
   }
 
+  /// Resolves an adaptive AAC (`mp4` / `itag=140`) stream validated for bounded
+  /// 512KB byte-range slicing when no un-ranged direct stream is available.
+  Future<BoundedAudioCandidate?> resolveBoundedAudioCandidate(String trackId) async {
+    final cleanId = trackId.replaceFirst('yt:', '');
+    if (cleanId.isEmpty || cleanId.startsWith('saavn:')) return null;
+
+    try {
+      final manifest = await _fetchManifest(cleanId);
+      if (manifest == null) return null;
+
+      final mp4Audio = manifest.audioOnly
+          .where((s) => s.container.name.toLowerCase() == 'mp4')
+          .toList()
+        ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+
+      for (final stream in mp4Audio.take(2)) {
+        final raw = stream.url.toString();
+        final probedLen = await _probeBoundedSlice(raw, knownTotal: stream.size.totalBytes);
+        if (probedLen != null && probedLen > 0) {
+          return BoundedAudioCandidate(
+            url: raw,
+            totalBytes: probedLen,
+            contentType: 'audio/mp4',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[YoutubeService] resolveBoundedAudioCandidate error for $cleanId: $e');
+    }
+    return null;
+  }
+
+  Future<int?> _probeBoundedSlice(String url, {int knownTotal = 0}) async {
+    try {
+      final req = await _probeClient
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 3));
+      req.headers.set('User-Agent', androidClientUserAgent);
+      req.headers.set('Range', 'bytes=0-65535');
+      final resp = await req.close().timeout(const Duration(seconds: 3));
+      if (resp.statusCode != 206 && resp.statusCode != 200) {
+        await resp.drain<void>();
+        return null;
+      }
+      int parsedTotal = knownTotal;
+      final contentRange = resp.headers.value('content-range');
+      if (contentRange != null) {
+        final slash = contentRange.lastIndexOf('/');
+        if (slash != -1) {
+          parsedTotal = int.tryParse(contentRange.substring(slash + 1)) ?? parsedTotal;
+        }
+      }
+      if (parsedTotal <= 0 && resp.statusCode == 200 && resp.contentLength > 0) {
+        parsedTotal = resp.contentLength;
+      }
+      await resp.drain<void>();
+      return parsedTotal > 0 ? parsedTotal : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String?> resolveStreamUrl(String trackId) async {
     final list = await resolveStreamCandidates(trackId);
     return list.isNotEmpty ? list.first : null;
   }
 
   Future<bool> _probeStreamUrl(String url) async {
+    // Probe with an OPEN (un-ranged) GET so adaptive streams that 403 on a full
+    // request are rejected, while muxed (itag 18) streams that return 200 are kept.
+    // Read only the first chunk then cancel to avoid downloading the whole file.
     try {
       final req = await _probeClient
           .getUrl(Uri.parse(url))
           .timeout(const Duration(seconds: 3));
       req.headers.set('User-Agent', androidClientUserAgent);
-      req.headers.set('Range', 'bytes=0-1023');
       final resp = await req.close().timeout(const Duration(seconds: 3));
-      await resp.drain<void>();
-      return resp.statusCode == 200 || resp.statusCode == 206;
+      if (resp.statusCode != 200 && resp.statusCode != 206) {
+        await resp.drain<void>();
+        return false;
+      }
+      final completer = Completer<bool>();
+      int received = 0;
+      late StreamSubscription<List<int>> sub;
+      sub = resp.listen(
+        (chunk) {
+          received += chunk.length;
+          if (received >= 1024 && !completer.isCompleted) {
+            completer.complete(true);
+            sub.cancel();
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) completer.complete(true);
+        },
+        onError: (_) {
+          if (!completer.isCompleted) completer.complete(false);
+        },
+        cancelOnError: true,
+      );
+      return await completer.future
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
     } catch (_) {
       return false;
     }
