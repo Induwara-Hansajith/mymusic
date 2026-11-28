@@ -1,14 +1,14 @@
 /**
- * MyMusic v1.1.8 Premiere Introduction Video & Cinematic Experience
- * Showcases the v1.1.8 Milestone Release and announces Linux packaging & Cross-Platform Cloud Sync.
+ * MyMusic v1.1.9 Premiere Introduction Video & Cinematic Experience
+ * Showcases the v1.1.9 Release with Audio Output Device selection and announcements.
  */
 (() => {
-  const INTRO_VERSION = '1.1.8';
-  const STORAGE_KEY = 'mymusic_intro_seen_v118';
+  const INTRO_VERSION = '1.1.9';
+  const STORAGE_KEY = 'mymusic_intro_seen_v119';
   const TOTAL_DURATION = 46; // seconds
 
   const CHAPTERS = [
-    { start: 0,  end: 8,  id: 'genesis', title: 'v1.1.8 Premiere' },
+    { start: 0,  end: 8,  id: 'genesis', title: 'v1.1.9 Premiere' },
     { start: 8,  end: 20, id: 'crossplatform', title: 'Linux & Cloud Sync' },
     { start: 20, end: 30, id: 'cloudauth', title: 'Google Sign-In' },
     { start: 30, end: 38, id: 'sonara', title: 'Sonara & AutoMix' },
@@ -537,7 +537,7 @@
         <div class="intro-topbar">
           <div class="intro-brand">
             <span class="intro-badge-pulse"></span>
-            <span class="intro-title-text">MyMusic 1.1.8</span>
+            <span class="intro-title-text">MyMusic 1.1.9</span>
             <span class="intro-tag">WORLD PREMIERE</span>
           </div>
           <div class="intro-top-actions">
@@ -565,7 +565,7 @@
           <div class="intro-scene-card active" data-scene="0">
             <div class="intro-card-pill">MILESTONE RELEASE</div>
             <h1 class="intro-hero-title">The Evolution of Sound</h1>
-            <p class="intro-hero-desc">Welcome to <strong>MyMusic 1.1.8</strong>. Engineered for audiophiles, optimized for speed, and crafted without compromises.</p>
+            <p class="intro-hero-desc">Welcome to <strong>MyMusic 1.1.9</strong>. Engineered for audiophiles, optimized for speed, and crafted without compromises.</p>
           </div>
 
           <!-- Scene 2: Cross Platform Sync Announcement -->
@@ -598,7 +598,7 @@
           <div class="intro-scene-card" data-scene="4">
             <div class="intro-card-pill highlight">GET STARTED</div>
             <h1 class="intro-hero-title">Your Stage Awaits</h1>
-            <p class="intro-hero-desc">Experience v1.1.8 today. Connect your cloud account or begin exploring right away.</p>
+            <p class="intro-hero-desc">Experience v1.1.9 today. Connect your cloud account or begin exploring right away.</p>
             <div class="intro-cta-actions">
               <button id="introAuthActionBtn" class="intro-primary-btn">
                 <svg viewBox="0 0 24 24" class="ic" fill="none" stroke="currentColor" stroke-width="2">

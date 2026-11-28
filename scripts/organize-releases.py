@@ -42,6 +42,44 @@ def generate_checksum_file(folder: Path):
     print(f"  Generated SHA256SUMS.txt in {folder.name}")
 
 
+def organize_119():
+    print("\n==> Organizing 1.1.9 Release Assets...")
+    out_dir = DIST_DIR / "1.1.9"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    files_to_copy = [
+        "My.Music.Setup.1.1.9.exe",
+        "My.Music.Portable.1.1.9.exe",
+        "My Music-1.1.9-win.zip",
+        "My.Music.1.1.9.deb",
+        "My.Music.1.1.9.tar.gz",
+        "latest.yml",
+    ]
+
+    for fname in files_to_copy:
+        src = DIST_DIR / fname
+        if src.exists():
+            shutil.copy2(src, out_dir / fname)
+            print(f"  Copied {fname} -> dist/1.1.9/")
+        else:
+            print(f"  [WARN] Source file missing: {src}")
+
+    install_sh = SCRIPTS_DIR / "install.sh"
+    if install_sh.exists():
+        shutil.copy2(install_sh, out_dir / "install.sh")
+        print("  Copied install.sh -> dist/1.1.9/")
+
+    arch_src = DIST_DIR / "arch"
+    arch_dest = out_dir / "arch"
+    if arch_src.exists():
+        if arch_dest.exists():
+            shutil.rmtree(arch_dest)
+        shutil.copytree(arch_src, arch_dest)
+        print("  Copied arch/ packaging specs -> dist/1.1.9/arch/")
+
+    generate_checksum_file(out_dir)
+
+
 def organize_118():
     print("\n==> Organizing 1.1.8 Release Assets...")
     out_dir = DIST_DIR / "1.1.8"
@@ -132,7 +170,7 @@ def print_summary():
     print("\n" + "=" * 70)
     print("RELEASE PACKAGES SUMMARY")
     print("=" * 70)
-    for ver in ["1.1.7", "1.1.8"]:
+    for ver in ["1.1.7", "1.1.8", "1.1.9"]:
         folder = DIST_DIR / ver
         if not folder.exists():
             continue
@@ -149,6 +187,7 @@ def print_summary():
 def main():
     organize_117()
     organize_118()
+    organize_119()
     print_summary()
 
 

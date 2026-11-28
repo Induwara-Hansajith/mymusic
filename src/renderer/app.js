@@ -53,6 +53,7 @@ const I = {
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   contract: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/>',
   headphones: '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
+  speaker: '<rect x="4" y="2" width="16" height="20" rx="2"/><circle cx="12" cy="14" r="4"/><line x1="12" y1="6" x2="12.01" y2="6"/>',
   dj: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M6 9a6 6 0 0 1 12 0v6a6 6 0 0 1-12 0z"/><path d="M2 12h1M21 12h1M9 12h6"/>',
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   cloud: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>',
@@ -75,6 +76,151 @@ if (deckB) deckB.removeAttribute('crossorigin');
 let curAudio = deckA;
 let standbyAudio = deckB;
 let audio = curAudio;
+
+// ---------- audio output device selection ----------
+let audioOutputDevices = [];
+
+async function getAudioOutputDevices() {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    audioOutputDevices = devs.filter(d => d.kind === 'audiooutput');
+    return audioOutputDevices;
+  } catch (err) {
+    console.warn('[AudioOutput] Error enumerating devices:', err);
+    return [];
+  }
+}
+
+async function setAudioOutputDevice(deviceId, save = true) {
+  if (!deviceId) deviceId = 'default';
+  let applied = false;
+  try {
+    if (typeof deckA.setSinkId === 'function') {
+      await deckA.setSinkId(deviceId);
+      applied = true;
+    }
+    if (typeof deckB.setSinkId === 'function') {
+      await deckB.setSinkId(deviceId);
+    }
+    if (vizS && vizS.actx && typeof vizS.actx.setSinkId === 'function') {
+      await vizS.actx.setSinkId(deviceId).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[AudioOutput] setSinkId error:', err);
+  }
+  if (save) {
+    settings().outputDeviceId = deviceId;
+    mutate({ type: 'settings.set', patch: { outputDeviceId: deviceId } });
+  }
+  return applied;
+}
+
+function playTestChime() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    if (settings().outputDeviceId && typeof ctx.setSinkId === 'function') {
+      ctx.setSinkId(settings().outputDeviceId).catch(() => {});
+    }
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    setTimeout(() => ctx.close().catch(() => {}), 500);
+  } catch (_) {}
+}
+
+async function openDeviceModal() {
+  const modalEl = $('#deviceModal');
+  if (!modalEl) return;
+  await getAudioOutputDevices();
+  renderDeviceModal();
+  modalEl.classList.remove('hidden');
+}
+
+function renderDeviceModal() {
+  const modalEl = $('#deviceModal');
+  if (!modalEl) return;
+  const curId = settings().outputDeviceId || 'default';
+  let devices = audioOutputDevices;
+  if (!devices || devices.length === 0) {
+    devices = [{ deviceId: 'default', label: 'Default System Audio' }];
+  }
+  const listHtml = devices.map((d, i) => {
+    const isAct = (d.deviceId === curId) || (curId === 'default' && (d.deviceId === 'default' || d.deviceId === ''));
+    const label = d.label || (d.deviceId === 'default' ? 'Default System Audio' : `Audio Output ${i + 1}`);
+    const isHeadphones = /headphone|headset|earphone|airpods|buds|wh-|wf-/i.test(label);
+    const isBluetooth = /bluetooth|bt|wireless/i.test(label);
+    const iconName = isHeadphones ? 'headphones' : 'vol';
+    return `
+      <div class="device-item ${isAct ? 'active' : ''}" data-device-id="${esc(d.deviceId)}">
+        <div class="device-info">
+          <div class="device-icon">${icon(iconName)}</div>
+          <div>
+            <div class="device-name">${esc(label)}</div>
+            <div class="device-desc">${isHeadphones ? 'Headphones / Headset' : isBluetooth ? 'Bluetooth Audio' : 'Speaker / Output Device'}</div>
+          </div>
+        </div>
+        ${isAct ? `<div class="device-check">${icon('check')}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  modalEl.innerHTML = `
+    <div class="device-box">
+      <div class="eq-header">
+        <h3 style="margin:0;font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px">
+          ${icon('headphones')} Audio Output Device
+        </h3>
+        <button class="iconbtn" data-action="device-close" title="Close">${icon('close')}</button>
+      </div>
+      <p style="margin:0;font-size:13px;color:var(--muted)">Select where you want your music to play. Output switches immediately without pausing.</p>
+      <div class="device-list">
+        ${listHtml}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--line)">
+        <span style="font-size:12px;color:var(--muted)">${devices.length} output device${devices.length === 1 ? '' : 's'} detected</span>
+        <button class="ghostbtn" id="refreshDevicesBtn" style="padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:6px">
+          ${icon('sync')} Refresh Devices
+        </button>
+      </div>
+    </div>
+  `;
+
+  modalEl.querySelectorAll('.device-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const devId = item.dataset.deviceId;
+      await setAudioOutputDevice(devId, true);
+      renderDeviceModal();
+      if (S.view === 'settings') renderSettings();
+      toast('Output device switched');
+    });
+  });
+
+  const refreshBtn = $('#refreshDevicesBtn', modalEl);
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.textContent = 'Scanning…';
+      await getAudioOutputDevices();
+      renderDeviceModal();
+    });
+  }
+
+  modalEl.onclick = (e) => {
+    if (e.target === modalEl || e.target.closest('[data-action="device-close"]')) {
+      modalEl.classList.add('hidden');
+    }
+  };
+}
 
 const automixS = {
   mixing: false,
@@ -179,6 +325,19 @@ async function boot() {
     applyWallpaper();
     applySpeedAndPitch();
     updateEqBadge();
+    getAudioOutputDevices().then(() => {
+      const savedDevId = settings().outputDeviceId || 'default';
+      if (savedDevId) setAudioOutputDevice(savedDevId, false);
+    }).catch(() => {});
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', async () => {
+        await getAudioOutputDevices();
+        if ($('#deviceModal') && !$('#deviceModal').classList.contains('hidden')) {
+          renderDeviceModal();
+        }
+        if (S.view === 'settings') renderSettings();
+      });
+    }
     if (settings().lowResourceMode === undefined) {
       const isLowEnd = (typeof navigator !== 'undefined') && (
         (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
@@ -346,6 +505,7 @@ function buildShell() {
       </div>
     </div>
     <div class="pb-right">
+      <button id="pb-device" class="iconbtn" data-action="pb-device" title="Audio Output Device">${icon('headphones')}</button>
       <button id="pb-eq" class="iconbtn" data-action="pb-eq" title="Equalizer & DSP">${icon('eq')}</button>
       <button id="pb-viz" class="iconbtn" data-action="pb-viz" title="Visualizer">${icon('viz')}</button>
       <button id="pb-mini" class="iconbtn" data-action="pb-mini" title="Mini Mode (Floating Player)">${icon('mini')}</button>
@@ -4651,6 +4811,7 @@ function bindShellEvents() {
   $('#pb-automix')?.addEventListener('click', () => setAutomix(!settings().automix));
   $('#pb-radio')?.addEventListener('click', () => setRadio(!settings().radio));
   $('#pb-fav').addEventListener('click', () => { const t = curTrack(); if (t) toggleFav(t); });
+  $('#pb-device')?.addEventListener('click', () => openDeviceModal());
   $('#pb-queue').addEventListener('click', () => {
     $('#queuePanel').classList.toggle('hidden');
     $('#pb-queue').classList.toggle('on', !$('#queuePanel').classList.contains('hidden'));
@@ -4817,6 +4978,8 @@ function onClick(e) {
   const action = el.dataset.action;
 
   switch (action) {
+    case 'pb-device':
+    case 'open-device': openDeviceModal(); break;
     case 'pb-eq':
     case 'open-eq': openEqModal(); break;
     case 'pl-import': openImportModal(); break;
@@ -6896,6 +7059,28 @@ function renderSettings(tok) {
         </div>
       </div>
 
+      <div class="settings-card" id="cardAudioOutput">
+        <h3>${icon('headphones')} Audio Output Device</h3>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-title">Active Output Device</span>
+            <span class="settings-desc">Choose which speakers, headphones, or audio interface plays your sound</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <select id="settingAudioOutput" class="fs-select" style="padding:7px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--text);font-weight:600;min-width:240px">
+              ${(audioOutputDevices && audioOutputDevices.length ? audioOutputDevices : [{ deviceId: 'default', label: 'Default System Output' }]).map(d => `
+                <option value="${esc(d.deviceId)}" ${(s.outputDeviceId || 'default') === d.deviceId ? 'selected' : ''}>
+                  ${esc(d.label || (d.deviceId === 'default' ? 'Default System Output' : d.deviceId))}
+                </option>
+              `).join('')}
+            </select>
+            <button class="ghostbtn" id="testOutputBtn" title="Play test tone" style="padding:7px 12px;border-radius:8px;display:flex;align-items:center;gap:6px">
+              ${icon('vol')} Test
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="settings-card">
         <h3>${icon('eq')} Audio DSP & Equalizer</h3>
         <div class="settings-row">
@@ -7045,10 +7230,10 @@ function renderSettings(tok) {
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
           <div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span style="background:rgba(139, 92, 246, 0.2);color:#c4b5fd;font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid rgba(139, 92, 246, 0.4)">v1.1.8 PREMIERE</span>
+              <span style="background:rgba(139, 92, 246, 0.2);color:#c4b5fd;font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid rgba(139, 92, 246, 0.4)">v1.1.9 UPDATE</span>
               <h3 style="margin:0;font-size:15px;font-weight:700">What's New in MyMusic</h3>
             </div>
-            <p class="settings-desc" style="margin:0">Watch the official introduction video announcing Linux packaging, Cross-Platform cloud sync, and Sonara Audio.</p>
+            <p class="settings-desc" style="margin:0">Audio Output Device routing, live hardware change detection, Linux packaging, and Sonara Audio.</p>
           </div>
           <button id="relaunchIntroBtn" class="primarybtn" style="background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;font-weight:600;padding:8px 18px;border-radius:999px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
             <svg class="ic" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><polygon points="5 3 19 12 5 21 5 3"/></svg> Watch Premiere Intro
@@ -7057,6 +7242,20 @@ function renderSettings(tok) {
       </div>
     </div>
   `);
+
+  const outputSel = $('#settingAudioOutput');
+  if (outputSel) {
+    outputSel.addEventListener('change', async (e) => {
+      await setAudioOutputDevice(e.target.value, true);
+      toast('Audio output device updated');
+    });
+  }
+  const testOutputBtn = $('#testOutputBtn');
+  if (testOutputBtn) {
+    testOutputBtn.addEventListener('click', () => {
+      playTestChime();
+    });
+  }
 
   const customWpBtn = $('#customWpBtn');
   if (customWpBtn) {

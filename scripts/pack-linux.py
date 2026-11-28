@@ -21,7 +21,7 @@ ROOT_DIR = Path(r"C:\Users\induw\OneDrive\Documents\programs\personal\mymusic")
 DIST_DIR = ROOT_DIR / "dist"
 UNPACKED_DIR = DIST_DIR / "linux-unpacked"
 ICON_SRC = ROOT_DIR / "build" / "icon.png"
-VERSION = "1.1.8"
+VERSION = "1.1.9"
 PKG_NAME = "mymusic"
 ARCH = "amd64"
 

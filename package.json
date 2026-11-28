@@ -2,7 +2,7 @@
   "name": "my-music",
   "productName": "My Music",
   "desktopName": "mymusic.desktop",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "description": "My Music - a Spotify-style desktop player powered by YouTube Music",
   "main": "src/main.js",
   "author": "Induwara Hansajith <induwarahansajith10@gmail.com>",

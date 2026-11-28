@@ -10,7 +10,7 @@ const getClientVersion = () => {
   try {
     if (app && typeof app.getVersion === 'function') return app.getVersion();
   } catch {}
-  return '1.1.8';
+  return '1.1.9';
 };
 
 class AuthSyncEngine extends EventEmitter {

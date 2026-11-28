@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:audio_session/audio_session.dart';
 import '../../services/auth_sync_service.dart';
 import '../../providers/player_provider.dart';
 import '../theme.dart';
@@ -15,6 +16,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final AuthSyncService _auth = AuthSyncService();
   bool _discordPresence = true;
   bool _isSyncing = false;
+  String _selectedOutputName = 'Default output · Auto-route';
+
+  void _showOutputDeviceModal(BuildContext context) async {
+    List<AudioDevice> devices = [];
+    try {
+      final session = await AudioSession.instance;
+      final allDevs = await session.getDevices();
+      devices = allDevs.where((d) => d.isOutput).toList();
+    } catch (e) {
+      debugPrint('[SettingsScreen] getDevices error: $e');
+    }
+
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          padding: const EdgeInsets.all(22),
+          decoration: const BoxDecoration(
+            color: AppTheme.panel,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.line,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Audio Output Device',
+                    style: TextStyle(color: AppTheme.text, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${devices.isEmpty ? 1 : devices.length} available',
+                      style: const TextStyle(color: AppTheme.accentLight, fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Route music to your phone speaker, Bluetooth earbuds, or wired headphones.',
+                style: TextStyle(color: AppTheme.subtitle, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              _buildDeviceTile(
+                name: 'Default System Routing',
+                typeDesc: 'Auto-routes to Bluetooth, headphones, or speaker',
+                iconData: Icons.speaker_group_rounded,
+                isSelected: _selectedOutputName.startsWith('Default'),
+                onTap: () async {
+                  try {
+                    final manager = AndroidAudioManager();
+                    await manager.setSpeakerphoneOn(false);
+                    await manager.clearCommunicationDevice();
+                  } catch (_) {}
+                  setState(() => _selectedOutputName = 'Default output · Auto-route');
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: 8),
+              if (devices.isNotEmpty)
+                ...devices.map((d) {
+                  final typeName = d.type.name.toLowerCase();
+                  final isSpeaker = typeName.contains('speaker');
+                  final isHeadphones = typeName.contains('head');
+                  final isBluetooth = typeName.contains('bluetooth') || typeName.contains('ble');
+                  final icon = isSpeaker
+                      ? Icons.volume_up_rounded
+                      : (isHeadphones ? Icons.headphones_rounded : (isBluetooth ? Icons.bluetooth_audio_rounded : Icons.speaker_rounded));
+                  final isSel = _selectedOutputName == d.name;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildDeviceTile(
+                      name: d.name.isNotEmpty ? d.name : 'Audio Device',
+                      typeDesc: isSpeaker
+                          ? 'Built-in Speaker'
+                          : (isHeadphones ? 'Wired Headphones' : (isBluetooth ? 'Bluetooth Audio' : 'Audio Output')),
+                      iconData: icon,
+                      isSelected: isSel,
+                      onTap: () async {
+                        try {
+                          final manager = AndroidAudioManager();
+                          if (isSpeaker) {
+                            await manager.setSpeakerphoneOn(true);
+                          } else {
+                            await manager.setSpeakerphoneOn(false);
+                            final comm = await manager.getAvailableCommunicationDevices();
+                            if (comm.isNotEmpty) {
+                              final match = comm.firstWhere(
+                                (c) => c.productName == d.name || c.id.toString() == d.id,
+                                orElse: () => comm.first,
+                              );
+                              await manager.setCommunicationDevice(match);
+                            }
+                          }
+                        } catch (_) {}
+                        setState(() => _selectedOutputName = d.name.isNotEmpty ? d.name : 'Audio Device');
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                    ),
+                  );
+                })
+              else ...[
+                _buildDeviceTile(
+                  name: 'Phone Speaker',
+                  typeDesc: 'Force output through built-in loudspeaker',
+                  iconData: Icons.volume_up_rounded,
+                  isSelected: _selectedOutputName == 'Phone Speaker',
+                  onTap: () async {
+                    try {
+                      final manager = AndroidAudioManager();
+                      await manager.setSpeakerphoneOn(true);
+                    } catch (_) {}
+                    setState(() => _selectedOutputName = 'Phone Speaker');
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                ),
+              ],
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   void _showEmailAuthModal(BuildContext context) {
     final emailCtrl = TextEditingController();
@@ -452,6 +599,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             _buildSettingRow(
+              title: 'Audio output device',
+              subtitle: _selectedOutputName,
+              trailing: const Text(
+                'Select ›',
+                style: TextStyle(color: AppTheme.accentLight, fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              onTap: () => _showOutputDeviceModal(context),
+            ),
+            const SizedBox(height: 12),
+            _buildSettingRow(
               title: 'Song sources',
               subtitle: 'Desktop YouTube Music · 320 kbps CDN fallback',
               trailing: const Text(
@@ -581,6 +738,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             trailing,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeviceTile({
+    required String name,
+    required String typeDesc,
+    required IconData iconData,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.accent.withValues(alpha: 0.12) : AppTheme.bg2,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? AppTheme.accent : AppTheme.line,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.accent : AppTheme.panel,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(iconData, color: isSelected ? Colors.white : AppTheme.muted, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      color: AppTheme.text,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(typeDesc, style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle_rounded, color: AppTheme.accentLight, size: 20),
           ],
         ),
       ),
