@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_session/audio_session.dart';
-import '../../services/auth_sync_service.dart';
+import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/theme_provider.dart';
+import '../../services/auth_sync_service.dart';
+import '../../services/storage_service.dart';
 import '../theme.dart';
+import '../widgets/auth_modal.dart';
+import '../widgets/desktop_widgets.dart';
+import 'equalizer_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -14,794 +21,785 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthSyncService _auth = AuthSyncService();
+  final TextEditingController _customWpCtrl = TextEditingController();
+  late String _selectedOutputName;
   bool _discordPresence = true;
-  bool _isSyncing = false;
-  String _selectedOutputName = 'Default output · Auto-route';
 
-  void _showOutputDeviceModal(BuildContext context) async {
-    List<AudioDevice> devices = [];
-    try {
-      final session = await AudioSession.instance;
-      final allDevs = await session.getDevices();
-      devices = allDevs.where((d) => d.isOutput).toList();
-    } catch (e) {
-      debugPrint('[SettingsScreen] getDevices error: $e');
-    }
-
-    if (!context.mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) => Container(
-          padding: const EdgeInsets.all(22),
-          decoration: const BoxDecoration(
-            color: AppTheme.panel,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppTheme.line,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Audio Output Device',
-                    style: TextStyle(color: AppTheme.text, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppTheme.accent.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${devices.isEmpty ? 1 : devices.length} available',
-                      style: const TextStyle(color: AppTheme.accentLight, fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Route music to your phone speaker, Bluetooth earbuds, or wired headphones.',
-                style: TextStyle(color: AppTheme.subtitle, fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-              _buildDeviceTile(
-                name: 'Default System Routing',
-                typeDesc: 'Auto-routes to Bluetooth, headphones, or speaker',
-                iconData: Icons.speaker_group_rounded,
-                isSelected: _selectedOutputName.startsWith('Default'),
-                onTap: () async {
-                  try {
-                    final manager = AndroidAudioManager();
-                    await manager.setSpeakerphoneOn(false);
-                    await manager.clearCommunicationDevice();
-                    await manager.setMode(AndroidAudioHardwareMode.normal);
-                  } catch (_) {}
-                  setState(() => _selectedOutputName = 'Default output · Auto-route');
-                  if (ctx.mounted) Navigator.pop(ctx);
-                },
-              ),
-              const SizedBox(height: 8),
-              if (devices.isNotEmpty)
-                ...devices.map((d) {
-                  final typeName = d.type.name.toLowerCase();
-                  final isSpeaker = typeName.contains('speaker');
-                  final isHeadphones = typeName.contains('head');
-                  final isBluetooth = typeName.contains('bluetooth') || typeName.contains('ble');
-                  final icon = isSpeaker
-                      ? Icons.volume_up_rounded
-                      : (isHeadphones ? Icons.headphones_rounded : (isBluetooth ? Icons.bluetooth_audio_rounded : Icons.speaker_rounded));
-                  final isSel = _selectedOutputName == d.name;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _buildDeviceTile(
-                      name: d.name.isNotEmpty ? d.name : 'Audio Device',
-                      typeDesc: isSpeaker
-                          ? 'Built-in Speaker'
-                          : (isHeadphones ? 'Wired Headphones' : (isBluetooth ? 'Bluetooth Audio' : 'Audio Output')),
-                      iconData: icon,
-                      isSelected: isSel,
-                      onTap: () async {
-                        try {
-                          final manager = AndroidAudioManager();
-                          if (isSpeaker) {
-                            await manager.setMode(AndroidAudioHardwareMode.inCommunication);
-                            await manager.setSpeakerphoneOn(true);
-                          } else {
-                            await manager.setMode(AndroidAudioHardwareMode.inCommunication);
-                            await manager.setSpeakerphoneOn(false);
-                            final comm = await manager.getAvailableCommunicationDevices();
-                            if (comm.isNotEmpty) {
-                              final match = comm.firstWhere(
-                                (c) => c.productName == d.name || c.id.toString() == d.id,
-                                orElse: () => comm.first,
-                              );
-                              await manager.setCommunicationDevice(match);
-                            }
-                          }
-                        } catch (_) {}
-                        setState(() => _selectedOutputName = d.name.isNotEmpty ? d.name : 'Audio Device');
-                        if (ctx.mounted) Navigator.pop(ctx);
-                      },
-                    ),
-                  );
-                })
-              else ...[
-                _buildDeviceTile(
-                  name: 'Phone Speaker',
-                  typeDesc: 'Force output through built-in loudspeaker',
-                  iconData: Icons.volume_up_rounded,
-                  isSelected: _selectedOutputName == 'Phone Speaker',
-                  onTap: () async {
-                    try {
-                      final manager = AndroidAudioManager();
-                      await manager.setMode(AndroidAudioHardwareMode.inCommunication);
-                      await manager.setSpeakerphoneOn(true);
-                    } catch (_) {}
-                    setState(() => _selectedOutputName = 'Phone Speaker');
-                    if (ctx.mounted) Navigator.pop(ctx);
-                  },
-                ),
-              ],
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    final s = StorageService().getSettingsMap();
+    _selectedOutputName = s['outputDeviceName'] as String? ?? 'Default output · Auto-route';
+    _discordPresence = s['discordPresence'] != false;
+    _customWpCtrl.text = s['wallpaper'] as String? ?? '';
+    _auth.addListener(_onAuthChanged);
   }
 
-  void _showEmailAuthModal(BuildContext context) {
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    bool isSignUp = false;
-    String? errorMsg;
+  void _onAuthChanged() {
+    if (mounted) setState(() {});
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) => Container(
-          padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
-          decoration: const BoxDecoration(
-            color: AppTheme.panel,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppTheme.line,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                isSignUp ? 'Create Supabase Account' : 'Sign In with Email',
-                style: const TextStyle(
-                  color: AppTheme.text,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Sync your playlists and listening history across desktop and mobile.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 13),
-              ),
-              const SizedBox(height: 18),
-              if (errorMsg != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(errorMsg!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
-                ),
-                const SizedBox(height: 12),
-              ],
-              TextField(
-                controller: emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                style: const TextStyle(color: AppTheme.text),
-                decoration: InputDecoration(
-                  hintText: 'Email address',
-                  hintStyle: const TextStyle(color: AppTheme.muted),
-                  filled: true,
-                  fillColor: AppTheme.bg2,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passCtrl,
-                obscureText: true,
-                style: const TextStyle(color: AppTheme.text),
-                decoration: InputDecoration(
-                  hintText: 'Password',
-                  hintStyle: const TextStyle(color: AppTheme.muted),
-                  filled: true,
-                  fillColor: AppTheme.bg2,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.accent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  onPressed: () async {
-                    final email = emailCtrl.text.trim();
-                    final pass = passCtrl.text;
-                    if (email.isEmpty || pass.isEmpty) {
-                      setModalState(() => errorMsg = 'Please enter email and password');
-                      return;
-                    }
-                    setModalState(() => errorMsg = null);
-                    if (isSignUp) {
-                      final err = await _auth.signUpWithPassword(email, pass);
-                      if (err != null) {
-                        setModalState(() => errorMsg = err);
-                      } else {
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        setState(() {});
-                      }
-                    } else {
-                      final err = await _auth.signInWithPassword(email, pass);
-                      if (err != null) {
-                        setModalState(() => errorMsg = err);
-                      } else {
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        setState(() {});
-                      }
-                    }
-                  },
-                  child: Text(
-                    isSignUp ? 'Sign Up' : 'Sign In',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: TextButton(
-                  onPressed: () => setModalState(() => isSignUp = !isSignUp),
-                  child: Text(
-                    isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up',
-                    style: const TextStyle(color: AppTheme.subtitle, fontSize: 13),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  @override
+  void dispose() {
+    _auth.removeListener(_onAuthChanged);
+    _customWpCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> showOutputDeviceModal(BuildContext context) async {
+    await showAudioOutputDeviceSheet(
+      context,
+      selectedName: _selectedOutputName,
+      onSelected: (name) async {
+        await StorageService().patchSettings({'outputDeviceName': name});
+        if (mounted) setState(() => _selectedOutputName = name);
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
+    final library = context.watch<LibraryProvider>();
+    final theme = context.watch<ThemeProvider>();
     final isSignedIn = _auth.isSignedIn;
 
-    return Scaffold(
-      backgroundColor: AppTheme.bg,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
-          children: [
-            // Header
-            const Text(
-              'YOUR SPACE, YOUR SOUND',
-              style: TextStyle(
-                color: AppTheme.subtitle,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.0,
-              ),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 6, bottom: 14),
+          child: Text(
+            'Settings',
+            style: TextStyle(
+              color: AppTheme.text,
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
             ),
-            const SizedBox(height: 2),
-            const Text(
-              'Settings',
-              style: TextStyle(
-                color: AppTheme.text,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 16),
+          ),
+        ),
 
-            // Card 1: Account / Sync Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppTheme.panel,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: AppTheme.line),
-              ),
-              child: isSignedIn
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 22,
-                              backgroundColor: AppTheme.accent,
-                              child: Text(
-                                _auth.displayName.isNotEmpty
-                                    ? _auth.displayName[0].toUpperCase()
-                                    : 'M',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _auth.displayName,
-                                    style: const TextStyle(
-                                      color: AppTheme.text,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _auth.userEmail ?? 'Signed in',
-                                    style: const TextStyle(color: AppTheme.muted, fontSize: 13),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: AppTheme.line),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                icon: _isSyncing
-                                    ? const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      )
-                                    : const Icon(Icons.sync_rounded, color: AppTheme.accentLight, size: 18),
-                                label: const Text('Sync Now', style: TextStyle(color: AppTheme.text)),
-                                onPressed: _isSyncing
-                                    ? null
-                                    : () async {
-                                        setState(() => _isSyncing = true);
-                                        await _auth.syncNow();
-                                        setState(() => _isSyncing = false);
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Synced with Supabase Cloud')),
-                                          );
-                                        }
-                                      },
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: AppTheme.line),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
-                                label: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
-                                onPressed: () async {
-                                  await _auth.signOut();
-                                  setState(() {});
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Take your music everywhere.',
-                          style: TextStyle(
-                            color: AppTheme.text,
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Sync playlists, likes, and listening history.',
-                          style: TextStyle(color: AppTheme.muted, fontSize: 13),
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            // Google button
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  foregroundColor: Colors.black87,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(vertical: 13),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.g_mobiledata_rounded, color: Colors.black87, size: 26),
-                                label: const Text(
-                                  'Google',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                onPressed: () async {
-                                  final ok = await _auth.signInWithGoogle();
-                                  if (!ok && context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Starting Google sign-in in browser...')),
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            // Email button
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF232336),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(vertical: 13),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                    side: const BorderSide(color: AppTheme.line),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.email_outlined, color: Colors.white70, size: 20),
-                                label: const Text(
-                                  'Email',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                onPressed: () => _showEmailAuthModal(context),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Settings list
-            _buildSettingRow(
-              title: 'Cloud sync',
-              subtitle: 'Sign in to back up your library',
-              trailing: Text(
-                isSignedIn ? 'Connected' : 'Sign in',
-                style: const TextStyle(color: AppTheme.subtitle, fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              onTap: () {
-                if (!isSignedIn) {
-                  _showEmailAuthModal(context);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Discord presence',
-              subtitle: 'Share what is playing',
-              trailing: Switch(
-                value: _discordPresence,
-                activeTrackColor: AppTheme.accent,
-                activeThumbColor: Colors.white,
-                onChanged: (v) => setState(() => _discordPresence = v),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Wallpaper',
-              subtitle: 'Aurora · follows album artwork',
-              trailing: const Text(
-                'Change ›',
-                style: TextStyle(color: AppTheme.muted, fontSize: 14),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Accent override',
-              subtitle: 'Dynamic · sampled from artwork',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
+        // 1. Account & Cloud Sync Card
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.accent,
-                      shape: BoxShape.circle,
+                  Icon(Icons.cloud_outlined, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Account & Cloud Sync',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: theme.accent,
+                    backgroundImage: _auth.avatarUrl.isNotEmpty
+                        ? NetworkImage(_auth.avatarUrl)
+                        : null,
+                    child: _auth.avatarUrl.isEmpty
+                        ? Text(
+                            isSignedIn && _auth.displayName.isNotEmpty
+                                ? _auth.displayName[0].toUpperCase()
+                                : 'G',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 17,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isSignedIn ? _auth.displayName : 'Not signed in (Guest mode)',
+                          style: const TextStyle(color: AppTheme.text, fontSize: 14.5, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isSignedIn
+                              ? (_auth.userEmail ?? 'Connected to Supabase Cloud')
+                              : 'Sign in with Google or Email to sync playlists & stats with Desktop',
+                          style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'Dynamic ›',
-                    style: TextStyle(color: AppTheme.muted, fontSize: 14),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isSignedIn ? AppTheme.bg3 : theme.accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                    ),
+                    onPressed: () => showDesktopAuthModal(context),
+                    child: Text(isSignedIn ? 'Manage' : 'Sign In'),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'AutoMix',
-              subtitle: 'Seamless 6-second crossfade',
-              trailing: Switch(
-                value: player.autoMixEnabled,
-                activeTrackColor: AppTheme.accent,
-                activeThumbColor: Colors.white,
-                onChanged: (_) => player.toggleAutoMix(),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // 2. Audio Output Device Card
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.headphones_rounded, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Audio Output Device',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Audio output device',
-              subtitle: _selectedOutputName,
-              trailing: const Text(
-                'Select ›',
-                style: TextStyle(color: AppTheme.accentLight, fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-              onTap: () => _showOutputDeviceModal(context),
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Song sources',
-              subtitle: 'Desktop YouTube Music · 320 kbps CDN fallback',
-              trailing: const Text(
-                'Desktop parity ›',
-                style: TextStyle(color: AppTheme.accentLight, fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-              onTap: () {
-                showModalBottomSheet(
-                  context: context,
-                  backgroundColor: Colors.transparent,
-                  builder: (ctx) => Container(
-                    padding: const EdgeInsets.all(22),
-                    decoration: const BoxDecoration(
-                      color: AppTheme.panel,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              const SizedBox(height: 10),
+              InkWell(
+                onTap: () => showOutputDeviceModal(context),
+                borderRadius: BorderRadius.circular(10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Active Output Device',
+                            style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedOutputName,
+                            style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
+                    Text(
+                      'Select ›',
+                      style: TextStyle(color: theme.accentLight, fontWeight: FontWeight.w700, fontSize: 13.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // 3. Audio DSP & Live DJ Studio Card
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.tune_rounded, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Audio DSP & Live DJ Studio',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Expanded(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Center(
-                          child: Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: AppTheme.line,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
+                        Text(
+                          '8D Spatial Audio, 10-Band EQ & Mix Deck',
+                          style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Song Sources & Desktop Parity',
-                          style: TextStyle(color: AppTheme.text, fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'My Music Mobile streams songs using the exact same multi-engine architecture as desktop My Music:\n\n'
-                          '• Desktop YouTube Music: High-bitrate m4a/opus streams extracted with Android client manifests.\n'
-                          '• High-Fidelity 320 kbps CDN: Fast Akamai/Cloudfront audio delivery with zero throttling.\n'
-                          '• Auto-Fallback & Radio: Automatic title+artist matching and dynamic radio queue continuation.\n'
-                          '• LRCLIB Synced Lyrics: Millisecond-synced lyrics with live seeking.',
-                          style: TextStyle(color: AppTheme.subtitle, fontSize: 13, height: 1.5),
-                        ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.accent,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Got it', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Hardware-accelerated EQ, Bass Punch, DJ Filter Sweep & Speed',
+                          style: TextStyle(color: AppTheme.muted, fontSize: 12),
                         ),
                       ],
                     ),
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Download quality',
-              subtitle: 'High · 256 kbps AAC',
-              trailing: const Text(
-                'High ›',
-                style: TextStyle(color: AppTheme.muted, fontSize: 14),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildSettingRow(
-              title: 'Accessibility',
-              subtitle: 'Dynamic Type · VoiceOver · Reduce Motion',
-              trailing: const Text(
-                'Open ›',
-                style: TextStyle(color: AppTheme.muted, fontSize: 14),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSettingRow({
-    required String title,
-    required String subtitle,
-    required Widget trailing,
-    VoidCallback? onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppTheme.panel,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.line),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppTheme.text,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+                  const SizedBox(width: 10),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppTheme.glassBorder),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: AppTheme.muted,
-                      fontSize: 12,
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const EqualizerScreen()),
                     ),
+                    child: const Text('Configure EQ', style: TextStyle(color: AppTheme.text)),
                   ),
                 ],
               ),
-            ),
-            trailing,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDeviceTile({
-    required String name,
-    required String typeDesc,
-    required IconData iconData,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.accent.withValues(alpha: 0.12) : AppTheme.bg2,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isSelected ? AppTheme.accent : AppTheme.line,
-            width: isSelected ? 1.5 : 1,
+            ],
           ),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: isSelected ? AppTheme.accent : AppTheme.panel,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(iconData, color: isSelected ? Colors.white : AppTheme.muted, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+
+        const SizedBox(height: 14),
+
+        // 4. Wallpaper & Backdrop Card (Exact Desktop Presets + Dim Slider)
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      color: AppTheme.text,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                  Icon(Icons.wallpaper_rounded, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Wallpaper & Backdrop',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 2),
-                  Text(typeDesc, style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
                 ],
               ),
-            ),
-            if (isSelected)
-              const Icon(Icons.check_circle_rounded, color: AppTheme.accentLight, size: 20),
-          ],
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 76,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: AppTheme.wallpaperPresets.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (_, i) {
+                    final wp = AppTheme.wallpaperPresets[i];
+                    final url = wp['url']!;
+                    final active = theme.wallpaper == url;
+                    return GestureDetector(
+                      onTap: () {
+                        _customWpCtrl.text = url;
+                        theme.setWallpaper(url);
+                      },
+                      child: Container(
+                        width: 112,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: active ? theme.accent : AppTheme.glassBorder,
+                            width: active ? 2 : 1,
+                          ),
+                          color: const Color(0xFF131722),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (url.isNotEmpty)
+                                CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+                              Container(
+                                alignment: Alignment.bottomLeft,
+                                padding: const EdgeInsets.all(6),
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Colors.transparent, Colors.black87],
+                                  ),
+                                ),
+                                child: Text(
+                                  wp['name']!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _customWpCtrl,
+                      style: const TextStyle(color: AppTheme.text, fontSize: 12.5),
+                      decoration: InputDecoration(
+                        hintText: 'Custom wallpaper image URL...',
+                        hintStyle: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                        filled: true,
+                        fillColor: AppTheme.bg3,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: AppTheme.glassBorder),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppTheme.glassBorder),
+                    ),
+                    onPressed: () => theme.setWallpaper(_customWpCtrl.text.trim()),
+                    child: const Text('Apply', style: TextStyle(color: AppTheme.text)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Backdrop Dimming', style: TextStyle(color: AppTheme.text, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                  Text('${theme.wallpaperDim.round()}%', style: TextStyle(color: theme.accentLight, fontWeight: FontWeight.bold, fontSize: 12.5)),
+                ],
+              ),
+              Slider(
+                value: theme.wallpaperDim.clamp(0, 90),
+                min: 0,
+                max: 90,
+                divisions: 18,
+                activeColor: theme.accent,
+                inactiveColor: AppTheme.line,
+                onChanged: (v) => theme.setWallpaperDim(v),
+              ),
+            ],
+          ),
         ),
-      ),
+
+        const SizedBox(height: 14),
+
+        // 5. Appearance, Ambient Colors & Performance
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.palette_outlined, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Appearance & Performance',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Dynamic Ambient Colors', style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Shift app accents & aurora orbs to match album art', style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+                value: theme.ambientColors,
+                activeThumbColor: Colors.white,
+                activeTrackColor: theme.accent,
+                onChanged: (v) {
+                  theme.setAmbientColors(v);
+                  if (v) theme.applyAccentFromThumb(player.currentTrack?.thumb);
+                },
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: AppTheme.accentPresets.map((p) {
+                  final isSel = theme.accentHueSetting.toString() == p['hue'].toString();
+                  final color = Color(p['color'] as int);
+                  return ChoiceChip(
+                    avatar: CircleAvatar(backgroundColor: color, radius: 7),
+                    label: Text(p['name'] as String),
+                    selected: isSel,
+                    selectedColor: color.withValues(alpha: 0.25),
+                    backgroundColor: AppTheme.bg3,
+                    labelStyle: TextStyle(
+                      color: isSel ? AppTheme.text : AppTheme.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    onSelected: (_) {
+                      theme.setAccentHue(p['hue']);
+                      if (p['hue'] == 'auto') {
+                        theme.applyAccentFromThumb(player.currentTrack?.thumb);
+                      }
+                    },
+                  );
+                }).toList(),
+              ),
+              const Divider(color: AppTheme.line, height: 22),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Low Resource Mode', style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Disable animated aurora orbs to save battery & GPU', style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+                value: library.lowResourceMode,
+                activeThumbColor: Colors.white,
+                activeTrackColor: theme.accent,
+                onChanged: (v) => library.setLowResourceMode(v),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // 6. AutoMix & Transitions Card
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome_rounded, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'AutoMix & Song Transitions',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Enable AutoMix', style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Smooth Apple Music-style transitions between songs', style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+                value: player.autoMixEnabled,
+                activeThumbColor: Colors.white,
+                activeTrackColor: theme.accent,
+                onChanged: (v) => player.setAutoMixConfig(enabled: v),
+              ),
+              if (player.autoMixEnabled) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Transition Duration', style: TextStyle(color: AppTheme.text, fontSize: 13.5)),
+                    Text(
+                      player.autoMixDuration == 'auto'
+                          ? 'Auto (Best Mix)'
+                          : '${player.crossfadeDuration}s',
+                      style: TextStyle(color: theme.accentLight, fontWeight: FontWeight.bold, fontSize: 12.5),
+                    ),
+                  ],
+                ),
+                Slider(
+                  value: (player.autoMixDuration == 'auto' ? 6 : player.crossfadeDuration).toDouble().clamp(1, 15),
+                  min: 1,
+                  max: 15,
+                  divisions: 14,
+                  activeColor: theme.accent,
+                  inactiveColor: AppTheme.line,
+                  onChanged: (v) => player.setAutoMixConfig(
+                    duration: v.round(),
+                    crossfadeDuration: v.round(),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => player.setAutoMixConfig(duration: 'auto'),
+                    child: Text('Reset to Auto (Best Mix)', style: TextStyle(color: theme.accentLight, fontSize: 12)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // 7. Lyrics & Visual Animation Style Card (All 11 Desktop Styles)
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.lyrics_outlined, color: theme.accentLight, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Lyrics & Visual Animation',
+                    style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: theme.lyricsStyle,
+                dropdownColor: const Color(0xFF101420),
+                style: const TextStyle(color: AppTheme.text, fontSize: 13.5),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: AppTheme.bg3,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.glassBorder),
+                  ),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'random', child: Text('🔀 Auto-Randomize per Song')),
+                  DropdownMenuItem(value: 'cinematic', child: Text('✨ Cinematic Story (SONARA AI)')),
+                  DropdownMenuItem(value: 'apple-music', child: Text('🎵 Apple Music Kinetic Blur')),
+                  DropdownMenuItem(value: 'verci-visual', child: Text('✨ Verci Visual (Animated Emojis)')),
+                  DropdownMenuItem(value: 'verci-chat', child: Text('💬 Verci iMessage Chat Bubbles')),
+                  DropdownMenuItem(value: 'verci-notifications', child: Text('📱 Verci Lock-Screen Notifications')),
+                  DropdownMenuItem(value: 'verci-fisheye', child: Text('👁️ Verci 3D Fisheye Stack')),
+                  DropdownMenuItem(value: 'verci-code', child: Text('💻 Verci Code Terminal')),
+                  DropdownMenuItem(value: 'verci-constellation', child: Text('🌌 Verci Constellation Stars')),
+                  DropdownMenuItem(value: 'karaoke', child: Text('🎤 Classic Karaoke')),
+                  DropdownMenuItem(value: 'minimal', child: Text('📄 Minimalist Clean')),
+                ],
+                onChanged: (v) {
+                  if (v != null) theme.setLyricsStyle(v);
+                },
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // 8. Playback & Sources
+        GlassContainer(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Sources & Integration',
+                style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Discord Rich Presence', style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Share active listening status', style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+                value: _discordPresence,
+                activeThumbColor: Colors.white,
+                activeTrackColor: theme.accent,
+                onChanged: (v) {
+                  setState(() => _discordPresence = v);
+                  StorageService().patchSettings({'discordPresence': v});
+                },
+              ),
+              const Text(
+                'Song Sources: YouTube Music Innertube + 320 kbps Akamai CDN fallback · High-res artwork',
+                style: TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
+}
+
+/// Shared Output Device Modal triggered from both Settings and Player Bar headphone icon.
+Future<void> showAudioOutputDeviceSheet(
+  BuildContext context, {
+  required String selectedName,
+  required Future<void> Function(String name) onSelected,
+}) async {
+  List<AudioDevice> devices = [];
+  try {
+    final session = await AudioSession.instance;
+    final allDevs = await session.getDevices();
+    devices = allDevs.where((d) => d.isOutput).toList();
+  } catch (e) {
+    debugPrint('[OutputDeviceSheet] getDevices error: $e');
+  }
+  if (!context.mounted) return;
+  final accent = context.read<ThemeProvider>().accent;
+
+  await showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => Container(
+      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+        color: Color(0xFF101420),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: AppTheme.glassBorder)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Audio Output Device',
+                style: TextStyle(color: AppTheme.text, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${devices.isEmpty ? 1 : devices.length} available',
+                  style: TextStyle(color: accent, fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Route music to your phone speaker, Bluetooth earbuds, or wired headphones.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12.5),
+          ),
+          const SizedBox(height: 14),
+          _deviceTile(
+            name: 'Default System Routing',
+            desc: 'Auto-routes to Bluetooth, headphones, or speaker',
+            icon: Icons.speaker_group_rounded,
+            selected: selectedName.startsWith('Default'),
+            accent: accent,
+            onTap: () async {
+              try {
+                final manager = AndroidAudioManager();
+                await manager.setSpeakerphoneOn(false);
+                await manager.clearCommunicationDevice();
+                await manager.setMode(AndroidAudioHardwareMode.normal);
+              } catch (_) {}
+              await onSelected('Default output · Auto-route');
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+          ),
+          const SizedBox(height: 8),
+          if (devices.isNotEmpty)
+            ...devices.map((d) {
+              final t = d.type.name.toLowerCase();
+              final isSpeaker = t.contains('speaker');
+              final isHead = t.contains('head');
+              final isBt = t.contains('bluetooth') || t.contains('ble');
+              final label = d.name.isNotEmpty ? d.name : 'Audio Device';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _deviceTile(
+                  name: label,
+                  desc: isSpeaker
+                      ? 'Built-in Speaker'
+                      : (isHead ? 'Wired Headphones' : (isBt ? 'Bluetooth Audio' : 'Audio Output')),
+                  icon: isSpeaker
+                      ? Icons.volume_up_rounded
+                      : (isHead ? Icons.headphones_rounded : (isBt ? Icons.bluetooth_audio_rounded : Icons.speaker_rounded)),
+                  selected: selectedName == label,
+                  accent: accent,
+                  onTap: () async {
+                    try {
+                      final manager = AndroidAudioManager();
+                      if (isSpeaker) {
+                        await manager.setMode(AndroidAudioHardwareMode.inCommunication);
+                        await manager.setSpeakerphoneOn(true);
+                      } else {
+                        await manager.setMode(AndroidAudioHardwareMode.inCommunication);
+                        await manager.setSpeakerphoneOn(false);
+                        final comm = await manager.getAvailableCommunicationDevices();
+                        if (comm.isNotEmpty) {
+                          final match = comm.firstWhere(
+                            (c) => c.productName == d.name || c.id.toString() == d.id,
+                            orElse: () => comm.first,
+                          );
+                          await manager.setCommunicationDevice(match);
+                        }
+                      }
+                    } catch (_) {}
+                    await onSelected(label);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                ),
+              );
+            })
+          else
+            _deviceTile(
+              name: 'Phone Speaker',
+              desc: 'Force output through built-in loudspeaker',
+              icon: Icons.volume_up_rounded,
+              selected: selectedName == 'Phone Speaker',
+              accent: accent,
+              onTap: () async {
+                try {
+                  final manager = AndroidAudioManager();
+                  await manager.setMode(AndroidAudioHardwareMode.inCommunication);
+                  await manager.setSpeakerphoneOn(true);
+                } catch (_) {}
+                await onSelected('Phone Speaker');
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _deviceTile({
+  required String name,
+  required String desc,
+  required IconData icon,
+  required bool selected,
+  required Color accent,
+  required VoidCallback onTap,
+}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? accent.withValues(alpha: 0.14) : AppTheme.bg3,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: selected ? accent : AppTheme.glassBorder),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: selected ? accent : AppTheme.panel,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, color: selected ? Colors.white : AppTheme.muted, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                Text(desc, style: const TextStyle(color: AppTheme.muted, fontSize: 11.5)),
+              ],
+            ),
+          ),
+          if (selected) Icon(Icons.check_circle_rounded, color: accent, size: 20),
+        ],
+      ),
+    ),
+  );
 }

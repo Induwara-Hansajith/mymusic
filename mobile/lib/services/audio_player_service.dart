@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -8,29 +9,82 @@ import '../models/track.dart';
 import 'youtube_service.dart';
 import 'saavn_service.dart';
 import 'storage_service.dart';
+import 'auth_sync_service.dart';
 
 class AudioPlayerService {
   static final AudioPlayerService _instance = AudioPlayerService._internal();
   factory AudioPlayerService() => _instance;
-  AudioPlayerService._internal();
 
-  final AudioPlayer _player = AudioPlayer();
+  final AndroidEqualizer _equalizer = AndroidEqualizer();
+  final AndroidLoudnessEnhancer _loudness = AndroidLoudnessEnhancer();
+  late final AudioPlayer _player;
+
+  AudioPlayerService._internal() {
+    _player = AudioPlayer(
+      audioPipeline: AudioPipeline(
+        androidAudioEffects: [_equalizer, _loudness],
+      ),
+    );
+  }
+
   final YoutubeService _yt = YoutubeService();
   final SaavnService _saavn = SaavnService();
+  final StorageService _storage = StorageService();
+
+  static const List<double> eqFreqs = [
+    31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000
+  ];
+
+  static const Map<String, List<double>> eqPresets = {
+    'flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    'warm': [4, 6, 3, -1, -3, 0, 3, 5, 4, 2],
+    'bass': [0, 2, 4, 1.8, -1.5, 0, 0, 0, 0.5, 0.8],
+    'treble': [0, 0, 0, 0, 0, 1, 2.5, 4, 5, 6],
+    'pop': [-1, 1, 3, 4, 3, 0, -1, -1, 1, 2],
+    'rock': [4, 3, 1.5, -1, -2, 0, 2, 3.5, 4, 4],
+    'vocal': [-2, -2, -1, 1, 3, 4, 3, 1, 0, -1],
+    'acoustic': [0, 1.5, 1, 1, 1, 1, 2, 2, 2.5, 2.5],
+    'electronic': [0, 2.2, 3.8, 1.2, -1.2, 1.0, 1.5, 2.5, 3.0, 3.0],
+    'club': [0, 2.0, 3.5, 1.5, -1.0, 0, 1.0, 1.5, 2.0, 2.0],
+    'classical': [0, 2.5, 2, 1.5, -1, -1, 0, 2, 2.5, 2.5],
+  };
 
   List<Track> _queue = [];
   int _currentIndex = -1;
   Track? _currentTrack;
+  String _contextTitle = 'Queue';
   bool _isLoading = false;
   String? _lastError;
+  double _volume = 1.0;
+
+  // AutoMix & Transition settings (parity with desktop)
   bool _autoMixEnabled = true;
+  String _autoMixMode = 'smart'; // 'smart' | 'crossfade'
+  dynamic _autoMixDuration = 'auto'; // 'auto' | int (1..15)
+  int _crossfadeDuration = 6;
+  bool _radioEnabled = true;
+  bool _isMixing = false;
+  bool _autoMixTriggeredForTrack = false;
+  Timer? _mixTimer;
+
+  // Speed & Pitch Lock
   double _speed = 1.0;
   bool _pitchLock = true;
   int _consecutiveErrors = 0;
 
-  // 10-band EQ gains in dB (-12 to +12)
-  final List<double> _eqBands = [4.0, 6.0, 3.0, -1.0, -3.0, 0.0, 3.0, 5.0, 4.0, 2.0];
-  String _eqPreset = 'Warm & spacious';
+  // EQ & Live DJ Studio state
+  List<double> _eqBands = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  String _eqPreset = 'flat';
+  String _dj8DMode = 'off'; // 'off' | 'slow' | 'club' | 'fast'
+  double _djStereoWidth = 1.0; // 0..2
+  double _djFilter = 0.0; // -1..1
+  bool _djBassPunch = false;
+  String _djReverbPreset = 'off'; // 'off' | 'studio' | 'club' | 'arena'
+  double _djAzimuthRad = 0.0;
+  Timer? _orbitTimer;
+
+  // Listening stats recording per track play
+  String? _statsRecordedForTrackId;
 
   final _trackChangeController = StreamController<Track?>.broadcast();
   Stream<Track?> get currentTrackStream => _trackChangeController.stream;
@@ -41,22 +95,37 @@ class AudioPlayerService {
   final _errorController = StreamController<String?>.broadcast();
   Stream<String?> get errorStream => _errorController.stream;
 
-  final _autoMixController = StreamController<bool>.broadcast();
-  Stream<bool> get autoMixStream => _autoMixController.stream;
+  final _dspStateController = StreamController<void>.broadcast();
+  Stream<void> get dspStateStream => _dspStateController.stream;
 
   AudioPlayer get player => _player;
   Track? get currentTrack => _currentTrack;
+  String get contextTitle => _contextTitle;
   List<Track> get queue => List.unmodifiable(_queue);
   int get currentIndex => _currentIndex;
   bool get isLoading => _isLoading;
   String? get lastError => _lastError;
+  double get volume => _volume;
   bool get autoMixEnabled => _autoMixEnabled;
+  String get autoMixMode => _autoMixMode;
+  dynamic get autoMixDuration => _autoMixDuration;
+  int get crossfadeDuration => _crossfadeDuration;
+  bool get radioEnabled => _radioEnabled;
+  bool get isMixing => _isMixing;
   double get speed => _speed;
   bool get pitchLock => _pitchLock;
   List<double> get eqBands => List.unmodifiable(_eqBands);
   String get eqPreset => _eqPreset;
+  String get dj8DMode => _dj8DMode;
+  double get djStereoWidth => _djStereoWidth;
+  double get djFilter => _djFilter;
+  bool get djBassPunch => _djBassPunch;
+  String get djReverbPreset => _djReverbPreset;
+  double get djAzimuthRad => _djAzimuthRad;
 
   Future<void> init() async {
+    _loadSettingsFromStorage();
+
     try {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
@@ -65,16 +134,27 @@ class AudioPlayerService {
     }
 
     try {
-      await _player.setVolume(1.0);
-    } catch (_) {}
+      await _player.setVolume(_volume);
+      await _applySpeedAndPitch();
+      await _applyHardwareDsp();
+    } catch (e) {
+      debugPrint('[AudioPlayerService] Initial DSP setup warning: $e');
+    }
+
+    _startOrbitLoopIfNeeded();
+
+    _player.positionStream.listen((pos) {
+      _handlePositionTick(pos);
+    });
 
     _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
         final pos = _player.position;
         final dur = _player.duration;
-        // Only advance to next track if track actually played to near completion
-        if (dur != null && dur.inSeconds > 5 && pos.inSeconds >= dur.inSeconds - 3) {
-          next();
+        if (dur != null &&
+            dur.inSeconds > 5 &&
+            pos.inSeconds >= dur.inSeconds - 3) {
+          next(auto: true);
         }
       }
     });
@@ -90,8 +170,123 @@ class AudioPlayerService {
     );
   }
 
-  void setInitialTrack(Track track, List<Track> queue) {
+  void _loadSettingsFromStorage() {
+    try {
+      final s = _storage.getSettingsMap();
+      _volume = (s['volume'] as num?)?.toDouble().clamp(0.0, 1.0) ?? 1.0;
+      _autoMixEnabled = s['automix'] != false;
+      _autoMixMode = s['automixMode'] as String? ?? 'smart';
+      _autoMixDuration = s['automixDuration'] ?? 'auto';
+      _crossfadeDuration = (s['crossfadeDuration'] as num?)?.toInt() ?? 6;
+      _radioEnabled = s['radio'] != false;
+      _speed = (s['speed'] as num?)?.toDouble().clamp(0.5, 2.0) ?? 1.0;
+      _pitchLock = s['pitchLock'] != false;
+      final eqList = s['eq'] as List?;
+      if (eqList != null && eqList.length == 10) {
+        _eqBands = eqList.map((e) => (e as num).toDouble()).toList();
+      }
+      _eqPreset = s['eqPreset'] as String? ?? 'flat';
+      _dj8DMode = s['dj8DMode'] as String? ?? 'off';
+      _djStereoWidth = (s['djStereoWidth'] as num?)?.toDouble() ?? 1.0;
+      _djFilter = (s['djFilter'] as num?)?.toDouble() ?? 0.0;
+      _djBassPunch = s['djBassPunch'] == true;
+      _djReverbPreset = s['djReverbPreset'] as String? ?? 'off';
+    } catch (_) {}
+  }
+
+  void reloadFromSyncedSettings() {
+    _loadSettingsFromStorage();
+    _player.setVolume(_volume).catchError((_) {});
+    _applySpeedAndPitch();
+    _applyHardwareDsp();
+    _startOrbitLoopIfNeeded();
+    _dspStateController.add(null);
+  }
+
+  void _handlePositionTick(Duration pos) {
+    final track = _currentTrack;
+    final dur = _player.duration;
+    if (track == null) return;
+
+    final sec = pos.inSeconds;
+    if (sec >= 25 && _statsRecordedForTrackId != track.id && _player.playing) {
+      _statsRecordedForTrackId = track.id;
+      final listenSec = dur != null && dur.inSeconds > 0 ? dur.inSeconds : track.durationSec;
+      _storage.recordListening(track, seconds: listenSec > 0 ? listenSec : 30);
+      AuthSyncService().scheduleAutoPush();
+    }
+
+    // AutoMix smart transition trigger near end of track
+    if (_autoMixEnabled &&
+        !_autoMixTriggeredForTrack &&
+        _player.playing &&
+        dur != null &&
+        dur.inSeconds > 20 &&
+        _player.loopMode != LoopMode.one &&
+        (_currentIndex + 1 < _queue.length || _radioEnabled)) {
+      final mixSec = _effectiveMixDurationSec(dur.inSeconds);
+      final remaining = dur.inMilliseconds - pos.inMilliseconds;
+      if (remaining > 0 && remaining <= mixSec * 1000) {
+        _autoMixTriggeredForTrack = true;
+        _performSmoothAutoMixFade(mixSec);
+      }
+    }
+  }
+
+  int _effectiveMixDurationSec(int trackDurSec) {
+    if (_autoMixDuration is int) {
+      return _autoMixDuration.clamp(1, 15);
+    }
+    if (_autoMixMode == 'smart') {
+      return trackDurSec < 150 ? 4 : 6;
+    }
+    return _crossfadeDuration.clamp(1, 15);
+  }
+
+  void _performSmoothAutoMixFade(int mixSec) {
+    _mixTimer?.cancel();
+    _isMixing = true;
+    _dspStateController.add(null);
+
+    const steps = 16;
+    final stepMs = math.max(80, (mixSec * 1000 / 2 / steps).round());
+    int i = 0;
+
+    _mixTimer = Timer.periodic(Duration(milliseconds: stepMs), (timer) async {
+      i++;
+      final frac = (i / steps).clamp(0.0, 1.0);
+      // Cosine fade out for smooth DJ transition curve
+      final vol = _volume * math.cos(frac * math.pi / 2);
+      try {
+        await _player.setVolume(vol.clamp(0.05, 1.0));
+      } catch (_) {}
+
+      if (i >= steps) {
+        timer.cancel();
+        await next(auto: true, fadeInAfter: true);
+      }
+    });
+  }
+
+  Future<void> _fadeInPlayer() async {
+    const steps = 12;
+    for (int i = 1; i <= steps; i++) {
+      final vol = _volume * math.sin((i / steps) * math.pi / 2);
+      try {
+        await _player.setVolume(vol.clamp(0.0, 1.0));
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 70));
+    }
+    try {
+      await _player.setVolume(_volume);
+    } catch (_) {}
+    _isMixing = false;
+    _dspStateController.add(null);
+  }
+
+  void setInitialTrack(Track track, List<Track> queue, {String context = 'Queue'}) {
     _currentTrack = track;
+    _contextTitle = context;
     _queue = List.from(queue);
     _currentIndex = _queue.indexOf(track);
     if (_currentIndex == -1) _currentIndex = 0;
@@ -99,45 +294,263 @@ class AudioPlayerService {
     _queueChangeController.add(_queue);
   }
 
-  void setAutoMix(bool enabled) {
+  Future<void> setVolume(double v) async {
+    _volume = v.clamp(0.0, 1.0);
+    try {
+      await _player.setVolume(_volume);
+    } catch (_) {}
+    await _storage.patchSettings({'volume': _volume});
+    _dspStateController.add(null);
+  }
+
+  Future<void> setAutoMix(bool enabled) async {
     _autoMixEnabled = enabled;
-    _autoMixController.add(_autoMixEnabled);
+    await _storage.patchSettings({'automix': enabled});
+    _dspStateController.add(null);
+    AuthSyncService().scheduleAutoPush();
+  }
+
+  Future<void> setAutoMixConfig({
+    bool? enabled,
+    String? mode,
+    dynamic duration,
+    int? crossfadeDuration,
+  }) async {
+    if (enabled != null) _autoMixEnabled = enabled;
+    if (mode != null) _autoMixMode = mode;
+    if (duration != null) _autoMixDuration = duration;
+    if (crossfadeDuration != null) _crossfadeDuration = crossfadeDuration.clamp(1, 15);
+    await _storage.patchSettings({
+      'automix': _autoMixEnabled,
+      'automixMode': _autoMixMode,
+      'automixDuration': _autoMixDuration,
+      'crossfadeDuration': _crossfadeDuration,
+    });
+    _dspStateController.add(null);
+    AuthSyncService().scheduleAutoPush();
+  }
+
+  Future<void> setRadioEnabled(bool enabled) async {
+    _radioEnabled = enabled;
+    await _storage.patchSettings({'radio': enabled});
+    _dspStateController.add(null);
   }
 
   Future<void> setPlaybackSpeed(double speed) async {
     _speed = speed.clamp(0.5, 2.0);
+    await _applySpeedAndPitch();
+    await _storage.patchSettings({'speed': _speed});
+    _dspStateController.add(null);
+  }
+
+  Future<void> setPitchLock(bool lock) async {
+    _pitchLock = lock;
+    await _applySpeedAndPitch();
+    await _storage.patchSettings({'pitchLock': _pitchLock});
+    _dspStateController.add(null);
+  }
+
+  Future<void> _applySpeedAndPitch() async {
     try {
       await _player.setSpeed(_speed);
+      await _player.setPitch(_pitchLock ? 1.0 : _speed);
     } catch (e) {
-      debugPrint('[AudioPlayerService] setPlaybackSpeed error: $e');
+      debugPrint('[AudioPlayerService] speed/pitch warning: $e');
     }
   }
 
-  void setPitchLock(bool lock) {
-    _pitchLock = lock;
-  }
-
-  void setEqBand(int index, double gainDb) {
+  Future<void> setEqBand(int index, double gainDb) async {
     if (index >= 0 && index < _eqBands.length) {
       _eqBands[index] = gainDb.clamp(-12.0, 12.0);
+      _eqPreset = 'custom';
+      await _applyHardwareDsp();
+      await _storage.patchSettings({'eq': _eqBands, 'eqPreset': 'custom'});
+      _dspStateController.add(null);
+      AuthSyncService().scheduleAutoPush();
     }
   }
 
-  void setEqPreset(String preset, List<double> gains) {
+  Future<void> setEqPreset(String preset, List<double> gains) async {
     _eqPreset = preset;
     for (int i = 0; i < _eqBands.length && i < gains.length; i++) {
       _eqBands[i] = gains[i].clamp(-12.0, 12.0);
     }
+    await _applyHardwareDsp();
+    await _storage.patchSettings({'eq': _eqBands, 'eqPreset': preset});
+    _dspStateController.add(null);
+    AuthSyncService().scheduleAutoPush();
   }
 
-  void resetEq() {
-    _eqPreset = 'Flat';
-    for (int i = 0; i < _eqBands.length; i++) {
-      _eqBands[i] = 0.0;
+  Future<void> resetEq() async {
+    await setEqPreset('flat', eqPresets['flat']!);
+  }
+
+  // ---------------- Live DJ & 8D Studio Controls ----------------
+  Future<void> setDj8DMode(String mode) async {
+    _dj8DMode = mode;
+    _startOrbitLoopIfNeeded();
+    await _applyHardwareDsp();
+    await _storage.patchSettings({'dj8DMode': mode});
+    _dspStateController.add(null);
+  }
+
+  void setDjAzimuthManual(double angleRad) {
+    _djAzimuthRad = angleRad % (2 * math.pi);
+    _dspStateController.add(null);
+  }
+
+  Future<void> setDjStereoWidth(double width) async {
+    _djStereoWidth = width.clamp(0.0, 2.0);
+    await _applyHardwareDsp();
+    await _storage.patchSettings({'djStereoWidth': _djStereoWidth});
+    _dspStateController.add(null);
+  }
+
+  Future<void> setDjFilter(double val) async {
+    _djFilter = val.clamp(-1.0, 1.0);
+    await _applyHardwareDsp();
+    await _storage.patchSettings({'djFilter': _djFilter});
+    _dspStateController.add(null);
+  }
+
+  Future<void> setDjBassPunch(bool on) async {
+    _djBassPunch = on;
+    await _applyHardwareDsp();
+    await _storage.patchSettings({'djBassPunch': on});
+    _dspStateController.add(null);
+  }
+
+  Future<void> setDjReverbPreset(String preset) async {
+    _djReverbPreset = preset;
+    await _applyHardwareDsp();
+    await _storage.patchSettings({'djReverbPreset': preset});
+    _dspStateController.add(null);
+  }
+
+  Future<void> resetDjStudio() async {
+    _dj8DMode = 'off';
+    _djAzimuthRad = 0.0;
+    _djStereoWidth = 1.0;
+    _djFilter = 0.0;
+    _djBassPunch = false;
+    _djReverbPreset = 'off';
+    _startOrbitLoopIfNeeded();
+    await _applyHardwareDsp();
+    await _storage.patchSettings({
+      'dj8DMode': 'off',
+      'djStereoWidth': 1.0,
+      'djFilter': 0.0,
+      'djBassPunch': false,
+      'djReverbPreset': 'off',
+    });
+    _dspStateController.add(null);
+  }
+
+  void _startOrbitLoopIfNeeded() {
+    _orbitTimer?.cancel();
+    if (_dj8DMode == 'off') {
+      _djAzimuthRad = 0.0;
+      return;
+    }
+    final periodSec = _dj8DMode == 'fast'
+        ? 5.0
+        : (_dj8DMode == 'club' ? 10.0 : 16.0);
+    const tickMs = 50;
+    final step = (2 * math.pi) / (periodSec * 1000 / tickMs);
+    _orbitTimer = Timer.periodic(const Duration(milliseconds: tickMs), (_) {
+      _djAzimuthRad = (_djAzimuthRad + step) % (2 * math.pi);
+      _dspStateController.add(null);
+    });
+  }
+
+  /// Applies real hardware EQ + Bass Punch + DJ Filter + LoudnessEnhancer to Android AudioPipeline.
+  Future<void> _applyHardwareDsp() async {
+    try {
+      final anyEq = _eqBands.any((g) => g.abs() > 0.05) ||
+          _djBassPunch ||
+          _djFilter.abs() > 0.05 ||
+          _dj8DMode != 'off';
+      await _equalizer.setEnabled(anyEq);
+
+      if (anyEq) {
+        final params = await _equalizer.parameters;
+        final minDb = params.minDecibels;
+        final maxDb = params.maxDecibels;
+        for (final band in params.bands) {
+          final freq = band.centerFrequency;
+          double targetDb = _interpolate10BandGain(freq);
+
+          if (_djBassPunch && freq <= 150) {
+            targetDb += 4.5;
+          }
+          if (_djFilter < -0.05 && freq > 600) {
+            // Low-pass DJ sweep: attenuate high frequencies
+            final factor = math.min(1.0, (freq - 600) / 8000);
+            targetDb += _djFilter * 11.0 * factor;
+          } else if (_djFilter > 0.05 && freq < 900) {
+            // High-pass DJ sweep: attenuate low frequencies
+            final factor = math.min(1.0, (900 - freq) / 850);
+            targetDb -= _djFilter * 11.0 * factor;
+          }
+          if (_djStereoWidth > 1.15 && freq >= 2000) {
+            targetDb += (_djStereoWidth - 1.0) * 1.8;
+          }
+
+          await band.setGain(targetDb.clamp(minDb, maxDb));
+        }
+      }
+
+      // LoudnessEnhancer for Reverb Acoustic Presence / Club Punch
+      double targetGainMb = 0.0;
+      if (_djReverbPreset == 'studio') targetGainMb = 120.0;
+      if (_djReverbPreset == 'club') targetGainMb = 260.0;
+      if (_djReverbPreset == 'arena') targetGainMb = 380.0;
+      if (_djBassPunch) targetGainMb += 140.0;
+
+      await _loudness.setEnabled(targetGainMb > 0);
+      if (targetGainMb > 0) {
+        await _loudness.setTargetGain(targetGainMb);
+      }
+    } catch (e) {
+      debugPrint('[AudioPlayerService] Hardware DSP apply note: $e');
     }
   }
 
-  Future<void> playTrack(Track track, {List<Track>? newQueue, int? index}) async {
+  double _interpolate10BandGain(double freqHz) {
+    if (freqHz <= eqFreqs.first) return _eqBands.first;
+    if (freqHz >= eqFreqs.last) return _eqBands.last;
+    for (int i = 0; i < eqFreqs.length - 1; i++) {
+      final f1 = eqFreqs[i];
+      final f2 = eqFreqs[i + 1];
+      if (freqHz >= f1 && freqHz <= f2) {
+        final t = (math.log(freqHz) - math.log(f1)) / (math.log(f2) - math.log(f1));
+        return _eqBands[i] * (1 - t) + _eqBands[i + 1] * t;
+      }
+    }
+    return 0.0;
+  }
+
+  Future<void> playTrack(
+    Track track, {
+    List<Track>? newQueue,
+    int? index,
+    String? contextTitle,
+    bool fadeIn = false,
+    bool isAutoAdvance = false,
+  }) async {
+    _mixTimer?.cancel();
+    _autoMixTriggeredForTrack = false;
+    _statsRecordedForTrackId = null;
+    if (!isAutoAdvance) {
+      _consecutiveErrors = 0;
+    }
+    if (!fadeIn) {
+      _isMixing = false;
+    }
+    if (contextTitle != null && contextTitle.isNotEmpty) {
+      _contextTitle = contextTitle;
+    }
+
     if (newQueue != null && newQueue.isNotEmpty) {
       _queue = List.from(newQueue);
       _currentIndex = index ?? _queue.indexOf(track);
@@ -151,7 +564,7 @@ class AudioPlayerService {
       _currentIndex = _queue.length - 1;
       _queueChangeController.add(_queue);
     } else {
-      _currentIndex = _queue.indexOf(track);
+      _currentIndex = index ?? _queue.indexOf(track);
     }
 
     _currentTrack = track;
@@ -163,16 +576,13 @@ class AudioPlayerService {
     try {
       final candidates = <String>[];
 
-      // 1. Local path if available and exists on disk
-      if (track.localPath != null && track.localPath!.isNotEmpty) {
-        final f = File(track.localPath!);
-        if (f.existsSync()) {
-          candidates.add(track.localPath!);
-        }
+      // 1. Offline downloaded file if present
+      final offlinePath = track.localPath ?? _storage.getDownloadedPath(track.id);
+      if (offlinePath != null && offlinePath.isNotEmpty && File(offlinePath).existsSync()) {
+        candidates.add(offlinePath);
       }
 
-      // 2. High-Fidelity 320kbps CDN Stream (JioSaavn Akamai CDN)
-      // Instant playback, zero 403 blocks, universal seeking, works globally
+      // 2. 320kbps Akamai CDN Stream (JioSaavn)
       try {
         final saavnStream = await _saavn.resolveStream(
           track.title,
@@ -181,22 +591,16 @@ class AudioPlayerService {
         );
         if (saavnStream != null && saavnStream.url.isNotEmpty) {
           candidates.add(saavnStream.url);
-          debugPrint('[AudioPlayerService] Added 320kbps CDN candidate: ${saavnStream.url}');
         }
-      } catch (e) {
-        debugPrint('[AudioPlayerService] Saavn candidate note: $e');
-      }
+      } catch (_) {}
 
       // 3. YouTube Direct Stream URL
       try {
         final ytUrl = await _yt.resolveStreamUrl(track.cleanId);
         if (ytUrl != null && ytUrl.isNotEmpty && !candidates.contains(ytUrl)) {
           candidates.add(ytUrl);
-          debugPrint('[AudioPlayerService] Added YouTube candidate: $ytUrl');
         }
-      } catch (e) {
-        debugPrint('[AudioPlayerService] YouTube candidate note: $e');
-      }
+      } catch (_) {}
 
       // 4. YouTube Search fallback
       if (candidates.isEmpty) {
@@ -211,9 +615,7 @@ class AudioPlayerService {
               }
             }
           }
-        } catch (e) {
-          debugPrint('[AudioPlayerService] Search candidate note: $e');
-        }
+        } catch (_) {}
       }
 
       if (candidates.isEmpty) {
@@ -229,7 +631,6 @@ class AudioPlayerService {
         duration: Duration(seconds: track.durationSec),
       );
 
-      // Cascading multi-candidate playback: if candidate 1 fails setAudioSource, try candidate 2!
       bool played = false;
       dynamic lastCandidateErr;
 
@@ -237,22 +638,22 @@ class AudioPlayerService {
         try {
           final AudioSource audioSource;
           if (streamUrl.startsWith('/') || streamUrl.contains(':\\') || streamUrl.contains(':/')) {
-            audioSource = AudioSource.file(
-              streamUrl,
-              tag: mediaItem,
-            );
+            audioSource = AudioSource.file(streamUrl, tag: mediaItem);
           } else {
             final Map<String, String>? headers;
             if (streamUrl.contains('googlevideo.com')) {
               headers = const {
                 'User-Agent':
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity;q=1, *;q=0',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Range': 'bytes=0-',
                 'Referer': 'https://www.youtube.com/',
               };
             } else {
               headers = null;
             }
-
             audioSource = AudioSource.uri(
               Uri.parse(streamUrl),
               headers: headers,
@@ -260,35 +661,58 @@ class AudioPlayerService {
             );
           }
 
+          await _player.setVolume(fadeIn ? 0.05 : _volume);
           await _player.setAudioSource(audioSource, preload: true);
+          await _applySpeedAndPitch();
+          await _applyHardwareDsp();
           await _player.play();
+          if (fadeIn) {
+            unawaited(_fadeInPlayer());
+          }
           played = true;
           _isLoading = false;
           _consecutiveErrors = 0;
-          StorageService().addRecent(track).catchError((_) {});
-          debugPrint('[AudioPlayerService] Successfully started playback for "${track.title}" via: $streamUrl');
+          _storage.addRecent(track).catchError((_) {});
           break;
         } catch (err) {
-          debugPrint('[AudioPlayerService] Candidate $streamUrl failed: $err, trying next...');
           lastCandidateErr = err;
           _yt.invalidateStream(track.id);
         }
       }
 
       if (!played) {
-        throw lastCandidateErr ?? Exception('Playback failed across all candidates for "${track.title}"');
+        throw lastCandidateErr ?? Exception('Playback failed for "${track.title}"');
       }
     } catch (e) {
       debugPrint('[AudioPlayerService] Play error: $e');
       _yt.invalidateStream(track.id);
       _isLoading = false;
+      _isMixing = false;
       _consecutiveErrors++;
       _lastError = 'Playback failed for "${track.title}": $e';
       _errorController.add(_lastError);
-      if (_consecutiveErrors >= 3) {
-        debugPrint('[AudioPlayerService] Halted auto-skip after $_consecutiveErrors consecutive errors.');
-      }
     }
+  }
+
+  void playNextInQueue(Track track) {
+    if (_queue.isEmpty) {
+      _queue = [track];
+      _currentIndex = 0;
+      _queueChangeController.add(_queue);
+      playTrack(track);
+      return;
+    }
+    final insertAt = (_currentIndex + 1).clamp(0, _queue.length);
+    _queue.insert(insertAt, track);
+    _queueChangeController.add(_queue);
+  }
+
+  void shuffleRemaining() {
+    if (_currentIndex >= _queue.length - 1) return;
+    final head = _queue.sublist(0, _currentIndex + 1);
+    final tail = _queue.sublist(_currentIndex + 1)..shuffle();
+    _queue = [...head, ...tail];
+    _queueChangeController.add(_queue);
   }
 
   Future<void> cycleLoopMode() async {
@@ -297,11 +721,15 @@ class AudioPlayerService {
         ? LoopMode.all
         : (current == LoopMode.all ? LoopMode.one : LoopMode.off);
     await _player.setLoopMode(next);
+    await _storage.patchSettings({
+      'repeat': next == LoopMode.all ? 'all' : (next == LoopMode.one ? 'one' : 'off'),
+    });
   }
 
   Future<void> toggleShuffle() async {
     final next = !_player.shuffleModeEnabled;
     await _player.setShuffleModeEnabled(next);
+    await _storage.patchSettings({'shuffle': next});
   }
 
   Future<void> resume() async {
@@ -311,16 +739,29 @@ class AudioPlayerService {
       await _player.play();
     }
   }
+
   Future<void> pause() async => _player.pause();
   Future<void> stop() async => _player.stop();
-
   Future<void> seek(Duration position) async => _player.seek(position);
 
-  Future<void> next() async {
+  Future<void> next({bool auto = false, bool fadeInAfter = false}) async {
     if (_queue.isEmpty) return;
+    if (auto && _consecutiveErrors >= 3) {
+      _isMixing = false;
+      try {
+        await _player.setVolume(_volume);
+      } catch (_) {}
+      _lastError = 'Stopped auto-advance after repeated stream failures.';
+      _errorController.add(_lastError);
+      _dspStateController.add(null);
+      return;
+    }
+    if (!auto) {
+      _consecutiveErrors = 0;
+    }
     int nextIdx = _currentIndex + 1;
     if (nextIdx >= _queue.length) {
-      if (_autoMixEnabled && _currentTrack != null) {
+      if (_radioEnabled && _currentTrack != null) {
         try {
           final radioTracks = await _yt.getRadio(
             _currentTrack!.cleanId,
@@ -334,15 +775,23 @@ class AudioPlayerService {
             _queue.addAll(newTracks);
             _queueChangeController.add(_queue);
           }
-        } catch (e) {
-          debugPrint('[AudioPlayerService] AutoMix radio replenishment note: $e');
-        }
+        } catch (_) {}
       }
       if (nextIdx >= _queue.length) {
+        if (auto && _player.loopMode == LoopMode.off) {
+          _isMixing = false;
+          _dspStateController.add(null);
+          return;
+        }
         nextIdx = 0;
       }
     }
-    await playTrack(_queue[nextIdx], index: nextIdx);
+    await playTrack(
+      _queue[nextIdx],
+      index: nextIdx,
+      fadeIn: fadeInAfter,
+      isAutoAdvance: auto,
+    );
   }
 
   Future<void> previous() async {
@@ -352,9 +801,7 @@ class AudioPlayerService {
       return;
     }
     int prevIdx = _currentIndex - 1;
-    if (prevIdx < 0) {
-      prevIdx = _queue.length - 1;
-    }
+    if (prevIdx < 0) prevIdx = _queue.length - 1;
     await playTrack(_queue[prevIdx], index: prevIdx);
   }
 
@@ -362,9 +809,7 @@ class AudioPlayerService {
     if (oldIndex < 0 || oldIndex >= _queue.length || newIndex < 0 || newIndex > _queue.length) {
       return;
     }
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
-    }
+    if (oldIndex < newIndex) newIndex -= 1;
     final item = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, item);
     if (_currentTrack != null) {

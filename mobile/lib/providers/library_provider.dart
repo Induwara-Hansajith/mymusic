@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/track.dart';
 import '../models/playlist.dart';
 import '../services/storage_service.dart';
+import '../services/auth_sync_service.dart';
 
 class LibraryProvider extends ChangeNotifier {
   final StorageService _storage = StorageService();
@@ -10,6 +11,7 @@ class LibraryProvider extends ChangeNotifier {
   List<Track> _recents = [];
   List<Playlist> _playlists = [];
   List<Track> _downloaded = [];
+  Map<String, dynamic> _playStats = {};
   bool _lowResourceMode = false;
 
   LibraryProvider() {
@@ -21,6 +23,7 @@ class LibraryProvider extends ChangeNotifier {
   List<Track> get recentTracks => List.unmodifiable(_recents);
   List<Playlist> get playlists => List.unmodifiable(_playlists);
   List<Track> get downloaded => List.unmodifiable(_downloaded);
+  Map<String, dynamic> get playStats => _playStats;
   bool get lowResourceMode => _lowResourceMode;
 
   void load() {
@@ -28,6 +31,7 @@ class LibraryProvider extends ChangeNotifier {
     _recents = _storage.getRecents();
     _playlists = _storage.getPlaylists();
     _downloaded = _storage.getDownloaded();
+    _playStats = _storage.getPlayStats();
     _lowResourceMode = _storage.lowResourceMode;
     notifyListeners();
   }
@@ -39,12 +43,11 @@ class LibraryProvider extends ChangeNotifier {
 
   void refreshRecents() {
     _recents = _storage.getRecents();
+    _playStats = _storage.getPlayStats();
     notifyListeners();
   }
 
-  bool isDownloaded(String trackId) {
-    return _storage.isDownloaded(trackId);
-  }
+  bool isDownloaded(String trackId) => _storage.isDownloaded(trackId);
 
   bool isFavorite(dynamic trackOrId) {
     if (trackOrId is Track) return _favorites.any((t) => t.id == trackOrId.id);
@@ -62,19 +65,43 @@ class LibraryProvider extends ChangeNotifier {
     await _storage.toggleFavorite(track);
     _favorites = _storage.getFavorites();
     notifyListeners();
+    AuthSyncService().scheduleAutoPush();
   }
 
   Future<Playlist> createPlaylist(String name) async {
     final pl = await _storage.createPlaylist(name);
     _playlists = _storage.getPlaylists();
     notifyListeners();
+    AuthSyncService().scheduleAutoPush();
     return pl;
+  }
+
+  Future<void> renamePlaylist(String id, String newName) async {
+    await _storage.renamePlaylist(id, newName);
+    _playlists = _storage.getPlaylists();
+    notifyListeners();
+    AuthSyncService().scheduleAutoPush();
+  }
+
+  Future<void> deletePlaylist(String id) async {
+    await _storage.deletePlaylist(id);
+    _playlists = _storage.getPlaylists();
+    notifyListeners();
+    AuthSyncService().scheduleAutoPush();
   }
 
   Future<void> addTrackToPlaylist(String playlistId, Track track) async {
     await _storage.addTrackToPlaylist(playlistId, track);
     _playlists = _storage.getPlaylists();
     notifyListeners();
+    AuthSyncService().scheduleAutoPush();
+  }
+
+  Future<void> removeTrackFromPlaylist(String playlistId, String trackId) async {
+    await _storage.removeTrackFromPlaylist(playlistId, trackId);
+    _playlists = _storage.getPlaylists();
+    notifyListeners();
+    AuthSyncService().scheduleAutoPush();
   }
 
   Future<void> setLowResourceMode(bool value) async {

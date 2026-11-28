@@ -1,319 +1,370 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
+import '../../models/track.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/player_provider.dart';
+import '../../providers/theme_provider.dart';
+import '../../services/youtube_service.dart';
 import '../theme.dart';
+import '../widgets/desktop_widgets.dart';
 
-class WrappedScreen extends StatelessWidget {
-  const WrappedScreen({super.key});
+class WrappedScreen extends StatefulWidget {
+  final void Function(String artistId, String artistName)? onOpenArtist;
+
+  const WrappedScreen({super.key, this.onOpenArtist});
+
+  @override
+  State<WrappedScreen> createState() => _WrappedScreenState();
+}
+
+class _WrappedScreenState extends State<WrappedScreen> {
+  final Map<String, String> _artistThumbs = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArtistThumbs();
+  }
+
+  Future<void> _loadArtistThumbs() async {
+    final stats = context.read<LibraryProvider>().playStats;
+    final artists = Map<String, dynamic>.from(stats['artists'] as Map? ?? {});
+    final list = artists.entries.toList()
+      ..sort((a, b) => (((b.value as Map)['plays'] as num?)?.toInt() ?? 0)
+          .compareTo(((a.value as Map)['plays'] as num?)?.toInt() ?? 0));
+    for (final entry in list.take(10)) {
+      final info = Map<String, dynamic>.from(entry.value as Map);
+      final existing = info['thumb'] as String?;
+      if (existing != null && existing.isNotEmpty) {
+        _artistThumbs[entry.key] = existing;
+        continue;
+      }
+      final t = await YoutubeService().resolveArtistThumb(
+        entry.key,
+        artistId: info['id'] as String?,
+      );
+      if (t != null && t.isNotEmpty && mounted) {
+        setState(() => _artistThumbs[entry.key] = t);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryProvider>();
+    final player = context.read<PlayerProvider>();
+    final accent = context.watch<ThemeProvider>().accent;
 
-    // Dynamic stats calculated from real history or stylized fallback
-    final recentTracks = library.recentTracks;
-    final totalPlays = recentTracks.length + 86;
-    final minutesCount = (totalPlays * 3.4).toStringAsFixed(1);
+    final stats = library.playStats;
+    final totalPlays = (stats['totalPlays'] as num?)?.toInt() ?? 0;
+    final totalSeconds = (stats['totalSeconds'] as num?)?.toInt() ?? 0;
+    final totalHours = (totalSeconds / 3600.0);
+    final totalMins = (totalSeconds / 60.0).round();
+    final timeDisplay = totalHours >= 1
+        ? '${totalHours.toStringAsFixed(1)} Hours'
+        : '$totalMins Mins';
 
-    return Scaffold(
-      backgroundColor: AppTheme.bg,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
-          children: [
-            // Header
-            const Text(
-              'YOUR MONTH IN MUSIC',
-              style: TextStyle(
-                color: AppTheme.subtitle,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.0,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'November, on repeat.',
-              style: TextStyle(
-                color: AppTheme.text,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 16),
+    final rawTracks = Map<String, dynamic>.from(stats['tracks'] as Map? ?? {});
+    final topTracks = rawTracks.entries.toList()
+      ..sort((a, b) => (((b.value as Map)['plays'] as num?)?.toInt() ?? 0)
+          .compareTo(((a.value as Map)['plays'] as num?)?.toInt() ?? 0));
 
-            // Top Summary Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppTheme.panel,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: AppTheme.line),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppTheme.accentDark.withValues(alpha: 0.15),
-                    AppTheme.panel,
-                  ],
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'A soundtrack that is entirely you.',
-                    style: TextStyle(
-                      color: AppTheme.subtitle,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildStatColumn('${minutesCount}k', 'MINUTES'),
-                      _buildStatColumn('$totalPlays', 'TRACKS'),
-                      _buildStatColumn('42', 'ARTISTS'),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+    final rawArtists = Map<String, dynamic>.from(stats['artists'] as Map? ?? {});
+    final topArtists = rawArtists.entries.toList()
+      ..sort((a, b) => (((b.value as Map)['plays'] as num?)?.toInt() ?? 0)
+          .compareTo(((a.value as Map)['plays'] as num?)?.toInt() ?? 0));
 
-            const SizedBox(height: 16),
+    final topArtistName = topArtists.isNotEmpty ? topArtists.first.key : 'None yet';
+    final topArtistPlays = topArtists.isNotEmpty
+        ? '${((topArtists.first.value as Map)['plays'] ?? 0)} plays'
+        : '—';
 
-            // "Your week in sound" Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppTheme.panel,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: AppTheme.line),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
-                        'Your week in sound',
-                        style: TextStyle(
-                          color: AppTheme.text,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'Minutes',
-                        style: TextStyle(
-                          color: AppTheme.muted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 22),
-                  // Weekly bar chart
-                  SizedBox(
-                    height: 100,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        _buildBar('M', 45, false),
-                        _buildBar('T', 65, false),
-                        _buildBar('W', 40, false),
-                        _buildBar('T', 70, false),
-                        _buildBar('F', 60, false),
-                        _buildBar('S', 95, true), // Active peak day
-                        _buildBar('S', 75, false),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    final topTrackTitle = topTracks.isNotEmpty
+        ? ((topTracks.first.value as Map)['title']?.toString() ?? 'None yet')
+        : 'None yet';
+    final topTrackPlays = topTracks.isNotEmpty
+        ? '${((topTracks.first.value as Map)['plays'] ?? 0)} plays'
+        : '—';
 
-            const SizedBox(height: 22),
+    final topTrackQueue = topTracks.take(10).map((e) {
+      final m = Map<String, dynamic>.from(e.value as Map);
+      return Track.fromJson({...m, 'id': e.key});
+    }).toList();
 
-            // Top Artists & Top Tracks Header
-            Row(
-              children: const [
-                Expanded(
-                  child: Text(
-                    'Top artists',
-                    style: TextStyle(
-                      color: AppTheme.text,
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    'Top tracks',
-                    style: TextStyle(
-                      color: AppTheme.text,
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Top Artists & Tracks comparison columns
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildRankItem('Luna Bay', '1 · 2,420 min', Icons.album_rounded),
-                      const SizedBox(height: 12),
-                      _buildRankItem('Onda', '2 · 1,860 min', Icons.water_drop_rounded),
-                      const SizedBox(height: 12),
-                      _buildRankItem('Solace', '3 · 1,440 min', Icons.nightlight_round),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildRankItem('Violet hour', '1 · 86 plays', Icons.music_note_rounded),
-                      const SizedBox(height: 12),
-                      _buildRankItem('Undertow', '2 · 64 plays', Icons.waves_rounded),
-                      const SizedBox(height: 12),
-                      _buildRankItem('Moonstruck', '3 · 58 plays', Icons.brightness_3_rounded),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-            const Center(
-              child: Text(
-                'A month well listened.',
-                style: TextStyle(
-                  color: AppTheme.muted,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatColumn(String number, String label) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 120),
       children: [
-        Text(
-          number,
-          style: const TextStyle(
+        const Text(
+          'Listening Analytics',
+          style: TextStyle(
             color: AppTheme.text,
             fontSize: 26,
             fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
           ),
         ),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.8,
-          ),
+        const SizedBox(height: 4),
+        const Text(
+          'Your listening history, mini-wrapped trends, and favorite music',
+          style: TextStyle(color: AppTheme.muted, fontSize: 13),
         ),
-      ],
-    );
-  }
+        const SizedBox(height: 16),
 
-  Widget _buildBar(String day, double height, bool isPeak) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Container(
-          width: 24,
-          height: height,
-          decoration: BoxDecoration(
-            color: isPeak ? AppTheme.accent : const Color(0xFF2C2748),
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: isPeak
-                ? [
-                    BoxShadow(
-                      color: AppTheme.accent.withValues(alpha: 0.4),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
+        // 4 Desktop Stat Cards in 2x2 grid
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 1.55,
+          children: [
+            _statCard('Listening Time', timeDisplay, '$totalMins total minutes', accent),
+            _statCard('Total Tracks Played', '$totalPlays', '${rawTracks.length} unique songs', accent),
+            _statCard('Top Artist', topArtistName, topArtistPlays, accent),
+            _statCard('Top Song', topTrackTitle, topTrackPlays, accent),
+          ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          day,
-          style: TextStyle(
-            color: isPeak ? AppTheme.accentLight : AppTheme.muted,
-            fontSize: 11,
-            fontWeight: isPeak ? FontWeight.bold : FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildRankItem(String title, String subtitle, IconData icon) {
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: AppTheme.bg2,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.line),
-          ),
-          child: Icon(icon, color: AppTheme.accentLight, size: 20),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
+        const SizedBox(height: 18),
+
+        // Top Songs Section
+        GlassContainer(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppTheme.text,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                ),
+              const Text(
+                'Top Songs',
+                style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  color: AppTheme.muted,
-                  fontSize: 11,
-                ),
+              const SizedBox(height: 10),
+              if (topTracks.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    'Play some songs to build your top tracks list!',
+                    style: TextStyle(color: AppTheme.muted, fontSize: 13),
+                  ),
+                )
+              else
+                ...topTracks.take(10).toList().asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final m = Map<String, dynamic>.from(entry.value.value as Map);
+                  final track = topTrackQueue[i];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          child: Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              color: i == 0
+                                  ? const Color(0xFFFBBF24)
+                                  : (i == 1
+                                      ? const Color(0xFFE5E7EB)
+                                      : (i == 2 ? const Color(0xFFD97706) : AppTheme.muted)),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: track.thumb.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: track.thumb,
+                                  width: 40,
+                                  height: 40,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: AppTheme.bg3,
+                                  child: const Icon(Icons.music_note, color: AppTheme.muted, size: 18),
+                                ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                track.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.w600, fontSize: 13.5),
+                              ),
+                              Text(
+                                track.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          '${m['plays'] ?? 0} plays',
+                          style: const TextStyle(color: AppTheme.muted, fontSize: 11.5, fontWeight: FontWeight.w600),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.play_arrow_rounded, color: accent),
+                          onPressed: () => player.playTrack(
+                            track,
+                            queue: topTrackQueue,
+                            index: i,
+                            contextTitle: 'Top Songs',
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // Top Artists Section
+        GlassContainer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Top Artists',
+                style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
               ),
+              const SizedBox(height: 10),
+              if (topArtists.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    'Listen to music to see your top artists!',
+                    style: TextStyle(color: AppTheme.muted, fontSize: 13),
+                  ),
+                )
+              else
+                ...topArtists.take(10).toList().asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final name = entry.value.key;
+                  final m = Map<String, dynamic>.from(entry.value.value as Map);
+                  final thumb = _artistThumbs[name] ?? (m['thumb'] as String? ?? '');
+                  final secs = (m['seconds'] as num?)?.toInt() ?? 0;
+                  final mins = (secs / 60).round();
+                  final artistId = m['id'] as String? ?? '';
+
+                  return InkWell(
+                    onTap: () => widget.onOpenArtist?.call(artistId, name),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            child: Text(
+                              '${i + 1}',
+                              style: TextStyle(
+                                color: i == 0
+                                    ? const Color(0xFFFBBF24)
+                                    : (i == 1
+                                        ? const Color(0xFFE5E7EB)
+                                        : (i == 2 ? const Color(0xFFD97706) : AppTheme.muted)),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: thumb.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: thumb,
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                  )
+                                : CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: accent.withValues(alpha: 0.25),
+                                    child: Text(
+                                      name.isNotEmpty ? name[0].toUpperCase() : 'A',
+                                      style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.w600, fontSize: 13.5),
+                                ),
+                                Text(
+                                  '$mins minutes listened',
+                                  style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '${m['plays'] ?? 0} plays',
+                            style: const TextStyle(color: AppTheme.muted, fontSize: 11.5, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _statCard(String label, String value, String sub, Color accent) {
+    return GlassContainer(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppTheme.text,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          Text(
+            sub,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: accent, fontSize: 11.5, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
     );
   }
 }

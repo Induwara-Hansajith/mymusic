@@ -5,11 +5,14 @@ import '../models/track.dart';
 import '../models/lyrics.dart';
 import '../services/audio_player_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/storage_service.dart';
 import '../services/youtube_service.dart';
+import '../services/auth_sync_service.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final AudioPlayerService _playerService = AudioPlayerService();
   final LyricsService _lyricsService = LyricsService();
+  final StorageService _storage = StorageService();
 
   Track? _currentTrack = YoutubeService.trackVioletHour;
   LyricsData _lyrics = const LyricsData();
@@ -20,6 +23,7 @@ class PlayerProvider extends ChangeNotifier {
   bool _isPlaying = false;
   LoopMode _loopMode = LoopMode.off;
   bool _shuffleEnabled = false;
+  int _lyricOffsetMs = 0;
 
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
@@ -29,13 +33,16 @@ class PlayerProvider extends ChangeNotifier {
   StreamSubscription? _durSub;
   StreamSubscription? _bufSub;
   StreamSubscription? _trackSub;
+  StreamSubscription? _queueSub;
   StreamSubscription? _errSub;
+  StreamSubscription? _dspSub;
 
   PlayerProvider() {
     _init();
   }
 
   Track? get currentTrack => _currentTrack;
+  String get contextTitle => _playerService.contextTitle;
   LyricsData get lyrics => _lyrics;
   bool get isLoading => _isLoading;
   Duration get position => _position;
@@ -46,16 +53,29 @@ class PlayerProvider extends ChangeNotifier {
   bool get shuffleEnabled => _shuffleEnabled;
   List<Track> get queue => _playerService.queue;
   int get currentIndex => _playerService.currentIndex;
+  int get lyricOffsetMs => _lyricOffsetMs;
 
+  double get volume => _playerService.volume;
   bool get autoMixEnabled => _playerService.autoMixEnabled;
+  String get autoMixMode => _playerService.autoMixMode;
+  dynamic get autoMixDuration => _playerService.autoMixDuration;
+  int get crossfadeDuration => _playerService.crossfadeDuration;
+  bool get radioEnabled => _playerService.radioEnabled;
+  bool get isMixing => _playerService.isMixing;
   double get speed => _playerService.speed;
   bool get pitchLock => _playerService.pitchLock;
   List<double> get eqBands => _playerService.eqBands;
   String get eqPreset => _playerService.eqPreset;
+  String get dj8DMode => _playerService.dj8DMode;
+  double get djStereoWidth => _playerService.djStereoWidth;
+  double get djFilter => _playerService.djFilter;
+  bool get djBassPunch => _playerService.djBassPunch;
+  String get djReverbPreset => _playerService.djReverbPreset;
+  double get djAzimuthRad => _playerService.djAzimuthRad;
 
   int get currentLyricIndex {
     if (_lyrics.synced.isEmpty) return -1;
-    final posSec = _position.inMilliseconds / 1000.0;
+    final posSec = (_position.inMilliseconds + _lyricOffsetMs) / 1000.0;
     int activeIdx = -1;
     for (int i = 0; i < _lyrics.synced.length; i++) {
       if (_lyrics.synced[i].timeSec <= posSec) {
@@ -77,9 +97,13 @@ class PlayerProvider extends ChangeNotifier {
     _trackSub = _playerService.currentTrackStream.listen((track) {
       _currentTrack = track;
       _isLoading = _playerService.isLoading;
+      _lyricOffsetMs = track != null ? _storage.getLyricOffsetMs(track.id) : 0;
       _fetchLyricsForCurrentTrack();
       notifyListeners();
     });
+
+    _queueSub = _playerService.queueStream.listen((_) => notifyListeners());
+    _dspSub = _playerService.dspStateStream.listen((_) => notifyListeners());
 
     _stateSub = _playerService.player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
@@ -110,6 +134,14 @@ class PlayerProvider extends ChangeNotifier {
     });
   }
 
+  void reloadSyncedSettings() {
+    _playerService.reloadFromSyncedSettings();
+    if (_currentTrack != null) {
+      _lyricOffsetMs = _storage.getLyricOffsetMs(_currentTrack!.id);
+    }
+    notifyListeners();
+  }
+
   Future<void> _fetchLyricsForCurrentTrack() async {
     final track = _currentTrack;
     if (track == null) {
@@ -127,10 +159,48 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> playTrack(Track track, {List<Track>? queue, int? index}) async {
+  Future<void> adjustLyricOffset(int deltaMs) async {
+    final track = _currentTrack;
+    if (track == null) return;
+    _lyricOffsetMs = (_lyricOffsetMs + deltaMs).clamp(-15000, 15000);
+    await _storage.setLyricOffsetMs(track.id, _lyricOffsetMs);
+    AuthSyncService().scheduleAutoPush();
+    notifyListeners();
+  }
+
+  Future<void> resetLyricOffset() async {
+    final track = _currentTrack;
+    if (track == null) return;
+    _lyricOffsetMs = 0;
+    await _storage.setLyricOffsetMs(track.id, 0);
+    AuthSyncService().scheduleAutoPush();
+    notifyListeners();
+  }
+
+  Future<void> playTrack(
+    Track track, {
+    List<Track>? queue,
+    int? index,
+    String? contextTitle,
+  }) async {
     _errorMessage = null;
     notifyListeners();
-    await _playerService.playTrack(track, newQueue: queue, index: index);
+    await _playerService.playTrack(
+      track,
+      newQueue: queue,
+      index: index,
+      contextTitle: contextTitle,
+    );
+  }
+
+  void playNextInQueue(Track track) {
+    _playerService.playNextInQueue(track);
+    notifyListeners();
+  }
+
+  void shuffleRemaining() {
+    _playerService.shuffleRemaining();
+    notifyListeners();
   }
 
   Future<void> togglePlay() async {
@@ -141,6 +211,7 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> setVolume(double v) => _playerService.setVolume(v);
   Future<void> next() async => _playerService.next();
   Future<void> previous() async => _playerService.previous();
   Future<void> seek(Duration pos) async => _playerService.seek(pos);
@@ -159,6 +230,26 @@ class PlayerProvider extends ChangeNotifier {
 
   void toggleAutoMix() {
     _playerService.setAutoMix(!_playerService.autoMixEnabled);
+    notifyListeners();
+  }
+
+  void setAutoMixConfig({
+    bool? enabled,
+    String? mode,
+    dynamic duration,
+    int? crossfadeDuration,
+  }) {
+    _playerService.setAutoMixConfig(
+      enabled: enabled,
+      mode: mode,
+      duration: duration,
+      crossfadeDuration: crossfadeDuration,
+    );
+    notifyListeners();
+  }
+
+  void toggleRadio() {
+    _playerService.setRadioEnabled(!_playerService.radioEnabled);
     notifyListeners();
   }
 
@@ -187,6 +278,14 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDj8DMode(String mode) => _playerService.setDj8DMode(mode);
+  void setDjAzimuthManual(double angle) => _playerService.setDjAzimuthManual(angle);
+  void setDjStereoWidth(double w) => _playerService.setDjStereoWidth(w);
+  void setDjFilter(double f) => _playerService.setDjFilter(f);
+  void setDjBassPunch(bool on) => _playerService.setDjBassPunch(on);
+  void setDjReverbPreset(String r) => _playerService.setDjReverbPreset(r);
+  void resetDjStudio() => _playerService.resetDjStudio();
+
   void reorderQueue(int oldIndex, int newIndex) {
     _playerService.reorderQueue(oldIndex, newIndex);
     notifyListeners();
@@ -204,7 +303,9 @@ class PlayerProvider extends ChangeNotifier {
     _durSub?.cancel();
     _bufSub?.cancel();
     _trackSub?.cancel();
+    _queueSub?.cancel();
     _errSub?.cancel();
+    _dspSub?.cancel();
     super.dispose();
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/track.dart';
+import '../models/ytm_models.dart';
 import '../services/youtube_service.dart';
 import '../services/saavn_service.dart';
 
@@ -9,15 +10,18 @@ class SearchProvider extends ChangeNotifier {
   final SaavnService _saavn = SaavnService();
 
   String _query = '';
-  String _activeFilter = 'all';
-  List<Track> _results = [];
+  String _activeFilter = 'songs'; // 'songs' | 'videos' | 'albums' | 'artists' | 'playlists'
+  YtmSearchResult _ytmResult = const YtmSearchResult();
+  final Map<String, YtmSearchResult> _cache = {};
   List<String> _suggestions = [];
   bool _isSearching = false;
   Timer? _debounceTimer;
 
   String get query => _query;
   String get activeFilter => _activeFilter;
-  List<Track> get results => List.unmodifiable(_results);
+  YtmSearchResult get ytmResult => _ytmResult;
+  List<Track> get results =>
+      _activeFilter == 'videos' ? _ytmResult.videos : _ytmResult.songs;
   List<String> get suggestions => List.unmodifiable(_suggestions);
   bool get isSearching => _isSearching;
   bool get isLoading => _isSearching;
@@ -43,13 +47,13 @@ class SearchProvider extends ChangeNotifier {
 
     if (_query.trim().isEmpty) {
       _suggestions = [];
-      _results = [];
+      _ytmResult = const YtmSearchResult();
       _isSearching = false;
       notifyListeners();
       return;
     }
 
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+    _debounceTimer = Timer(const Duration(milliseconds: 260), () async {
       final sugs = await _yt.getSuggestions(_query);
       if (_query.trim().isNotEmpty) {
         _suggestions = sugs;
@@ -64,36 +68,42 @@ class SearchProvider extends ChangeNotifier {
 
     final targetFilter = (filter ?? _activeFilter).toLowerCase();
     _activeFilter = targetFilter;
-
     _debounceTimer?.cancel();
     _suggestions = [];
+
+    final cacheKey = '$targetFilter:${_query.toLowerCase()}';
+    if (_cache.containsKey(cacheKey)) {
+      _ytmResult = _cache[cacheKey]!;
+      _isSearching = false;
+      notifyListeners();
+      return;
+    }
+
     _isSearching = true;
     notifyListeners();
 
     try {
-      final ytFuture = _yt.search(_query, filter: targetFilter, limit: 20);
-      final saavnFuture = (targetFilter == 'all' || targetFilter == 'songs')
-          ? _saavn.search(_query, limit: 15)
-          : Future.value(<Track>[]);
-
-      final results = await Future.wait([saavnFuture, ytFuture]);
-      final saavnResults = results[0];
-      final ytResults = results[1];
-
-      final combined = <Track>[];
-      if (targetFilter == 'all' || targetFilter == 'songs') {
-        combined.addAll(saavnResults);
-        for (final ytTrack in ytResults) {
-          if (!combined.any((t) => t.title.toLowerCase() == ytTrack.title.toLowerCase())) {
-            combined.add(ytTrack);
+      final ytmRes = await _yt.searchYtm(_query, targetFilter);
+      if (targetFilter == 'songs') {
+        final saavn = await _saavn.search(_query, limit: 10);
+        final mergedSongs = <Track>[...ytmRes.songs];
+        for (final s in saavn) {
+          if (!mergedSongs.any((t) =>
+              t.title.toLowerCase() == s.title.toLowerCase() &&
+              t.artist.toLowerCase() == s.artist.toLowerCase())) {
+            mergedSongs.add(s);
           }
         }
-        _results = combined.isNotEmpty ? combined : ytResults;
+        _ytmResult = YtmSearchResult(songs: mergedSongs);
       } else {
-        _results = ytResults;
+        _ytmResult = ytmRes;
       }
+      _cache[cacheKey] = _ytmResult;
     } catch (_) {
-      _results = await _yt.search(_query, filter: targetFilter);
+      final fallback = await _yt.search(_query, filter: targetFilter);
+      _ytmResult = targetFilter == 'videos'
+          ? YtmSearchResult(videos: fallback)
+          : YtmSearchResult(songs: fallback);
     }
 
     _isSearching = false;
@@ -103,7 +113,7 @@ class SearchProvider extends ChangeNotifier {
   void clear() {
     _query = '';
     _suggestions = [];
-    _results = [];
+    _ytmResult = const YtmSearchResult();
     _isSearching = false;
     notifyListeners();
   }
