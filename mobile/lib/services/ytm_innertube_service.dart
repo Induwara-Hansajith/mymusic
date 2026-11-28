@@ -61,24 +61,29 @@ class YtmInnertubeService {
   static String upgradeThumbUrl(String url, {bool highRes = true}) {
     if (url.isEmpty) return '';
     if (url.contains('googleusercontent.com') || url.contains('ggpht.com')) {
+      // Use w544 (not w1024) – Android CDN rate-limits very large crops with 403s.
       if (RegExp(r'=w\d+-h\d+', caseSensitive: false).hasMatch(url)) {
         return url.replaceAll(
           RegExp(r'=w\d+-h\d+[^?]*', caseSensitive: false),
-          highRes ? '=w1024-h1024-l90-rj' : '=w544-h544-l90-rj',
+          highRes ? '=w544-h544-l90-rj' : '=w226-h226-l90-rj',
         );
       }
       if (RegExp(r'=s\d+', caseSensitive: false).hasMatch(url)) {
         return url.replaceAll(
           RegExp(r'=s\d+[^?]*', caseSensitive: false),
-          highRes ? '=s1024-l90-rj' : '=s544-l90-rj',
+          highRes ? '=s544-l90-rj' : '=s226-l90-rj',
         );
       }
       return url;
     }
     if (url.contains('ytimg.com') || url.contains('youtube.com/vi')) {
       final clean = url.split('?').first;
+      // Use hqdefault because max-resolution thumbnails are not available for every video.
       return clean.replaceAll(
-        RegExp(r'/(?:default|mqdefault)\.jpg$', caseSensitive: false),
+        RegExp(
+          r'/(?:default|mqdefault|sddefault|maxresdefault)\.jpg$',
+          caseSensitive: false,
+        ),
         '/hqdefault.jpg',
       );
     }

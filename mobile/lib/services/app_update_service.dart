@@ -51,8 +51,8 @@ class AppUpdateService extends ChangeNotifier {
   final http.Client _http = http.Client();
   final StorageService _storage = StorageService();
 
-  String _currentVersion = '1.1.9';
-  int _currentVersionCode = 120;
+  String _currentVersion = '1.1.9.1';
+  int _currentVersionCode = 121;
   UpdateStatus _status = UpdateStatus.idle;
   AndroidReleaseInfo? _availableRelease;
   double _progress = 0.0;
@@ -114,8 +114,9 @@ class AppUpdateService extends ChangeNotifier {
         if (assetRaw is! Map) continue;
         final name = assetRaw['name']?.toString() ?? '';
         if (!name.toLowerCase().endsWith('.apk')) continue;
-        final m = RegExp(r'([0-9]+\.[0-9]+\.[0-9]+)').firstMatch(name) ??
-            RegExp(r'([0-9]+\.[0-9]+\.[0-9]+)')
+        final versionPattern = RegExp(r'([0-9]+(?:\.[0-9]+){2,3})');
+        final m = versionPattern.firstMatch(name) ??
+            versionPattern
                 .firstMatch(raw['name']?.toString() ?? '');
         if (m == null) continue;
         final url = assetRaw['browser_download_url']?.toString() ?? '';

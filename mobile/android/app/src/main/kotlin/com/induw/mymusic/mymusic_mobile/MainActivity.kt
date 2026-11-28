@@ -48,7 +48,7 @@ class MainActivity : AudioServiceActivity() {
                             }
                             result.success(
                                 mapOf(
-                                    "versionName" to (pkgInfo.versionName ?: "1.1.9"),
+                                    "versionName" to (pkgInfo.versionName ?: "1.1.9.1"),
                                     "versionCode" to code
                                 )
                             )
