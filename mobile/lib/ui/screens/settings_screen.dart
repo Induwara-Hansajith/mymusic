@@ -91,6 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     final manager = AndroidAudioManager();
                     await manager.setSpeakerphoneOn(false);
                     await manager.clearCommunicationDevice();
+                    await manager.setMode(AndroidAudioHardwareMode.normal);
                   } catch (_) {}
                   setState(() => _selectedOutputName = 'Default output · Auto-route');
                   if (ctx.mounted) Navigator.pop(ctx);
@@ -120,8 +121,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         try {
                           final manager = AndroidAudioManager();
                           if (isSpeaker) {
+                            await manager.setMode(AndroidAudioHardwareMode.inCommunication);
                             await manager.setSpeakerphoneOn(true);
                           } else {
+                            await manager.setMode(AndroidAudioHardwareMode.inCommunication);
                             await manager.setSpeakerphoneOn(false);
                             final comm = await manager.getAvailableCommunicationDevices();
                             if (comm.isNotEmpty) {
@@ -148,6 +151,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: () async {
                     try {
                       final manager = AndroidAudioManager();
+                      await manager.setMode(AndroidAudioHardwareMode.inCommunication);
                       await manager.setSpeakerphoneOn(true);
                     } catch (_) {}
                     setState(() => _selectedOutputName = 'Phone Speaker');

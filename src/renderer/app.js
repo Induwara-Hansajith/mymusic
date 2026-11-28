@@ -83,8 +83,20 @@ let audioOutputDevices = [];
 async function getAudioOutputDevices() {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
   try {
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    audioOutputDevices = devs.filter(d => d.kind === 'audiooutput');
+    let devs = await navigator.mediaDevices.enumerateDevices();
+    let outputs = devs.filter(d => d.kind === 'audiooutput');
+
+    // If output devices have empty labels, briefly prompt media permission so Chromium reveals real hardware device names
+    if (outputs.length > 0 && outputs.every(d => !d.label)) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+        devs = await navigator.mediaDevices.enumerateDevices();
+        outputs = devs.filter(d => d.kind === 'audiooutput');
+      } catch (_) {}
+    }
+
+    audioOutputDevices = outputs;
     return audioOutputDevices;
   } catch (err) {
     console.warn('[AudioOutput] Error enumerating devices:', err);
@@ -95,23 +107,61 @@ async function getAudioOutputDevices() {
 async function setAudioOutputDevice(deviceId, save = true) {
   if (!deviceId) deviceId = 'default';
   let applied = false;
+
+  // 1. Dual-deck HTMLMediaElements
   try {
-    if (typeof deckA.setSinkId === 'function') {
+    if (deckA && typeof deckA.setSinkId === 'function') {
       await deckA.setSinkId(deviceId);
       applied = true;
     }
-    if (typeof deckB.setSinkId === 'function') {
+  } catch (err) {
+    console.warn('[AudioOutput] deckA.setSinkId error:', err);
+  }
+
+  try {
+    if (deckB && typeof deckB.setSinkId === 'function') {
       await deckB.setSinkId(deviceId);
+      applied = true;
     }
+  } catch (err) {
+    console.warn('[AudioOutput] deckB.setSinkId error:', err);
+  }
+
+  // 2. AutoMixEngine & Web Audio Graph
+  try {
+    if (autoMixEngine) {
+      if (typeof autoMixEngine.setSinkId === 'function') {
+        await autoMixEngine.setSinkId(deviceId);
+        applied = true;
+      } else if (autoMixEngine.audioCtx && typeof autoMixEngine.audioCtx.setSinkId === 'function') {
+        await autoMixEngine.audioCtx.setSinkId(deviceId);
+        applied = true;
+      }
+    }
+  } catch (err) {
+    console.warn('[AudioOutput] autoMixEngine.setSinkId error:', err);
+  }
+
+  // 3. DSP Equalizer Context
+  try {
+    if (dspCtx && typeof dspCtx.setSinkId === 'function') {
+      await dspCtx.setSinkId(deviceId);
+      applied = true;
+    }
+  } catch (err) {
+    console.warn('[AudioOutput] dspCtx.setSinkId error:', err);
+  }
+
+  // 4. Visualizer Context
+  try {
     if (vizS && vizS.actx && typeof vizS.actx.setSinkId === 'function') {
       await vizS.actx.setSinkId(deviceId).catch(() => {});
     }
-  } catch (err) {
-    console.warn('[AudioOutput] setSinkId error:', err);
-  }
+  } catch (_) {}
+
   if (save) {
     settings().outputDeviceId = deviceId;
-    mutate({ type: 'settings.set', patch: { outputDeviceId: deviceId } });
+    await mutate({ type: 'settings.set', patch: { outputDeviceId: deviceId } });
   }
   return applied;
 }
@@ -255,6 +305,10 @@ function initAutoMixEngine() {
     const analyserNode = autoMixEngine.getAnalyser();
     if (analyserNode && typeof SonaraEngine !== 'undefined') {
       SonaraEngine.setAudioSource(analyserNode);
+    }
+    const savedDevId = settings().outputDeviceId || 'default';
+    if (savedDevId && typeof autoMixEngine.setSinkId === 'function') {
+      autoMixEngine.setSinkId(savedDevId);
     }
   }
 }
@@ -5273,6 +5327,10 @@ function ensureDspGraph() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     dspCtx = new AC();
+    const savedDevId = settings().outputDeviceId || 'default';
+    if (savedDevId && typeof dspCtx.setSinkId === 'function') {
+      dspCtx.setSinkId(savedDevId).catch(() => {});
+    }
     audio.crossOrigin = 'anonymous';
     dspSource = dspCtx.createMediaElementSource(audio);
 
@@ -6957,6 +7015,19 @@ function applyWallpaper() {
 }
 
 function renderSettings(tok) {
+  if (!audioOutputDevices || audioOutputDevices.length === 0) {
+    getAudioOutputDevices().then(devs => {
+      const sel = $('#settingAudioOutput');
+      if (sel && devs && devs.length) {
+        const curDevId = settings().outputDeviceId || 'default';
+        sel.innerHTML = devs.map(d => `
+          <option value="${esc(d.deviceId)}" ${curDevId === d.deviceId ? 'selected' : ''}>
+            ${esc(d.label || (d.deviceId === 'default' ? 'Default System Output' : d.deviceId))}
+          </option>
+        `).join('');
+      }
+    }).catch(() => {});
+  }
   const s = settings();
   const curWp = s.wallpaper || '';
   const curDim = s.wallpaperDim != null ? s.wallpaperDim : 60;

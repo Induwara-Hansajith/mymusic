@@ -792,6 +792,24 @@ async function updatePresence(data) {
 }
 
 app.whenReady().then(() => {
+  // Audio output device & media permissions for Web Audio & setSinkId
+  try {
+    session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+      if (permission === 'speaker-selection' || permission === 'media' || permission === 'audio-capture') {
+        return true;
+      }
+      return false;
+    });
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      if (permission === 'speaker-selection' || permission === 'media' || permission === 'audio-capture') {
+        return callback(true);
+      }
+      return callback(false);
+    });
+  } catch (e) {
+    log('Failed to configure audio permission handlers:', e.message);
+  }
+
   // CORS bypass on audio streams for Web Audio BiquadFilterNodes (EQ)
   try {
     session.defaultSession.webRequest.onHeadersReceived({ urls: ['*://*.googlevideo.com/*', '*://*.youtube.com/*'] }, (details, callback) => {

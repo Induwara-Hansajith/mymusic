@@ -58,6 +58,7 @@ const DEFAULTS = () => ({
     fsViz: 'bokeh',
     lyricsStyle: 'random',
     autoUpdate: true,
+    outputDeviceId: 'default',
     lowResourceMode: false,
     updateDeferredVersion: ''
   },
@@ -207,6 +208,7 @@ function mutate(p) {
         'verci-fisheye', 'verci-code', 'verci-constellation', 'karaoke', 'minimal'
       ].includes(patch.lyricsStyle)) d.settings.lyricsStyle = patch.lyricsStyle;
       if ('autoUpdate' in patch) d.settings.autoUpdate = !!patch.autoUpdate;
+      if ('outputDeviceId' in patch) d.settings.outputDeviceId = patch.outputDeviceId ? String(patch.outputDeviceId).slice(0, 200) : 'default';
       if ('lowResourceMode' in patch) d.settings.lowResourceMode = !!patch.lowResourceMode;
       if ('updateDeferredVersion' in patch && typeof patch.updateDeferredVersion === 'string') d.settings.updateDeferredVersion = patch.updateDeferredVersion.slice(0, 32);
       break;

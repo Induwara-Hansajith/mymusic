@@ -346,9 +346,21 @@
       this.analyser = null;
       this.deckGraphs = new Map();
       this.webAudioEnabled = false;
+      this.currentSinkId = 'default';
 
       if (this.options.preferWebAudio) {
         this.initWebAudioGraph().catch(() => {});
+      }
+    }
+
+    async setSinkId(deviceId) {
+      this.currentSinkId = deviceId || 'default';
+      if (this.audioCtx && typeof this.audioCtx.setSinkId === 'function') {
+        try {
+          await this.audioCtx.setSinkId(this.currentSinkId);
+        } catch (e) {
+          console.warn('[AutoMixEngine] setSinkId error:', e);
+        }
       }
     }
 
@@ -359,6 +371,11 @@
         if (!AudioCtxClass) return;
 
         this.audioCtx = new AudioCtxClass();
+        if (this.currentSinkId && typeof this.audioCtx.setSinkId === 'function') {
+          this.audioCtx.setSinkId(this.currentSinkId).catch(err => {
+            console.warn('[AutoMixEngine] Initial setSinkId error:', err);
+          });
+        }
         if (this.audioCtx.state === 'suspended') {
           const resume = () => {
             this.audioCtx?.resume();
