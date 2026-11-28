@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mymusic_mobile/main.dart';
 import 'package:mymusic_mobile/models/track.dart';
 import 'package:mymusic_mobile/models/ytm_models.dart';
+import 'package:mymusic_mobile/services/app_update_service.dart';
 import 'package:mymusic_mobile/services/storage_service.dart';
 
 void main() {
@@ -37,7 +38,7 @@ void main() {
     expect(json['durationSec'], 215);
   });
 
-  test('StorageService handles playlists, stats, and sync export/import', () async {
+  test('StorageService handles playlists, stats, cache, and sync', () async {
     final storage = StorageService();
     const track = Track(
       id: 'yt:t1',
@@ -79,6 +80,51 @@ void main() {
     expect(cachedShelves.first.title, 'Quick Picks');
     expect(cachedShelves.first.songs.first.id, 'yt:t1');
     expect(cachedShelves.first.albums.first.id, 'MPREb_1');
+  });
+
+  test('AppUpdateService compares versions and parses GitHub APK releases', () {
+    expect(AppUpdateService.isNewerVersion('1.2.0', '1.1.9'), isTrue);
+    expect(AppUpdateService.isNewerVersion('1.1.10', '1.1.9'), isTrue);
+    expect(AppUpdateService.isNewerVersion('1.1.9', '1.1.9'), isFalse);
+    expect(AppUpdateService.isNewerVersion('1.1.8', '1.1.9'), isFalse);
+
+    final parsed = AppUpdateService.parseLatestMobileRelease([
+      {
+        'tag_name': 'draft_rel',
+        'draft': true,
+        'assets': [
+          {
+            'name': 'My.Music.Mobile.9.9.9.full.apk',
+            'browser_download_url': 'https://example.com/draft.apk',
+            'size': 70000000,
+          }
+        ],
+      },
+      {
+        'tag_name': 'my_music_V9',
+        'name': 'Build 1.1.9',
+        'draft': false,
+        'body': 'Release notes',
+        'html_url': 'https://github.com/Induwara-Hansajith/mymusic/releases/tag/my_music_V9',
+        'assets': [
+          {
+            'name': 'My.Music.Setup.1.1.9.exe',
+            'browser_download_url': 'https://example.com/setup.exe',
+            'size': 136000000,
+          },
+          {
+            'name': 'My.Music.Mobile.1.1.9.full.apk',
+            'browser_download_url': 'https://example.com/My.Music.Mobile.1.1.9.full.apk',
+            'size': 67521742,
+          },
+        ],
+      },
+    ]);
+
+    expect(parsed, isNotNull);
+    expect(parsed!.version, '1.1.9');
+    expect(parsed.assetName, 'My.Music.Mobile.1.1.9.full.apk');
+    expect(parsed.sizeBytes, 67521742);
   });
 
   testWidgets('App smoke test', (WidgetTester tester) async {

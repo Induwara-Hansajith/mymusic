@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../models/playlist.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/theme_provider.dart';
+import '../../services/download_service.dart';
 import '../theme.dart';
 import '../widgets/desktop_widgets.dart';
 import '../widgets/track_tile.dart';
@@ -116,6 +118,53 @@ class PlaylistScreen extends StatelessWidget {
                     contextTitle: currentPl.name,
                   ),
           extraActions: [
+            if (currentPl.tracks.isNotEmpty)
+              ListenableBuilder(
+                listenable: DownloadService(),
+                builder: (_, _) {
+                  final dl = DownloadService();
+                  final accent = context.watch<ThemeProvider>().accent;
+                  final missing = currentPl.tracks.where((t) => !dl.isDownloaded(t.id)).length;
+                  final isBusy = currentPl.tracks.any((t) => dl.isDownloading(t.id));
+                  if (missing == 0) {
+                    return OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: const Color(0xFF34D399).withValues(alpha: 0.4)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                      ),
+                      icon: const Icon(Icons.download_done_rounded, size: 15, color: Color(0xFF34D399)),
+                      label: const Text('Offline', style: TextStyle(color: Color(0xFF34D399), fontSize: 12.5)),
+                      onPressed: null,
+                    );
+                  }
+                  return OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: accent.withValues(alpha: 0.45)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                    ),
+                    icon: Icon(
+                      isBusy ? Icons.downloading_rounded : Icons.download_for_offline_outlined,
+                      size: 15,
+                      color: accent,
+                    ),
+                    label: Text(
+                      isBusy ? 'Saving…' : 'Download ($missing)',
+                      style: TextStyle(color: accent, fontSize: 12.5),
+                    ),
+                    onPressed: isBusy
+                        ? null
+                        : () {
+                            dl.enqueueTracks(currentPl.tracks);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Queued $missing songs for background download'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                  );
+                },
+              ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: AppTheme.glassBorder),

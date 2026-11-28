@@ -5,7 +5,9 @@ import 'package:audio_session/audio_session.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/app_update_service.dart';
 import '../../services/auth_sync_service.dart';
+import '../../services/download_service.dart';
 import '../../services/storage_service.dart';
 import '../theme.dart';
 import '../widgets/auth_modal.dart';
@@ -582,7 +584,204 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const SizedBox(height: 14),
 
-        // 8. Playback & Sources
+        // 8. App Updates & Background Downloads (Desktop parity)
+        ListenableBuilder(
+          listenable: Listenable.merge([AppUpdateService(), DownloadService()]),
+          builder: (_, _) {
+            final upd = AppUpdateService();
+            final dl = DownloadService();
+            final rel = upd.availableRelease;
+
+            String statusLabel = 'v${upd.currentVersion} · Up to date';
+            Color statusColor = const Color(0xFF34D399);
+            if (upd.status == UpdateStatus.checking) {
+              statusLabel = 'Checking GitHub Releases…';
+              statusColor = AppTheme.muted;
+            } else if (upd.status == UpdateStatus.downloading) {
+              final mbDone = (upd.bytesDownloaded / (1024 * 1024)).toStringAsFixed(1);
+              final mbTotal = upd.bytesTotal > 0
+                  ? (upd.bytesTotal / (1024 * 1024)).toStringAsFixed(1)
+                  : '?';
+              final pct = (upd.progress * 100).round();
+              statusLabel = 'Downloading v${rel?.version ?? ''} · $pct% ($mbDone/$mbTotal MB)';
+              statusColor = theme.accentLight;
+            } else if (upd.status == UpdateStatus.downloaded && rel != null) {
+              statusLabel = 'v${rel.version} ready to install';
+              statusColor = const Color(0xFF34D399);
+            } else if (upd.status == UpdateStatus.available && rel != null) {
+              statusLabel = 'Update v${rel.version} available';
+              statusColor = theme.accentLight;
+            } else if (upd.status == UpdateStatus.error) {
+              statusLabel = upd.errorMessage ?? 'Update check failed';
+              statusColor = Colors.redAccent;
+            }
+
+            return GlassContainer(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.system_update_rounded, color: theme.accentLight, size: 20),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'App Updates & Background Downloads',
+                        style: TextStyle(color: AppTheme.text, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: statusColor.withValues(alpha: 0.45)),
+                        ),
+                        child: Text(
+                          statusLabel,
+                          style: TextStyle(color: statusColor, fontSize: 11.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Spacer(),
+                      if (dl.activeCount > 0)
+                        Text(
+                          '${dl.activeCount} song${dl.activeCount == 1 ? '' : 's'} downloading',
+                          style: TextStyle(color: theme.accentLight, fontSize: 11.5, fontWeight: FontWeight.w600),
+                        ),
+                    ],
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Check & download updates automatically',
+                      style: TextStyle(color: AppTheme.text, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: const Text(
+                      'Checks GitHub Releases at startup and every 6h; downloads APK in Android background without interrupting playback.',
+                      style: TextStyle(color: AppTheme.muted, fontSize: 12),
+                    ),
+                    value: upd.autoUpdateEnabled,
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: theme.accent,
+                    onChanged: (v) => upd.setAutoUpdate(v),
+                  ),
+                  if (upd.status == UpdateStatus.downloading) ...[
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: upd.progress > 0 ? upd.progress : null,
+                        minHeight: 4,
+                        backgroundColor: AppTheme.bg3,
+                        color: theme.accent,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Row(
+                    children: [
+                      if (upd.status == UpdateStatus.downloaded && rel != null)
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: theme.accent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                            ),
+                            icon: const Icon(Icons.install_mobile_rounded, size: 18),
+                            label: Text('Install v${rel.version}'),
+                            onPressed: () async {
+                              final res = await upd.installDownloadedApk();
+                              if (!context.mounted) return;
+                              if (res == 'permission_needed') {
+                                showDialog(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    backgroundColor: const Color(0xFF101420),
+                                    title: const Text('Allow APK Install', style: TextStyle(color: AppTheme.text)),
+                                    content: const Text(
+                                      'Enable "Allow from this source" for My Music in Android settings, then return and tap Install.',
+                                      style: TextStyle(color: AppTheme.muted),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Cancel', style: TextStyle(color: AppTheme.muted)),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () async {
+                                          Navigator.pop(ctx);
+                                          await upd.openInstallPermissionSettings();
+                                        },
+                                        child: const Text('Open Settings'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              } else if (res != 'ok') {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(res), behavior: SnackBarBehavior.floating),
+                                );
+                              }
+                            },
+                          ),
+                        )
+                      else if (upd.status == UpdateStatus.available && rel != null)
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: theme.accent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                            ),
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: Text('Download v${rel.version}'),
+                            onPressed: () => upd.startBackgroundDownload(),
+                          ),
+                        )
+                      else if (upd.status == UpdateStatus.downloading)
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppTheme.glassBorder),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                            ),
+                            onPressed: () => upd.cancelDownload(),
+                            child: const Text('Cancel download', style: TextStyle(color: AppTheme.muted)),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppTheme.glassBorder),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                            ),
+                            icon: const Icon(Icons.refresh_rounded, size: 17, color: AppTheme.text),
+                            label: Text(
+                              upd.status == UpdateStatus.checking ? 'Checking…' : 'Check for updates',
+                              style: const TextStyle(color: AppTheme.text),
+                            ),
+                            onPressed: upd.status == UpdateStatus.checking
+                                ? null
+                                : () => upd.checkForUpdate(manual: true),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        const SizedBox(height: 14),
+
+        // 9. Playback & Sources
         GlassContainer(
           padding: const EdgeInsets.all(16),
           child: Column(

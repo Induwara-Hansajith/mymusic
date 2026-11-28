@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'services/storage_service.dart';
 import 'services/auth_sync_service.dart';
+import 'services/app_update_service.dart';
+import 'services/download_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/search_provider.dart';
@@ -35,6 +37,8 @@ Future<void> main() async {
 
   await StorageService().init();
   unawaited(AuthSyncService().init());
+  unawaited(DownloadService().init());
+  unawaited(AppUpdateService().init());
 
   runApp(const MyMusicApp());
 }
@@ -56,6 +60,9 @@ class _MyMusicAppState extends State<MyMusicApp> {
   @override
   void initState() {
     super.initState();
+    DownloadService().onDownloadCompleted = () {
+      _libraryProvider.refreshDownloaded();
+    };
     AuthSyncService().onLibrarySynced = () {
       _libraryProvider.load();
       _playerProvider.reloadSyncedSettings();

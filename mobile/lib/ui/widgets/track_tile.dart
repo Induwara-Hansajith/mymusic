@@ -5,6 +5,7 @@ import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/download_service.dart';
 import '../theme.dart';
 import 'desktop_widgets.dart';
 
@@ -137,7 +138,32 @@ class TrackTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                      ],
+                      ] else
+                        ListenableBuilder(
+                          listenable: DownloadService(),
+                          builder: (_, _) {
+                            final dl = DownloadService();
+                            if (!dl.isDownloading(track.id)) return const SizedBox.shrink();
+                            final pct = (dl.progressFor(track.id) * 100).round();
+                            return Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: accent.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(5),
+                                border: Border.all(color: accent.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                pct > 0 ? '$pct%' : 'Saving',
+                                style: TextStyle(
+                                  color: accent,
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
                   const SizedBox(height: 2),

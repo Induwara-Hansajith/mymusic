@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/app_update_service.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/auth_sync_service.dart';
 import '../theme.dart';
@@ -39,17 +40,20 @@ class _MainScreenState extends State<MainScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final AuthSyncService _auth = AuthSyncService();
+  final AppUpdateService _updater = AppUpdateService();
 
   final List<_NavRoute> _back = [];
   final List<_NavRoute> _fwd = [];
   _NavRoute _current = const _NavRoute('home');
   bool _showSuggestions = false;
   StreamSubscription<String?>? _errSub;
+  bool _updateDialogOpen = false;
 
   @override
   void initState() {
     super.initState();
     _auth.addListener(_onAuthChanged);
+    _updater.addListener(_onUpdateChanged);
     _errSub = AudioPlayerService().errorStream.listen((msg) {
       if (!mounted || msg == null || msg.isEmpty) return;
       ScaffoldMessenger.of(context)
@@ -68,16 +72,143 @@ class _MainScreenState extends State<MainScreen> {
         setState(() => _showSuggestions = _searchFocus.hasFocus);
       }
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onUpdateChanged());
   }
 
   void _onAuthChanged() {
     if (mounted) setState(() {});
   }
 
+  void _onUpdateChanged() {
+    if (!mounted || _updateDialogOpen) return;
+    final rel = _updater.availableRelease;
+    if (_updater.status == UpdateStatus.downloaded &&
+        rel != null &&
+        _updater.consumeReadyPromptFlag()) {
+      _showReadyToInstallDialog(rel);
+    } else if (_updater.status == UpdateStatus.available &&
+        rel != null &&
+        _updater.lastCheckManual) {
+      _showAvailableUpdateDialog(rel);
+    }
+  }
+
+  Future<void> _handleInstallTap() async {
+    final res = await _updater.installDownloadedApk();
+    if (!mounted) return;
+    if (res == 'permission_needed') {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF101420),
+          title: const Text('Allow App Installs', style: TextStyle(color: AppTheme.text)),
+          content: const Text(
+            'Android requires enabling "Allow from this source" once for My Music to install APK updates.',
+            style: TextStyle(color: AppTheme.muted),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Later', style: TextStyle(color: AppTheme.muted)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _updater.openInstallPermissionSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+    } else if (res != 'ok') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(res), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  void _showAvailableUpdateDialog(AndroidReleaseInfo rel) {
+    _updateDialogOpen = true;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF101420),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: AppTheme.glassBorder),
+        ),
+        title: const Text('A new version is available', style: TextStyle(color: AppTheme.text)),
+        content: Text(
+          'My Music v${rel.version} is available. Download quietly in the background without interrupting your music?',
+          style: const TextStyle(color: AppTheme.muted, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _updater.deferUpdate(rel.version);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Later', style: TextStyle(color: AppTheme.muted)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _updater.startBackgroundDownload();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Downloading v${rel.version} in background…'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Download & Update'),
+          ),
+        ],
+      ),
+    ).whenComplete(() => _updateDialogOpen = false);
+  }
+
+  void _showReadyToInstallDialog(AndroidReleaseInfo rel) {
+    _updateDialogOpen = true;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF101420),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: AppTheme.glassBorder),
+        ),
+        title: Text('Update v${rel.version} Ready', style: const TextStyle(color: AppTheme.text)),
+        content: const Text(
+          'Downloaded in background and verified. Install the update now?',
+          style: TextStyle(color: AppTheme.muted, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _updater.deferUpdate(rel.version);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Later', style: TextStyle(color: AppTheme.muted)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _handleInstallTap();
+            },
+            child: const Text('Install now'),
+          ),
+        ],
+      ),
+    ).whenComplete(() => _updateDialogOpen = false);
+  }
+
   @override
   void dispose() {
     _errSub?.cancel();
     _auth.removeListener(_onAuthChanged);
+    _updater.removeListener(_onUpdateChanged);
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();

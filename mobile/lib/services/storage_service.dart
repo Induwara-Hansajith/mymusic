@@ -352,6 +352,8 @@ class StorageService {
       'lowResourceMode': map['lowResourceMode'] as bool? ??
           (prefs.getBool('setting_low_resource') ?? false),
       'discordPresence': map['discordPresence'] as bool? ?? true,
+      'autoUpdate': map['autoUpdate'] as bool? ?? true,
+      'updateDeferredVersion': map['updateDeferredVersion'] as String? ?? '',
       'outputDeviceName':
           map['outputDeviceName'] as String? ?? 'Default output · Auto-route',
     };
