@@ -6,6 +6,7 @@ import 'package:mymusic_mobile/models/track.dart';
 import 'package:mymusic_mobile/models/ytm_models.dart';
 import 'package:mymusic_mobile/services/app_update_service.dart';
 import 'package:mymusic_mobile/services/storage_service.dart';
+import 'package:mymusic_mobile/services/ytm_innertube_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -85,6 +86,8 @@ void main() {
   test('AppUpdateService compares versions and parses GitHub APK releases', () {
     expect(AppUpdateService.isNewerVersion('1.2.0', '1.1.9'), isTrue);
     expect(AppUpdateService.isNewerVersion('1.1.10', '1.1.9'), isTrue);
+    expect(AppUpdateService.isNewerVersion('1.1.9.1', '1.1.9'), isTrue);
+    expect(AppUpdateService.isNewerVersion('1.1.9', '1.1.9.1'), isFalse);
     expect(AppUpdateService.isNewerVersion('1.1.9', '1.1.9'), isFalse);
     expect(AppUpdateService.isNewerVersion('1.1.8', '1.1.9'), isFalse);
 
@@ -125,6 +128,37 @@ void main() {
     expect(parsed!.version, '1.1.9');
     expect(parsed.assetName, 'My.Music.Mobile.1.1.9.full.apk');
     expect(parsed.sizeBytes, 67521742);
+
+    final patchRelease = AppUpdateService.parseLatestMobileRelease([
+      {
+        'tag_name': 'my_music_V9_1',
+        'name': 'Build 1.1.9.1',
+        'assets': [
+          {
+            'name': 'My.Music.Mobile.1.1.9.1.full.apk',
+            'browser_download_url': 'https://example.com/My.Music.Mobile.1.1.9.1.full.apk',
+            'size': 68000000,
+          }
+        ],
+      },
+    ]);
+    expect(patchRelease?.version, '1.1.9.1');
+    expect(patchRelease?.assetName, 'My.Music.Mobile.1.1.9.1.full.apk');
+  });
+
+  test('YouTube image normalization selects a generally available thumbnail', () {
+    expect(
+      YtmInnertubeService.upgradeThumbUrl(
+        'https://i.ytimg.com/vi/abc123/maxresdefault.jpg?sqp=test',
+      ),
+      'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+    );
+    expect(
+      YtmInnertubeService.upgradeThumbUrl(
+        'https://yt3.googleusercontent.com/avatar=w1024-h1024-l90-rj',
+      ),
+      'https://yt3.googleusercontent.com/avatar=w544-h544-l90-rj',
+    );
   });
 
   testWidgets('App smoke test', (WidgetTester tester) async {

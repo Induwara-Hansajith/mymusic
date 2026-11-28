@@ -5,6 +5,7 @@ import '../../models/track.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/thumb_cache_manager.dart';
 import '../../services/youtube_service.dart';
 import '../theme.dart';
 import '../widgets/desktop_widgets.dart';
@@ -175,9 +176,15 @@ class _WrappedScreenState extends State<WrappedScreen> {
                           child: track.thumb.isNotEmpty
                               ? CachedNetworkImage(
                                   imageUrl: track.thumb,
+                                  cacheManager: ThumbCacheManager(),
                                   width: 40,
                                   height: 40,
                                   fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(width: 40, height: 40, color: AppTheme.bg3),
+                                  errorWidget: (_, __, ___) => Container(
+                                    width: 40, height: 40, color: AppTheme.bg3,
+                                    child: const Icon(Icons.music_note, color: AppTheme.muted, size: 18),
+                                  ),
                                 )
                               : Container(
                                   width: 40,
@@ -284,9 +291,22 @@ class _WrappedScreenState extends State<WrappedScreen> {
                             child: thumb.isNotEmpty
                                 ? CachedNetworkImage(
                                     imageUrl: thumb,
+                                    cacheManager: ThumbCacheManager(),
                                     width: 40,
                                     height: 40,
                                     fit: BoxFit.cover,
+                                    placeholder: (_, __) => CircleAvatar(
+                                      radius: 20,
+                                      backgroundColor: accent.withValues(alpha: 0.25),
+                                    ),
+                                    errorWidget: (_, __, ___) => CircleAvatar(
+                                      radius: 20,
+                                      backgroundColor: accent.withValues(alpha: 0.25),
+                                      child: Text(
+                                        name.isNotEmpty ? name[0].toUpperCase() : 'A',
+                                        style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
                                   )
                                 : CircleAvatar(
                                     radius: 20,

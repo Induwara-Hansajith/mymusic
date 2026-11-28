@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
+import '../../services/thumb_cache_manager.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
@@ -60,8 +61,10 @@ class _AuroraBackdropState extends State<AuroraBackdrop>
               opacity: brightness,
               child: CachedNetworkImage(
                 imageUrl: theme.wallpaper,
+                cacheManager: ThumbCacheManager(),
                 fit: BoxFit.cover,
-                errorWidget: (_, _, _) => const SizedBox.shrink(),
+                placeholder: (_, __) => const SizedBox.shrink(),
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
           ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
+import 'thumb_image.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -84,26 +84,7 @@ class MiniPlayer extends StatelessWidget {
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: track.thumb.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: track.thumb,
-                                  width: 44,
-                                  height: 44,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, _) => Container(width: 44, height: 44, color: AppTheme.bg3),
-                                  errorWidget: (_, _, _) => Container(
-                                    width: 44,
-                                    height: 44,
-                                    color: AppTheme.bg3,
-                                    child: const Icon(Icons.music_note, color: AppTheme.muted),
-                                  ),
-                                )
-                              : Container(
-                                  width: 44,
-                                  height: 44,
-                                  color: AppTheme.bg3,
-                                  child: const Icon(Icons.music_note, color: AppTheme.muted),
-                                ),
+                          child: ThumbImage(url: track.thumb, size: 44, borderRadius: 8),
                         ),
                         if (player.isMixing)
                           Positioned(

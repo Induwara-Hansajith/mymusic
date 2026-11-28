@@ -6,6 +6,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/download_service.dart';
+import '../../services/thumb_cache_manager.dart';
 import '../theme.dart';
 
 /// Frosted glass container matching Desktop `.card` and `.settings-card`.
@@ -81,10 +82,12 @@ class DesktopContextHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(roundThumb ? 56 : 12),
               child: CachedNetworkImage(
                 imageUrl: thumb!,
+                cacheManager: ThumbCacheManager(),
                 width: 108,
                 height: 108,
                 fit: BoxFit.cover,
-                errorWidget: (_, _, _) => Container(
+                placeholder: (_, __) => Container(width: 108, height: 108, color: AppTheme.bg3),
+                errorWidget: (_, __, ___) => Container(
                   width: 108,
                   height: 108,
                   color: AppTheme.bg3,
@@ -219,9 +222,10 @@ class DesktopMediaCard extends StatelessWidget {
                 child: thumb.isNotEmpty
                     ? CachedNetworkImage(
                         imageUrl: thumb,
+                        cacheManager: ThumbCacheManager(),
                         fit: BoxFit.cover,
-                        placeholder: (_, _) => Container(color: AppTheme.bg3),
-                        errorWidget: (_, _, _) => Container(
+                        placeholder: (_, __) => Container(color: AppTheme.bg3),
+                        errorWidget: (_, __, ___) => Container(
                           color: AppTheme.bg3,
                           child: Icon(
                             round ? Icons.person_rounded : Icons.music_note_rounded,
@@ -324,9 +328,17 @@ Future<void> showTrackContextSheet(
                   child: track.thumb.isNotEmpty
                       ? CachedNetworkImage(
                           imageUrl: track.thumb,
+                          cacheManager: ThumbCacheManager(),
                           width: 46,
                           height: 46,
                           fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(width: 46, height: 46, color: AppTheme.bg3),
+                          errorWidget: (_, __, ___) => Container(
+                            width: 46,
+                            height: 46,
+                            color: AppTheme.bg3,
+                            child: const Icon(Icons.music_note, color: AppTheme.muted),
+                          ),
                         )
                       : Container(
                           width: 46,

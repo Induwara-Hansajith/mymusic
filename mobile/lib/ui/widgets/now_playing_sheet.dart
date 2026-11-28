@@ -10,6 +10,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/download_service.dart';
 import '../../services/lyrics_service.dart';
 import '../../services/storage_service.dart';
+import '../../services/thumb_cache_manager.dart';
 import '../theme.dart';
 import '../screens/equalizer_screen.dart';
 import '../screens/settings_screen.dart';
@@ -348,8 +349,10 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                   child: track.thumb.isNotEmpty
                       ? CachedNetworkImage(
                           imageUrl: track.thumb,
+                          cacheManager: ThumbCacheManager(),
                           fit: BoxFit.cover,
-                          errorWidget: (_, _, _) => Container(
+                          placeholder: (_, __) => Container(color: AppTheme.panel),
+                          errorWidget: (_, __, ___) => Container(
                             color: AppTheme.panel,
                             child: const Icon(Icons.music_note, color: AppTheme.muted, size: 64),
                           ),
@@ -988,7 +991,18 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                         leading: ClipRRect(
                           borderRadius: BorderRadius.circular(6),
                           child: t.thumb.isNotEmpty
-                              ? CachedNetworkImage(imageUrl: t.thumb, width: 40, height: 40, fit: BoxFit.cover)
+                              ? CachedNetworkImage(
+                                  imageUrl: t.thumb,
+                                  cacheManager: ThumbCacheManager(),
+                                  width: 40,
+                                  height: 40,
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(width: 40, height: 40, color: AppTheme.bg3),
+                                  errorWidget: (_, __, ___) => Container(
+                                    width: 40, height: 40, color: AppTheme.bg3,
+                                    child: const Icon(Icons.music_note, color: AppTheme.muted, size: 18),
+                                  ),
+                                )
                               : Container(width: 40, height: 40, color: AppTheme.bg3),
                         ),
                         title: Text(

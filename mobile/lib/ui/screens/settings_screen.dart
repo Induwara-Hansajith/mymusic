@@ -8,6 +8,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/app_update_service.dart';
 import '../../services/auth_sync_service.dart';
 import '../../services/download_service.dart';
+import '../../services/thumb_cache_manager.dart';
 import '../../services/storage_service.dart';
 import '../theme.dart';
 import '../widgets/auth_modal.dart';
@@ -312,7 +313,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             fit: StackFit.expand,
                             children: [
                               if (url.isNotEmpty)
-                                CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+                                CachedNetworkImage(
+                                  imageUrl: url,
+                                  cacheManager: ThumbCacheManager(),
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(color: AppTheme.bg3),
+                                  errorWidget: (_, __, ___) => Container(color: AppTheme.bg3),
+                                ),
                               Container(
                                 alignment: Alignment.bottomLeft,
                                 padding: const EdgeInsets.all(6),

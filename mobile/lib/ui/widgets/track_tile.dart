@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
@@ -8,6 +7,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/download_service.dart';
 import '../theme.dart';
 import 'desktop_widgets.dart';
+import 'thumb_image.dart';
 
 class TrackTile extends StatelessWidget {
   final Track track;
@@ -78,26 +78,7 @@ class TrackTile extends StatelessWidget {
             if (index != null) const SizedBox(width: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(7),
-              child: track.thumb.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: track.thumb,
-                      width: 44,
-                      height: 44,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) => Container(width: 44, height: 44, color: AppTheme.bg3),
-                      errorWidget: (_, _, _) => Container(
-                        width: 44,
-                        height: 44,
-                        color: AppTheme.bg3,
-                        child: const Icon(Icons.music_note, color: AppTheme.muted, size: 20),
-                      ),
-                    )
-                  : Container(
-                      width: 44,
-                      height: 44,
-                      color: AppTheme.bg3,
-                      child: const Icon(Icons.music_note, color: AppTheme.muted, size: 20),
-                    ),
+              child: ThumbImage(url: track.thumb, size: 44, borderRadius: 7),
             ),
             const SizedBox(width: 12),
             Expanded(
